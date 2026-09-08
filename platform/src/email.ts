@@ -39,8 +39,7 @@ export interface Mail {
   about?: { kind: string; id: string };
 }
 
-export async function send(env: Env & { RESEND_API_KEY?: string },
-                           actor: Actor, mail: Mail): Promise<boolean> {
+export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean> {
   const to = Array.isArray(mail.to) ? mail.to : [mail.to];
 
   if (!env.RESEND_API_KEY) {

@@ -5,3 +5,11 @@ name = "thepaymaster-router"
 main = "index.js"
 compatibility_date = "2026-09-08"
 workers_dev = false
+
+# The enquiry form is served by the platform worker, not from the capture. A
+# service binding rather than a fetch over the internet: it stays inside
+# Cloudflare, adds no latency, and needs no public hostname of its own — which
+# matters, because the platform's own hostname is behind Access.
+[[services]]
+binding = "PLATFORM"
+service = "thepaymaster-platform"

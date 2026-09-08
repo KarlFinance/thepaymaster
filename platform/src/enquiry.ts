@@ -187,11 +187,11 @@ export async function submitEnquiry(request: Request, env: Env,
         expected_on: s("expected_on"), likelihood: s("likelihood"),
         detail: s("detail"),
       }, ADMIN_URL);
-      await send(env as any, actor, { ...m, to: staff, replyTo: s("email"),
+      await send(env, actor, { ...m, to: staff, replyTo: s("email"),
         about: { kind: "enquiries", id: eid } });
     }
     const ack = enquiryAcknowledged(s("name"));
-    await send(env as any, actor, { ...ack, to: s("email"),
+    await send(env, actor, { ...ack, to: s("email"),
       about: { kind: "enquiries", id: eid } });
   })());
 

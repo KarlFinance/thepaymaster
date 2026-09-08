@@ -22,6 +22,20 @@
  * to this worker. Rolling back is deleting it.
  */
 
+/**
+ * Paths the platform worker owns.
+ *
+ * /enquiry is the new front door: a real form writing into the platform's
+ * database rather than the SuiteDash embed on /start-transaction/. Both are
+ * live for now, deliberately — the old page keeps working until this one has
+ * been looked at properly, and then /start-transaction/ points here.
+ */
+const PLATFORM_PATHS = ["/enquiry"];
+
+function platformOwns(pathname) {
+  return PLATFORM_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 /** Where the captured site is served from. */
 const PAGES = "https://thepaymaster-3b4.pages.dev";
 
@@ -78,7 +92,7 @@ function wordpressOwns(pathname) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     // One address per page. www and the apex serving the same thing would split
@@ -86,6 +100,10 @@ export default {
     if (url.hostname.startsWith("www.")) {
       url.hostname = url.hostname.slice(4);
       return Response.redirect(url.toString(), 301);
+    }
+
+    if (platformOwns(url.pathname) && env.PLATFORM) {
+      return env.PLATFORM.fetch(request);
     }
 
     // Straight through to the origin, Host and all.

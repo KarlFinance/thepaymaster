@@ -9,8 +9,7 @@
 
 import { type Env, type Actor, id, nextRef, log, record, canMove, typeName,
          isOnChain, destinationKind, FLOW } from "./db.ts";
-import { hashPassword, verifyPassword, issue, open, cookie, clearCookie,
-         fromRequest } from "./auth.ts";
+import { identify } from "./access.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { format, parse } from "./money.ts";
@@ -32,15 +31,18 @@ export default {
           ? submitEnquiry(request, env, (p) => ctx.waitUntil(p))
           : enquiryForm();
       }
-      if (url.pathname === "/login") return login(request, env, ip);
-      if (url.pathname === "/logout") return logout();
+      // Everything past here is staff-only, and the gate is Cloudflare
+      // Access. There is no password of our own any more: one place to grant
+      // someone entry, one place to revoke it, and no second login to explain.
+      const who = await identify(request);
+      if (!who) return noAccess();
 
-      const adminId = await currentAdmin(request, env);
-      if (!adminId) return Response.redirect(new URL("/login", url).toString(), 302);
+      // Passing Access proves who you are, not that you work here. The admins
+      // table is still the list of people this application knows.
       const admin = await env.DB.prepare(
-        "SELECT id, name, email FROM admins WHERE id = ? AND active = 1")
-        .bind(adminId).first<{ id: string; name: string; email: string }>();
-      if (!admin) return new Response(null, { status: 302, headers: { Location: "/login", "Set-Cookie": clearCookie } });
+        "SELECT id, name, email FROM admins WHERE lower(email) = ? AND active = 1")
+        .bind(who.email).first<{ id: string; name: string; email: string }>();
+      if (!admin) return notStaff(who.email);
 
       const actor: Actor = { kind: "admin", id: admin.id, ip };
 
@@ -77,47 +79,26 @@ export default {
 
 // ---------------------------------------------------------------------------
 
-async function currentAdmin(request: Request, env: Env): Promise<string | null> {
-  const token = fromRequest(request);
-  return token ? open(token, env.SESSION_SECRET) : null;
+/**
+ * Reached without a verified Access assertion.
+ *
+ * In normal operation this is unreachable — Access intercepts first. Seeing it
+ * means the route or the Access application has come adrift, so it says so
+ * plainly rather than falling back to anything more permissive.
+ */
+function noAccess(): Response {
+  return page("Not available", `<div class="login"><h1>Not available</h1>
+    <p>This panel is reached through Cloudflare Access. No verified session was
+       presented with this request.</p>
+    <p class="muted">If you are seeing this after signing in, the Access
+       application covering admin.thepaymaster.co.uk needs checking.</p></div>`);
 }
 
-async function login(request: Request, env: Env, ip?: string): Promise<Response> {
-  let error = "";
-  if (request.method === "POST") {
-    const form = await request.formData();
-    const email = String(form.get("email") ?? "").trim().toLowerCase();
-    const password = String(form.get("password") ?? "");
-    const row = await env.DB.prepare(
-      "SELECT id, password_hash FROM admins WHERE lower(email) = ? AND active = 1")
-      .bind(email).first<{ id: string; password_hash: string }>();
-
-    // Same work either way, so a missing account and a wrong password are
-    // indistinguishable from the outside.
-    const ok = row
-      ? await verifyPassword(password, row.password_hash)
-      : await verifyPassword(password, await hashPassword("never"));
-
-    if (ok && row) {
-      await log(env.DB, { kind: "admin", id: row.id, ip }, "admin.login", "admins", row.id);
-      return new Response(null, {
-        status: 302,
-        headers: { Location: "/", "Set-Cookie": cookie(await issue(row.id, env.SESSION_SECRET)) },
-      });
-    }
-    await log(env.DB, { kind: "system", id: null, ip }, "admin.login_failed",
-      "admins", email, { note: "bad credentials" });
-    error = `<div class="err">Those details were not recognised.</div>`;
-  }
-
-  return page("Sign in", `<div class="login"><h1>ThePaymaster admin</h1>${error}
-    <form method="post"><label for="e">Email</label><input id="e" name="email" type="email" required autofocus>
-    <label for="p">Password</label><input id="p" name="password" type="password" required>
-    <div class="row"><button class="go">Sign in</button></div></form></div>`);
-}
-
-function logout(): Response {
-  return new Response(null, { status: 302, headers: { Location: "/login", "Set-Cookie": clearCookie } });
+/** Through Access, but not someone this application knows. */
+function notStaff(email: string): Response {
+  return page("No account", `<div class="login"><h1>No account here</h1>
+    <p>${esc(email)} passed Access but is not on this application's staff list.</p>
+    <p class="muted">Someone with an account needs to add you.</p></div>`);
 }
 
 // ---------------------------------------------------------------------------

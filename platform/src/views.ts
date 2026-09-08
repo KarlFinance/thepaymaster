@@ -71,7 +71,8 @@ export function nav(current: string, who: string): string {
   const item = (href: string, label: string) =>
     `<a href="${href}"${current === href ? ' aria-current="page"' : ""}>${label}</a>`;
   return `<header><b>ThePaymaster</b>${item("/", "Pipeline")}${item("/enquiries", "Enquiries")}${item("/new", "New transaction")}${item("/log", "Audit log")}
-    <form method="post" action="/logout"><button>${esc(who)} — sign out</button></form></header>`;
+    <span style="margin-left:auto;color:#B6C0D0;font-size:14px;font-weight:600">${esc(who)}</span>
+    <a href="/cdn-cgi/access/logout">Sign out</a></header>`;
 }
 
 const COLUMNS: [string, string][] = [

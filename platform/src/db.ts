@@ -10,6 +10,9 @@
 export interface Env {
   DB: D1Database;
   SESSION_SECRET: string;
+  /** Set with `wrangler secret put RESEND_API_KEY`. Absent means mail is
+   *  skipped and the skip is logged, rather than silently going nowhere. */
+  RESEND_API_KEY?: string;
 }
 
 export interface Actor {
