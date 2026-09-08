@@ -15,6 +15,8 @@ import { format } from "./money.ts";
 import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
          peopleOf, standingCheck } from "./kyc.ts";
 import { documentsFor } from "./documents.ts";
+import { forParticipation, save as saveDestination, confirm as confirmDestination,
+         problemWith, describe, type Kind } from "./destinations.ts";
 
 const MAX_RECIPIENTS = 10;
 
@@ -390,6 +392,81 @@ export async function clientVerify(env: Env, request: Request,
     party.display_name);
 }
 
+/**
+ * Where a recipient tells us where their money goes, reads it back, and
+ * confirms it.
+ *
+ * The read-back is a separate, deliberate step rather than a checkbox beside
+ * the form. Somebody who has just typed sixteen digits will not spot a
+ * transposed pair in the same glance; shown the whole thing again, out of the
+ * boxes they typed it into, they often do.
+ */
+function destinationCard(part: any, dest: any, kind: Kind, error: string): string {
+  if (dest?.status === "locked") {
+    return `<div class="card"><h2>Payment details settled</h2>
+      <pre style="white-space:pre-wrap;font:inherit;margin:0 0 10px">${esc(describe(dest))}</pre>
+      <p class="muted" style="margin-bottom:0">These are locked. If anything is wrong,
+         telephone us on +44 20 7088 8267 — we will never change them on the strength
+         of an email, and neither should anyone else.</p></div>`;
+  }
+
+  if (dest && dest.status === "confirmed") {
+    return `<div class="card"><h2>Thank you</h2>
+      <pre style="white-space:pre-wrap;font:inherit;margin:0 0 10px">${esc(describe(dest))}</pre>
+      <p class="muted">Confirmed. We will check it over and lock it.</p>
+      <form method="post"><button name="action" value="edit" class="plain">
+        Change these</button></form></div>`;
+  }
+
+  if (dest && dest.status === "draft") {
+    return `<div class="card"><h2>Read this back</h2>
+      <p>This is where the money will go. Read every character — once it is locked
+         it takes two of us and a call to change it.</p>
+      <pre style="white-space:pre-wrap;font:inherit;background:var(--panel);
+        border:1px solid var(--rule);border-radius:9px;padding:14px;margin:0 0 14px"
+        >${esc(describe(dest))}</pre>
+      <form method="post">
+        <button name="action" value="confirm">That is correct</button>
+        <button name="action" value="edit" class="plain" style="margin-left:8px">
+          Something is wrong</button>
+      </form></div>`;
+  }
+
+  const bank = `
+    <label for="an">Name on the account</label>
+    <input id="an" name="account_name" required>
+    <label for="bn">Bank</label><input id="bn" name="bank_name" required>
+    <label for="bc">Country the account is held in</label>
+    <input id="bc" name="bank_country" required>
+    <label for="ib">IBAN</label><input id="ib" name="iban">
+    <p class="muted">Or, for a UK account without an IBAN:</p>
+    <div class="pair">
+      <div><label for="ac">Account number</label><input id="ac" name="account_number"></div>
+      <div><label for="sc">Sort code</label><input id="sc" name="sort_code"></div>
+    </div>
+    <label for="bi">BIC or SWIFT, if you have it</label><input id="bi" name="bic">`;
+
+  const wallet = `
+    <label for="ch">Chain</label>
+    <input id="ch" name="chain" placeholder="Ethereum" required>
+    <label for="ad">Wallet address</label>
+    <input id="ad" name="address" required spellcheck="false">
+    <p class="muted">Copy and paste it. Do not type it out.</p>`;
+
+  return `<div class="card">
+    <h2>Where should your money go?</h2>
+    <p>${part.outbound === "fiat"
+      ? "The account you want to be paid into."
+      : "The wallet you want to be paid to."}</p>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
+    <form method="post">
+      ${kind === "bank" ? bank : wallet}
+      <div style="margin-top:18px"><button name="action" value="save">Continue</button></div>
+      <p class="muted">Only you can enter this. We will never accept payment details
+         for you from anybody else, including the sender.</p>
+    </form></div>`;
+}
+
 export async function clientDeal(env: Env, request: Request, txId: string): Promise<Response> {
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
@@ -397,20 +474,51 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // A party sees a transaction only if they are on it. Checked here rather
   // than assumed from the link they followed.
   const part = await env.DB.prepare(
-    `SELECT p.role, p.amount_minor, t.*
+    `SELECT p.id AS participation_id, p.role, p.amount_minor, t.*
        FROM participations p JOIN transactions t ON t.id = p.transaction_id
       WHERE p.transaction_id = ? AND p.party_id = ?`)
     .bind(txId, who.partyId).first<any>();
   if (!part) return new Response("Not found", { status: 404 });
 
+  const actor: Actor = { kind: "party", id: who.partyId,
+    ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  let error = "";
+  if (request.method === "POST" && part.role === "recipient") {
+    const f = await request.formData();
+    const action = String(f.get("action") ?? "");
+    const kindNow: Kind = part.outbound === "fiat" ? "bank" : "wallet";
+    if (action === "save") {
+      error = await saveDestination(env, actor, part.participation_id, kindNow, {
+        account_name: String(f.get("account_name") ?? ""),
+        account_number: String(f.get("account_number") ?? ""),
+        sort_code: String(f.get("sort_code") ?? ""),
+        iban: String(f.get("iban") ?? ""),
+        bic: String(f.get("bic") ?? ""),
+        bank_name: String(f.get("bank_name") ?? ""),
+        bank_country: String(f.get("bank_country") ?? ""),
+        chain: String(f.get("chain") ?? ""),
+        address: String(f.get("address") ?? ""),
+      }) ?? "";
+    } else if (action === "confirm") {
+      const d = await forParticipation(env, part.participation_id);
+      if (d) await confirmDestination(env, actor, d.id, "read back in their own account");
+    } else if (action === "edit") {
+      const d = await forParticipation(env, part.participation_id);
+      if (d && d.status !== "locked") {
+        await env.DB.prepare(
+          "UPDATE destinations SET status='draft', confirmed_at=NULL WHERE id=?")
+          .bind(d.id).run();
+      }
+    }
+  }
+
   const party = await env.DB.prepare("SELECT display_name FROM parties WHERE id = ?")
     .bind(who.partyId).first<any>();
 
-  const needs = part.role === "recipient"
-    ? (part.outbound === "fiat" ? "your bank details" : "your wallet address")
-    : (part.inbound === "crypto"
-        ? "the wallet or wallets you will send from"
-        : "confirmation of the account you will send from");
+  const kind: Kind = part.outbound === "fiat" ? "bank" : "wallet";
+  const dest = part.role === "recipient"
+    ? await forParticipation(env, part.participation_id) : null;
+  const cleared = await standingCheck(env, who.partyId);
 
   const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
   return shell(part.ref, `
@@ -423,10 +531,13 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       ${part.amount_minor ? kv("Your amount",
         `${esc(part.currency_out)} ${format(part.amount_minor, part.decimals_out)}`) : ""}
     </table></div>
-    <div class="card">
-      <h2>What happens next</h2>
-      <p>We will verify your identity, and then ask you for ${needs}.</p>
-      <p class="muted">Those steps are being finished now and will appear here. Nothing
-         is required from you this minute — we will email you when there is.</p>
-    </div>`, party?.display_name);
+    ${!cleared
+      ? `<div class="card"><h2>First, verify yourself</h2>
+          <p>We cannot ask for payment details until we know who you are.</p>
+          <p><a href="/verify"><button>Verify</button></a></p></div>`
+      : part.role === "recipient"
+        ? destinationCard(part, dest, kind, error)
+        : `<div class="card"><h2>Nothing needed yet</h2>
+            <p class="muted" style="margin-bottom:0">We will email you when there is.</p>
+          </div>`}`, party?.display_name);
 }

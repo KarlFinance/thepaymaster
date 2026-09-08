@@ -18,6 +18,9 @@ import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
 import { fetchDocument } from "./documents.ts";
+import { assess, summarise } from "./readiness.ts";
+import { forTransaction, lock as lockDestination, requestChange,
+         approveChange, describe as describeDestination } from "./destinations.ts";
 import { mint } from "./tokens.ts";
 import { send, startLink, invite } from "./email.ts";
 
@@ -143,6 +146,16 @@ export default {
         if (url.pathname.endsWith("/startlink") && request.method === "POST") {
           return sendStartLink(request, env, actor, txId, (p) => ctx.waitUntil(p));
         }
+        if (url.pathname.endsWith("/split") && request.method === "POST") {
+          return setSplit(request, env, actor, txId);
+        }
+        if (url.pathname.endsWith("/lock") && request.method === "POST") {
+          const f = await request.formData();
+          const problem = await lockDestination(env, actor,
+            String(f.get("destination") ?? ""));
+          if (problem) return new Response(problem, { status: 400 });
+          return Response.redirect(new URL(`/t/${txId}`, url).toString(), 302);
+        }
         if (url.pathname.endsWith("/release") && request.method === "POST") {
           return release(request, env, actor, txId, (p) => ctx.waitUntil(p));
         }
@@ -265,7 +278,8 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
     `<button class="plain" name="to" value="${to}">${to.replace(/_/g, " ")}</button>`).join(" ");
 
   const { results: people } = await env.DB.prepare(
-    `SELECT p.role, p.invited_at, y.display_name, y.email
+    `SELECT p.id AS participation_id, p.role, p.invited_at, p.amount_minor,
+            p.share_bps, y.id AS party_id, y.display_name, y.email
        FROM participations p JOIN parties y ON y.id = p.party_id
       WHERE p.transaction_id = ? ORDER BY
         CASE p.role WHEN 'sender' THEN 0 WHEN 'recipient' THEN 1 ELSE 2 END,
@@ -273,11 +287,84 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
 
   const roster = (people ?? []).length
     ? `<table><tr><th>Who</th><th>Role</th><th>Invited</th></tr>` +
-      people!.map((p) => `<tr><td>${esc(p.display_name)}<div class="muted">${esc(p.email)}</div></td>
+      people!.map((p) => `<tr><td><a href="/p/${esc(p.party_id)}">${esc(p.display_name)}</a>
+        <div class="muted">${esc(p.email)}</div></td>
         <td><span class="tag">${esc(p.role)}</span></td>
         <td class="muted">${esc(p.invited_at ?? "not yet")}</td></tr>`).join("") + `</table>`
     : `<p class="muted">Nobody yet. Send the sender a start link and they will
         tell us who is involved.</p>`;
+
+  const state = await assess(env, txId);
+  const gate = `
+    <h2>Readiness</h2>
+    <div class="panel"><table>
+      ${state.checks.map((c) => `<tr>
+        <td style="width:26px">${c.met ? "&#10003;" : "&#8212;"}</td>
+        <td><strong>${esc(c.label)}</strong><div class="muted">${esc(c.detail)}</div></td>
+        <td class="muted">${esc(c.at ?? "")}</td></tr>`).join("")}
+    </table>
+    <p class="muted" style="margin-bottom:0">${state.ready
+      ? "Everything is green. This can be moved to ready."
+      : "The gate is closed until every line is ticked. Moving it on is refused, not just discouraged."}</p>
+    </div>`;
+
+  const splitForm = `
+    <h2>The split</h2>
+    <div class="panel">
+      <p class="muted">${t.fee_mode === "deducted"
+        ? `The sender's figure is fixed, so recipients take a percentage of what is
+           left after the fee. The percentages must total 100.`
+        : `The recipients' figures are fixed, so the sender sends
+           <strong>more</strong> — the gross is worked out as net ÷ (1 − fee), not
+           net × (1 + fee).`}</p>
+      <form method="post" action="/t/${esc(txId)}/split">
+        <table><tr><th>Recipient</th><th>${t.fee_mode === "deducted"
+          ? "Share of the net (%)" : `Receives (${esc(t.currency_out)})`}</th></tr>
+        ${(people ?? []).filter((p) => p.role === "recipient").map((p) => `<tr>
+          <td>${esc(p.display_name)}</td>
+          <td><input name="v_${esc(p.participation_id)}" style="max-width:180px"
+            value="${t.fee_mode === "deducted"
+              ? (p.share_bps ? (p.share_bps / 100).toString() : "")
+              : (p.amount_minor ? format(p.amount_minor, t.decimals_out) : "")}"></td>
+        </tr>`).join("")}
+        </table>
+        <div class="row"><button class="go">Save the split</button></div>
+      </form>
+      ${state.settlement ? `<table style="margin-top:16px">
+        <tr><th>Sender sends</th><td>${esc(t.currency_in)}
+          ${format(state.settlement.grossMinor, t.decimals_in)}</td></tr>
+        <tr><th>Our fee</th><td>${esc(t.currency_in)}
+          ${format(state.settlement.feeMinor, t.decimals_in)}</td></tr>
+        <tr><th>Distributed</th><td>${esc(t.currency_out)}
+          ${format(state.settlement.netMinor, t.decimals_out)}</td></tr>
+        ${(people ?? []).filter((p) => p.role === "recipient").map((p) => `<tr>
+          <th style="font-weight:400">&rarr; ${esc(p.display_name)}</th>
+          <td>${esc(t.currency_out)} ${format(
+            state.settlement!.amounts[p.participation_id] ?? 0, t.decimals_out)}</td></tr>`).join("")}
+      </table>` : ""}
+    </div>`;
+
+  const dests = await forTransaction(env, txId);
+  const destinations = dests.length ? `
+    <h2>Where the money goes</h2>
+    <div class="panel" style="max-width:none"><table>
+      <tr><th>Recipient</th><th>Details</th><th>State</th><th></th></tr>
+      ${dests.map((d) => `<tr>
+        <td>${esc(d.display_name)}<div class="muted">${esc(d.email)}</div></td>
+        <td><pre style="white-space:pre-wrap;font:inherit;margin:0;font-size:13.5px">${
+          d.id ? esc(describeDestination(d as any)) : '<span class="muted">nothing yet</span>'}</pre></td>
+        <td><span class="tag">${esc(d.status ?? "none")}</span></td>
+        <td>${d.status === "confirmed"
+          ? `<form method="post" action="/t/${esc(txId)}/lock">
+               <input type="hidden" name="destination" value="${esc(d.id)}">
+               <button class="plain">Lock</button></form>`
+          : d.status === "locked"
+            ? `<span class="muted">${esc((d.locked_at ?? "").slice(0, 16))}</span>`
+            : ""}</td></tr>`).join("")}
+    </table>
+    <p class="muted" style="margin-bottom:0">A recipient enters and reads back their own
+       details. Locking is ours. Changing a locked one takes two of us.</p>
+    </div>` : "";
 
   const startForm = t.status === "draft" ? `
     <h2>Ask the sender to set it up</h2>
@@ -326,6 +413,10 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
     <div class="panel">${roster}</div>
     ${startForm}${releaseForm}
 
+    ${splitForm}
+    ${gate}
+    ${destinations}
+
     <h2>Move it on</h2>
     <div class="panel">
       ${moves ? `<form method="post" action="/t/${esc(txId)}/move">
@@ -352,6 +443,17 @@ async function move(request: Request, env: Env, actor: Actor, txId: string): Pro
     .bind(txId).first<{ status: string }>();
   if (!t) return new Response("Not found", { status: 404 });
   if (!canMove(t.status, to)) return new Response("That move is not allowed", { status: 400 });
+
+  // The gate. Marking something ready when it is not is the one mistake this
+  // whole design exists to prevent, so it is refused here rather than merely
+  // discouraged in the interface.
+  if (to === "ready" || to === "settling") {
+    const state = await assess(env, txId);
+    if (!state.ready) {
+      const short = state.checks.filter((c) => !c.met).map((c) => c.label).join("; ");
+      return new Response(`Not ready: ${short}`, { status: 400 });
+    }
+  }
 
   await update(env.DB, actor, `transaction.${to}`, "transactions", txId,
     { status: to, updated_at: new Date().toISOString().replace("T", " ").slice(0, 19) },
@@ -641,4 +743,47 @@ async function serveDocument(env: Env, actor: Actor, artefactId: string): Promis
       "Cache-Control": "private, no-store",
     },
   });
+}
+
+
+/**
+ * Record what each recipient gets.
+ *
+ * Which column is authoritative depends on the fee mode, and the two are never
+ * both set: under 'deducted' the sender's figure is fixed and recipients take
+ * percentages of what is left; under 'grossed_up' the recipients' figures are
+ * fixed and the sender's total is derived from them. Storing both would be
+ * storing a disagreement waiting to happen.
+ */
+async function setSplit(request: Request, env: Env, actor: Actor,
+                        txId: string): Promise<Response> {
+  const f = await request.formData();
+  const t = await env.DB.prepare("SELECT fee_mode, decimals_out FROM transactions WHERE id = ?")
+    .bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+
+  const { results } = await env.DB.prepare(
+    "SELECT id, amount_minor, share_bps FROM participations WHERE transaction_id = ? AND role = 'recipient'")
+    .bind(txId).all<any>();
+
+  for (const p of results ?? []) {
+    const raw = String(f.get(`v_${p.id}`) ?? "").trim();
+    let amount: number | null = null, share: number | null = null;
+    if (raw) {
+      if (t.fee_mode === "deducted") {
+        const pct = Number(raw.replace(/[%\s]/g, ""));
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+          return new Response(`"${raw}" is not a percentage between 0 and 100`, { status: 400 });
+        }
+        share = Math.round(pct * 100);
+      } else {
+        try { amount = parse(raw, t.decimals_out); }
+        catch (e) { return new Response((e as Error).message, { status: 400 }); }
+      }
+    }
+    await update(env.DB, actor, "participation.split_set", "participations", p.id,
+      { amount_minor: amount, share_bps: share },
+      { amount_minor: p.amount_minor, share_bps: p.share_bps });
+  }
+  return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
