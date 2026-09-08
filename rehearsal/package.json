@@ -1,0 +1,14 @@
+{
+  "name": "thepaymaster-rehearsal",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ethereumjs/common": "^4.4.0",
+    "@ethereumjs/tx": "^5.4.0",
+    "@ethereumjs/util": "^9.1.0",
+    "@ethereumjs/vm": "^8.1.1",
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0",
+    "solc": "0.8.26"
+  }
+}
