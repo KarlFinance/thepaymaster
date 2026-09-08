@@ -9,7 +9,8 @@
 
 import { type Env, type Actor, id, nextRef, log, insert, update, canMove, typeName,
          isOnChain, destinationKind, FLOW } from "./db.ts";
-import { identify } from "./access.ts";
+import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
+         handleSignOut, handleAccount } from "./adminauth.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal } from "./client.ts";
@@ -79,24 +80,27 @@ export default {
       // Everything past here is staff-only, and the gate is Cloudflare
       // Access. There is no password of our own any more: one place to grant
       // someone entry, one place to revoke it, and no second login to explain.
-      // Locally there is no Access in front, so there is no assertion to
-      // verify. The bypass is bounded by the hostname rather than by a flag:
-      // a request to a real domain can never satisfy it, whatever is set in
-      // the environment.
-      const local = url.hostname === LOCAL_ADMIN_HOST;
-      const who = (local && env.DEV_ADMIN_EMAIL)
-        ? { email: env.DEV_ADMIN_EMAIL.toLowerCase(), sub: "dev" }
-        : await identify(request);
-      if (!who) return noAccess();
+      // Sign-in screens, before any session check.
+      if (url.pathname === "/login") {
+        return request.method === "POST" ? handleLogin(env, request) : loginScreen();
+      }
+      if (url.pathname === "/2fa") return handleTotp(env, request);
+      if (url.pathname === "/2fa/setup") return handleTotpSetup(env, request);
+      if (url.pathname === "/signout") return handleSignOut(env, request);
 
-      // Passing Access proves who you are, not that you work here. The admins
-      // table is still the list of people this application knows.
-      const admin = await env.DB.prepare(
-        "SELECT id, name, email FROM admins WHERE lower(email) = ? AND active = 1")
-        .bind(who.email).first<{ id: string; name: string; email: string }>();
-      if (!admin) return notStaff(who.email);
-
+      const session = await currentAdmin(env, request);
+      if (!session) return Response.redirect(new URL("/login", url).toString(), 302);
+      const { admin, sessionId } = session;
       const actor: Actor = { kind: "admin", id: admin.id, ip };
+
+      // A password we issued is not a password they chose. Nothing else is
+      // reachable until it has been replaced.
+      if (admin.must_change_password && url.pathname !== "/account") {
+        return Response.redirect(new URL("/account", url).toString(), 302);
+      }
+      if (url.pathname === "/account") {
+        return handleAccount(env, request, actor, admin, sessionId);
+      }
 
       if (url.pathname === "/") return pipeline(env, admin);
       if (url.pathname === "/new") {
@@ -136,28 +140,6 @@ export default {
 };
 
 // ---------------------------------------------------------------------------
-
-/**
- * Reached without a verified Access assertion.
- *
- * In normal operation this is unreachable — Access intercepts first. Seeing it
- * means the route or the Access application has come adrift, so it says so
- * plainly rather than falling back to anything more permissive.
- */
-function noAccess(): Response {
-  return page("Not available", `<div class="login"><h1>Not available</h1>
-    <p>This panel is reached through Cloudflare Access. No verified session was
-       presented with this request.</p>
-    <p class="muted">If you are seeing this after signing in, the Access
-       application covering admin.thepaymaster.co.uk needs checking.</p></div>`);
-}
-
-/** Through Access, but not someone this application knows. */
-function notStaff(email: string): Response {
-  return page("No account", `<div class="login"><h1>No account here</h1>
-    <p>${esc(email)} passed Access but is not on this application's staff list.</p>
-    <p class="muted">Someone with an account needs to add you.</p></div>`);
-}
 
 // ---------------------------------------------------------------------------
 
