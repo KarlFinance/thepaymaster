@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import urllib.request
+import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -68,13 +68,25 @@ Sitemap: {DOMAIN}/sitemap.xml
 """
 
 
+# The WordPress box, by address.
+#
+# Since the worker took over the domain the REST API is no longer reachable
+# through it — only the three form paths reach WordPress, everything else is
+# served from this build. So the page list is read from the origin directly.
+# curl rather than urllib because this needs the connection made to the address
+# while the handshake and the Host header both say thepaymaster.co.uk: the
+# origin's certificate carries that one name, and WordPress 404s anything else.
+ORIGIN_IP = "157.245.37.150"
+PAGES_API = "/wp-json/wp/v2/pages?per_page=100&_fields=link,modified,status"
+
+
 def page_list() -> list[tuple[str, str]]:
     """(url, lastmod) for every published page, straight from the origin."""
-    req = urllib.request.Request(
-        DOMAIN + "/wp-json/wp/v2/pages?per_page=100&_fields=link,modified,status",
-        headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        pages = json.load(r)
+    out = subprocess.run(
+        ["curl", "-sS", "--resolve", f"thepaymaster.co.uk:443:{ORIGIN_IP}",
+         "-A", "Mozilla/5.0", f"https://thepaymaster.co.uk{PAGES_API}"],
+        capture_output=True, text=True, timeout=120, check=True)
+    pages = json.loads(out.stdout)
     return sorted((p["link"], p["modified"][:10]) for p in pages
                   if p.get("status", "publish") == "publish")
 

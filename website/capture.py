@@ -99,7 +99,11 @@ def local_path(url: str) -> Path:
 
 
 def same_origin(url: str) -> bool:
-    return urlparse(url).netloc in ("thepaymaster.co.uk", "www.thepaymaster.co.uk", "")
+    host = urlparse(url).netloc
+    # The Cloudways hostname is the same box; its assets belong in the capture.
+    if host.endswith(".cloudwaysapps.com"):
+        return True
+    return host in ("thepaymaster.co.uk", "www.thepaymaster.co.uk", "")
 
 
 def rewrite(text: str) -> str:
@@ -115,6 +119,12 @@ def rewrite(text: str) -> str:
     # Escaped form, as it appears inside inline JSON and JS config blocks.
     text = text.replace('https:\\/\\/thepaymaster.co.uk\\/', '\\/')
     text = text.replace('https:\\/\\/www.thepaymaster.co.uk\\/', '\\/')
+    # Elementor's generated font CSS hardcodes the raw Cloudways hostname for
+    # every webfont. That host resolves to the origin but its certificate covers
+    # thepaymaster.co.uk alone, so the browser rejects all fifty-six of them and
+    # the site has been falling back to a system font on WordPress too. Same
+    # files, same paths, so pointing them at the root fixes it.
+    text = re.sub(r'https?://wordpress-\d+-\d+\.cloudwaysapps\.com/', '/', text)
     return text
 
 
