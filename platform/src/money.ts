@@ -54,55 +54,90 @@ export function settle(
   if (splits.length === 0) throw new Error("no recipients");
   if (feeBps < 0 || feeBps >= 10_000) throw new Error("fee out of range");
 
-  let grossMinor: number;
-  let feeMinor: number;
-  let netMinor: number;
-  const amounts: Record<string, number> = {};
+  // Everything below is BigInt.
+  //
+  // Grossing up multiplies by ten thousand before dividing, and on a
+  // three-hundred-and-fifty-million USDT distribution that intermediate is
+  // 3.5e18 — comfortably past 2^53, where JavaScript numbers stop being exact
+  // integers. The arithmetic still produced plausible figures, which is the
+  // worst way for it to be wrong. There is no rounding to notice and no error
+  // thrown; the answer is simply not guaranteed.
+  const bps = BigInt(feeBps);
+  const TEN_K = 10_000n;
+  const asBig = (n: number, what: string): bigint => {
+    if (!Number.isSafeInteger(n)) {
+      throw new Error(`${what} is too large to be exact as a number: ${n}`);
+    }
+    return BigInt(n);
+  };
+
+  let gross: bigint;
+  let fee: bigint;
+  let net: bigint;
+  const amounts: Record<string, bigint> = {};
 
   if (mode === "deducted") {
-    grossMinor = opts.grossMinor ?? 0;
-    if (grossMinor <= 0) throw new Error("gross required when fee is deducted");
-    // Fee rounds in our favour only to the unit; the recipients get the rest.
-    feeMinor = Math.floor((grossMinor * feeBps) / 10_000);
-    netMinor = grossMinor - feeMinor;
+    gross = asBig(opts.grossMinor ?? 0, "gross");
+    if (gross <= 0n) throw new Error("gross required when fee is deducted");
+    // Fee rounds down to the unit; the recipients get the rest.
+    fee = (gross * bps) / TEN_K;
+    net = gross - fee;
 
     const totalBps = splits.reduce((a, s) => a + (s.shareBps ?? 0), 0);
     if (totalBps !== 10_000) throw new Error(`shares total ${totalBps}bps, need 10000`);
     for (const s of splits) {
-      amounts[s.id] = Math.floor((netMinor * (s.shareBps ?? 0)) / 10_000);
+      amounts[s.id] = (net * BigInt(s.shareBps ?? 0)) / TEN_K;
     }
   } else {
-    netMinor = splits.reduce((a, s) => a + (s.amountMinor ?? 0), 0);
-    if (netMinor <= 0) throw new Error("recipient amounts required when grossing up");
-    for (const s of splits) amounts[s.id] = s.amountMinor ?? 0;
-    // gross * (1 - fee) >= net, solved for the smallest whole gross that
-    // leaves at least net after the fee.
-    grossMinor = Math.ceil((netMinor * 10_000) / (10_000 - feeBps));
-    feeMinor = Math.floor((grossMinor * feeBps) / 10_000);
-    // Ceiling can leave a unit spare; it belongs to the recipients, not us.
-    netMinor = grossMinor - feeMinor;
+    net = splits.reduce((a, s) => a + asBig(s.amountMinor ?? 0, "an amount"), 0n);
+    if (net <= 0n) throw new Error("recipient amounts required when grossing up");
+    for (const s of splits) amounts[s.id] = asBig(s.amountMinor ?? 0, "an amount");
+    // The smallest whole gross that still leaves at least net after the fee:
+    // ceiling division, done exactly.
+    const denominator = TEN_K - bps;
+    gross = (net * TEN_K + denominator - 1n) / denominator;
+    fee = (gross * bps) / TEN_K;
+    // The ceiling can leave a unit spare; it belongs to the recipients, not us.
+    net = gross - fee;
   }
 
   // Whatever is unallocated after integer division goes to one named party, so
   // the sum is exact and the dossier can say who absorbed it.
-  const allocated = Object.values(amounts).reduce((a, b) => a + b, 0);
-  const remainder = netMinor - allocated;
-  if (remainder !== 0) {
+  const allocated = Object.values(amounts).reduce((a, b) => a + b, 0n);
+  const remainder = net - allocated;
+  if (remainder !== 0n) {
     const target = opts.remainderTo && amounts[opts.remainderTo] !== undefined
       ? opts.remainderTo
       : largest(amounts);
     amounts[target] += remainder;
   }
 
-  const check = Object.values(amounts).reduce((a, b) => a + b, 0);
-  if (check + feeMinor !== grossMinor) {
-    throw new Error(`split does not reconcile: ${check} + ${feeMinor} != ${grossMinor}`);
+  const check = Object.values(amounts).reduce((a, b) => a + b, 0n);
+  if (check + fee !== gross) {
+    throw new Error(`split does not reconcile: ${check} + ${fee} != ${gross}`);
   }
-  return { grossMinor, feeMinor, netMinor, amounts };
+
+  // Back to numbers at the edge, where the caller and the database both live —
+  // but only after checking each one is still exactly representable.
+  const out = (v: bigint, what: string): number => {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(
+        `${what} exceeds what can be held exactly (${v}). This currency's ` +
+        `smallest unit is too fine for an amount this large.`);
+    }
+    return Number(v);
+  };
+  return {
+    grossMinor: out(gross, "the gross"),
+    feeMinor: out(fee, "the fee"),
+    netMinor: out(net, "the net"),
+    amounts: Object.fromEntries(
+      Object.entries(amounts).map(([k, v]) => [k, out(v, `the amount for ${k}`)])),
+  };
 }
 
-function largest(amounts: Record<string, number>): string {
-  return Object.entries(amounts).sort((a, b) => b[1] - a[1])[0][0];
+function largest(amounts: Record<string, bigint>): string {
+  return Object.entries(amounts).sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0))[0][0];
 }
 
 /** Minor units to a display string, e.g. 101011 at 2dp -> "1,010.11". */

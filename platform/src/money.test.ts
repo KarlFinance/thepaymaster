@@ -55,6 +55,51 @@ const usdt = settle("grossed_up", 100, [{ id: "x", amountMinor: 1_000_000_000 }]
 check("usdt reconciles",
   Object.values(usdt.amounts).reduce((a, b) => a + b, 0) + usdt.feeMinor, usdt.grossMinor);
 
+// --- the scale this business actually works at -----------------------------
+//
+// Three hundred and fifty million USDT. Grossing up multiplies by ten thousand
+// first, which puts the intermediate at 3.5e18 — past 2^53, where JavaScript
+// numbers stop being exact integers. Before this was done in BigInt the
+// function produced these very same figures, which is the worst way to be
+// wrong: no error, no visible rounding, just an answer with nothing
+// guaranteeing it. These are checked against arbitrary-precision arithmetic.
+const u6 = (s: string) => parse(s, 6);
+const huge = settle("grossed_up", 100, [
+  { id: "a", amountMinor: u6("200,000,000") },
+  { id: "b", amountMinor: u6("100,000,000") },
+  { id: "c", amountMinor: u6("50,000,000") },
+], { remainderTo: "c" });
+
+check("350m: sender sends 353,535,353.535354", format(huge.grossMinor, 6), "353,535,353.535354");
+check("350m: fee is 3,535,353.535353", format(huge.feeMinor, 6), "3,535,353.535353");
+check("350m: nobody is short", [
+  huge.amounts.a >= u6("200,000,000"),
+  huge.amounts.b >= u6("100,000,000"),
+  huge.amounts.c >= u6("50,000,000"),
+], [true, true, true]);
+check("350m: reconciles exactly",
+  Object.values(huge.amounts).reduce((a, b) => a + b, 0) + huge.feeMinor, huge.grossMinor);
+check("350m: the odd unit went where we said",
+  huge.amounts.c - u6("50,000,000"), 1);
+
+const hugeDeducted = settle("deducted", 100,
+  [{ id: "a", shareBps: 5000 }, { id: "b", shareBps: 5000 }],
+  { grossMinor: u6("350,000,000"), remainderTo: "a" });
+check("350m deducted: fee is 3,500,000", format(hugeDeducted.feeMinor, 6), "3,500,000.000000");
+check("350m deducted: reconciles",
+  Object.values(hugeDeducted.amounts).reduce((a, b) => a + b, 0) + hugeDeducted.feeMinor,
+  hugeDeducted.grossMinor);
+
+// An amount whose smallest unit is too fine to hold exactly must be refused
+// rather than quietly mangled. At eighteen decimals that arrives very early.
+check("an unrepresentable amount is refused", (() => {
+  try {
+    settle("deducted", 100, [{ id: "a", shareBps: 10_000 }],
+      { grossMinor: Number.MAX_SAFE_INTEGER + 100 });
+    return false;
+  } catch { return true; }
+})(), true);
+
 // --- guards ----------------------------------------------------------------
 function throws(fn: () => unknown) { try { fn(); return false; } catch { return true; } }
 check("shares must total 100%", throws(() =>
