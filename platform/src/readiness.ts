@@ -14,6 +14,7 @@
 import { type Env } from "./db.ts";
 import { settle, format, type FeeMode } from "./money.ts";
 import { standingCheck } from "./screening.ts";
+import { inspect, USDT_MAINNET, CHAINS } from "./chain.ts";
 
 export interface Check {
   key: string;
@@ -38,7 +39,8 @@ export interface Readiness {
   };
 }
 
-export async function assess(env: Env, transactionId: string): Promise<Readiness> {
+export async function assess(env: Env, transactionId: string,
+                             opts: { onChain?: boolean } = {}): Promise<Readiness> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
     .bind(transactionId).first<any>();
   if (!t) return { checks: [], ready: false };
@@ -198,6 +200,79 @@ export async function assess(env: Env, transactionId: string): Promise<Readiness
           ? `${n} wallet${n === 1 ? "" : "s"}, all proved by signature`
           : `${n} given, only ${proved} proved by signature`,
     });
+  }
+
+  // --- what the chain itself says ------------------------------------------
+  //
+  // Only when asked for, because it is several network calls and the pipeline
+  // renders this on every page. The transaction page asks; the board does not.
+  if (opts.onChain && t.inbound === "crypto" && t.chain_id) {
+    const token = t.token_address || USDT_MAINNET;
+    const chainId = t.chain_id as number;
+
+    const addresses: { address: string; role: string }[] = [];
+    const { results: sw } = await env.DB.prepare(
+      "SELECT address FROM sending_wallets WHERE transaction_id = ?")
+      .bind(transactionId).all<any>();
+    for (const w of sw ?? []) addresses.push({ address: w.address, role: "sending" });
+    for (const r of recipients) {
+      const d = await env.DB.prepare(
+        "SELECT address FROM destinations WHERE participation_id = ? AND kind = 'wallet'")
+        .bind(r.participation_id).first<any>();
+      if (d?.address) addresses.push({ address: d.address, role: r.display_name });
+    }
+    if (t.fee_wallet) addresses.push({ address: t.fee_wallet, role: "our fee" });
+
+    if (addresses.length) {
+      const reports = await Promise.all(
+        addresses.map((a) => inspect(env, chainId, token, a.address, a.role)));
+
+      // Tether can freeze an address, and a frozen recipient cannot receive.
+      // Sending to one loses the funds in every sense that matters.
+      const frozen = reports.filter((r) => r.blacklisted === true);
+      const unknown = reports.filter((r) => r.blacklisted === null);
+      checks.push({
+        key: "not_frozen",
+        label: "No address is frozen by Tether",
+        met: frozen.length === 0 && unknown.length === 0,
+        detail: frozen.length
+          ? `FROZEN: ${frozen.map((r) => `${r.role} ${r.address}`).join(", ")}`
+          : unknown.length
+            ? `Could not check ${unknown.map((r) => r.role).join(", ")} — try again`
+            : `${reports.length} addresses checked, none frozen`,
+      });
+
+      // The sender must actually hold it. Discovering otherwise at execution
+      // is a reverted transaction and a very awkward telephone call.
+      const held = reports.filter((r) => r.role === "sending")
+        .reduce((a, r) => a + (r.balance ?? 0n), 0n);
+      const need = gross === null ? null : BigInt(gross);
+      checks.push({
+        key: "sender_holds",
+        label: "The sender holds enough",
+        met: need !== null && held >= need,
+        detail: need === null ? "No amount to check against"
+          : held >= need
+            ? `${format(Number(held), t.decimals_in)} across ${
+                reports.filter((r) => r.role === "sending").length} wallet(s)`
+            : `Holds ${format(Number(held), t.decimals_in)}, needs ${
+                format(Number(need), t.decimals_in)}`,
+      });
+
+      // A contract can be a perfectly good destination — a Safe, an exchange —
+      // or a hole. Flagged rather than judged.
+      const contracts = reports.filter((r) => r.contract === true && r.role !== "sending");
+      if (contracts.length) {
+        checks.push({
+          key: "contract_recipients",
+          label: "Contract addresses have been looked at",
+          met: false,
+          detail: `${contracts.map((r) => r.role).join(", ")} ${
+            contracts.length === 1 ? "is a contract" : "are contracts"} — confirm ` +
+            `each can receive USDT before anything is sent`,
+        });
+      }
+    }
   }
 
   // --- the paperwork -------------------------------------------------------

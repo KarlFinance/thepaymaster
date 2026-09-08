@@ -21,6 +21,9 @@ export interface Env {
   /** Sumsub is built but dark; it wakes up when both of these exist. */
   SUMSUB_TOKEN?: string;
   SUMSUB_SECRET?: string;
+  /** A paid Ethereum endpoint. Reads fall back to a public node without it,
+   *  which is fine for checking and not fine for executing. */
+  ETH_RPC_URL?: string;
 }
 
 export interface Actor {

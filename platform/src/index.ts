@@ -301,7 +301,7 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
     : `<p class="muted">Nobody yet. Send the sender a start link and they will
         tell us who is involved.</p>`;
 
-  const state = await assess(env, txId);
+  const state = await assess(env, txId, { onChain: true });
   const gate = `
     <h2>Readiness</h2>
     <div class="panel"><table>
