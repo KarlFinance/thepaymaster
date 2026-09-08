@@ -17,8 +17,10 @@ import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientVerify } from "./client.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
-import { fetchDocument } from "./documents.ts";
+import { fetchDocument, store, DocumentProblem } from "./documents.ts";
 import { assess, summarise } from "./readiness.ts";
+import { arrival, legs, events as custodyEvents, settlementChecks,
+         record as recordCustody, holderFor } from "./settlement.ts";
 import { forTransaction, lock as lockDestination, requestChange,
          approveChange, describe as describeDestination } from "./destinations.ts";
 import { mint } from "./tokens.ts";
@@ -140,6 +142,11 @@ export default {
       if (url.pathname === "/log") return auditView(env, admin);
       if (url.pathname.startsWith("/t/")) {
         const txId = url.pathname.slice(3).split("/")[0];
+        if (url.pathname.endsWith("/settle")) {
+          return request.method === "POST"
+            ? recordSettlement(request, env, actor, txId)
+            : settlePage(env, admin, txId);
+        }
         if (url.pathname.endsWith("/move") && request.method === "POST") {
           return move(request, env, actor, txId);
         }
@@ -416,6 +423,12 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
     ${splitForm}
     ${gate}
     ${destinations}
+    ${["ready","settling","settled","closed"].includes(t.status)
+      ? `<h2>Settlement</h2><div class="panel">
+          <p class="muted">Recording what actually moved, with the paperwork.</p>
+          <p><a href="/t/${esc(txId)}/settle"><button class="go" type="button">
+            Open the settlement sheet</button></a></p></div>`
+      : ""}
 
     <h2>Move it on</h2>
     <div class="panel">
@@ -786,4 +799,280 @@ async function setSplit(request: Request, env: Env, actor: Actor,
       { amount_minor: p.amount_minor, share_bps: p.share_bps });
   }
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
+}
+
+// ---------------------------------------------------------------------------
+// Settlement
+// ---------------------------------------------------------------------------
+
+/**
+ * The settlement sheet: what arrived, what our fee was, and what went out to
+ * each recipient — each with the document that proves it.
+ */
+async function settlePage(env: Env, admin: { name: string }, txId: string,
+                          error = ""): Promise<Response> {
+  const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
+    .bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+
+  const state = await assess(env, txId);
+  const got = await arrival(env, txId);
+  const all = await legs(env, txId);
+  const history = await custodyEvents(env, txId);
+  const { checks, complete } = await settlementChecks(env, txId);
+  const holder = holderFor(t);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const holderName = {
+    thepaymaster_hsbc: "our HSBC account", otc_desk: "the OTC desk",
+    client: "the client", none: "nobody — it never rests anywhere",
+  }[holder];
+
+  const variance = got && got.expectedMinor !== null && got.receivedMinor > 0 && !got.ok
+    ? `<div class="err">
+        <strong>What arrived is not what was expected.</strong><br>
+        Expected ${esc(t.currency_in)} ${format(got.expectedMinor, t.decimals_in)},
+        received ${format(got.receivedMinor, t.decimals_in)} —
+        ${got.varianceMinor > 0 ? "over" : "short"} by
+        ${format(Math.abs(got.varianceMinor), t.decimals_in)}.
+        Nothing will be distributed on this until somebody decides what to do and
+        records why.
+       </div>
+       <form method="post" action="/t/${esc(txId)}/settle">
+         <input type="hidden" name="action" value="variance">
+         <label for="vn">What are we doing about it, and why</label>
+         <input id="vn" name="note" required
+           placeholder="Sender rounded down; agreed with them to absorb it from our fee">
+         <div class="row"><button class="go">Record the decision</button></div>
+       </form>`
+    : "";
+
+  const arrived = `
+    <h2>Money in</h2>
+    <div class="panel">
+      <p class="muted">Into ${esc(holderName)}. Expected
+        ${state.settlement
+          ? `${esc(t.currency_in)} ${format(state.settlement.grossMinor, t.decimals_in)}`
+          : "an amount not yet worked out"}.</p>
+      ${t.variance_note ? `<p class="muted">Variance decided
+        ${esc((t.variance_decided_at ?? "").slice(0, 16))}: ${esc(t.variance_note)}</p>` : ""}
+      ${variance}
+      <form method="post" action="/t/${esc(txId)}/settle" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="received">
+        <label for="ra">Amount received (${esc(t.currency_in)})</label>
+        <input id="ra" name="amount" required
+          value="${state.settlement ? format(state.settlement.grossMinor, t.decimals_in) : ""}">
+        <label for="rd">When</label>
+        <input id="rd" name="on" type="date" value="${today}" required>
+        <label for="rf">Evidence — the credit advice, statement line or MT103</label>
+        <input id="rf" name="file" type="file">
+        <label for="rn">Note</label><input id="rn" name="note">
+        <div class="row"><button class="go">Record the receipt</button></div>
+      </form>
+    </div>`;
+
+  const fee = `
+    <h2>Our fee</h2>
+    <div class="panel">
+      <form method="post" action="/t/${esc(txId)}/settle" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="fee">
+        <label for="fa">Fee taken (${esc(t.currency_in)})</label>
+        <input id="fa" name="amount" required
+          value="${state.settlement ? format(state.settlement.feeMinor, t.decimals_in) : ""}">
+        <label for="fd">When</label>
+        <input id="fd" name="on" type="date" value="${today}" required>
+        <label for="ff">Evidence</label><input id="ff" name="file" type="file">
+        <div class="row"><button class="go">Record the fee</button></div>
+      </form>
+      <p class="muted" style="margin-bottom:0">${t.fee_mode === "deducted"
+        ? "Deducted from what arrived, so the recipients share what is left."
+        : "Added on top, so the recipients receive their figures in full."}</p>
+    </div>`;
+
+  const payouts = `
+    <h2>Money out</h2>
+    <div class="panel" style="max-width:none">
+      <table><tr><th>Recipient</th><th>Owed</th><th>Sent</th><th>Evidence</th><th></th></tr>
+      ${all.map((l) => `<tr>
+        <td>${esc(l.name)}</td>
+        <td>${esc(t.currency_out)} ${format(l.expectedMinor, t.decimals_out)}</td>
+        <td>${l.sentMinor === null ? `<span class="muted">not yet</span>`
+          : `${esc(t.currency_out)} ${format(l.sentMinor, t.decimals_out)}
+             <div class="muted">${esc((l.sentAt ?? "").slice(0, 10))}</div>`}</td>
+        <td>${l.evidenceId ? `<a href="/doc/${esc(l.evidenceId)}">document</a>`
+          : l.sentMinor !== null ? `
+            <form method="post" action="/t/${esc(txId)}/settle" enctype="multipart/form-data">
+              <input type="hidden" name="action" value="evidence">
+              <input type="hidden" name="participation" value="${esc(l.participationId)}">
+              <input name="file" type="file" required style="max-width:170px">
+              <button class="plain">Attach</button>
+            </form>`
+          : `<span class="muted">none</span>`}</td>
+        <td>${l.sentMinor === null ? `
+          <form method="post" action="/t/${esc(txId)}/settle" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="payout">
+            <input type="hidden" name="participation" value="${esc(l.participationId)}">
+            <input name="amount" value="${format(l.expectedMinor, t.decimals_out)}"
+              style="max-width:130px">
+            <input name="on" type="date" value="${today}" style="max-width:150px">
+            <input name="file" type="file" style="max-width:190px">
+            <button class="plain">Record</button>
+          </form>` : ""}</td></tr>`).join("")}
+      </table>
+    </div>`;
+
+  const ledger = history.length ? `
+    <h2>Everything that moved</h2>
+    <div class="panel" style="max-width:none"><table class="log">
+      <tr><th>When</th><th>What</th><th>Held by</th><th>Amount</th><th>Evidence</th></tr>
+      ${history.map((e) => `<tr>
+        <td>${esc((e.occurred_at ?? "").slice(0, 16))}</td>
+        <td>${esc(e.event)}</td><td>${esc(e.holder)}</td>
+        <td>${esc(e.currency)} ${format(e.amount_minor, e.decimals)}</td>
+        <td>${e.artefact ? `<a href="/doc/${esc(e.artefact)}">${esc(e.filename ?? "file")}</a>
+          <div class="muted log">${esc(String(e.sha256).slice(0, 16))}…</div>`
+          : `<span class="muted">none</span>`}</td></tr>`).join("")}
+    </table></div>` : "";
+
+  const closing = `
+    <h2>Is it finished?</h2>
+    <div class="panel"><table>
+      ${checks.map((c) => `<tr><td style="width:26px">${c.met ? "&#10003;" : "&#8212;"}</td>
+        <td><strong>${esc(c.label)}</strong>
+        <div class="muted">${esc(c.detail)}</div></td></tr>`).join("")}
+    </table>
+    ${complete && t.status !== "settled" && t.status !== "closed"
+      ? `<form method="post" action="/t/${esc(txId)}/move">
+           <input type="hidden" name="to" value="settled">
+           <input name="note" placeholder="Anything to record" style="margin:10px 0">
+           <div class="row"><button class="go">Mark it settled</button></div></form>`
+      : `<p class="muted" style="margin-bottom:0">${t.status === "settled" || t.status === "closed"
+          ? "Settled." : "Not yet."}</p>`}
+    </div>`;
+
+  return page(`${t.ref} settlement`, `
+    <h1>${esc(t.ref)} — settlement</h1>
+    <p class="muted">${esc(t.name)} · <a href="/t/${esc(txId)}">back to the transaction</a></p>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
+    ${arrived}${fee}${payouts}${ledger}${closing}`,
+    { nav: nav("", admin.name) });
+}
+
+async function recordSettlement(request: Request, env: Env, actor: Actor,
+                                txId: string): Promise<Response> {
+  const f = await request.formData();
+  const action = String(f.get("action") ?? "");
+  const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
+    .bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+
+  const back = () => Response.redirect(new URL(`/t/${txId}/settle`, request.url).toString(), 302);
+  const holder = holderFor(t);
+  const on = String(f.get("on") ?? "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const file = f.get("file");
+  const asFile = file instanceof File && file.size > 0 ? file : null;
+
+  if (action === "variance") {
+    await update(env.DB, actor, "transaction.variance_decided", "transactions", txId, {
+      variance_note: String(f.get("note") ?? "").trim(),
+      variance_decided_by: actor.id,
+      variance_decided_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+    }, { variance_note: t.variance_note });
+    return back();
+  }
+
+  if (action === "evidence") {
+    // A payment recorded without its document can otherwise never be
+    // completed, which turns a sensible requirement into a dead end.
+    const participation = String(f.get("participation") ?? "");
+    if (!asFile) return settlePage(env, { name: "" }, txId, "No file arrived.");
+    const leg = await env.DB.prepare(
+      `SELECT c.id FROM custody_events c
+         JOIN payout_legs l ON l.event_id = c.id
+        WHERE c.transaction_id = ? AND l.participation_id = ?
+        ORDER BY c.created_at DESC LIMIT 1`).bind(txId, participation).first<any>();
+    if (!leg) return settlePage(env, { name: "" }, txId, "No payment recorded for them yet.");
+    try {
+      const stored = await store(env, actor, asFile, {
+        kind: "payment_confirmation", transactionId: txId,
+        label: "attached after the payment was recorded",
+      });
+      await update(env.DB, actor, "custody.evidence_attached", "custody_events", leg.id,
+        { evidence_id: stored.artefactId }, { evidence_id: null });
+    } catch (err) {
+      if (err instanceof DocumentProblem) {
+        return settlePage(env, { name: "" }, txId, err.message);
+      }
+      throw err;
+    }
+    return back();
+  }
+
+  let amountMinor: number;
+  try {
+    amountMinor = parse(String(f.get("amount") ?? ""),
+      action === "payout" ? t.decimals_out : t.decimals_in);
+  } catch (e) {
+    return settlePage(env, { name: "" }, txId, (e as Error).message);
+  }
+
+  if (action === "received") {
+    const result = await recordCustody(env, actor, txId, {
+      holder, event: "received", amountMinor,
+      currency: t.currency_in, decimals: t.decimals_in, occurredAt: on,
+      note: String(f.get("note") ?? "").trim() || undefined,
+      file: asFile, evidenceKind: "receipt_advice",
+    });
+    if (typeof result === "object") return settlePage(env, { name: "" }, txId, result.problem);
+    await update(env.DB, actor, "transaction.funds_received", "transactions", txId,
+      { gross_received_minor: (t.gross_received_minor ?? 0) + amountMinor },
+      { gross_received_minor: t.gross_received_minor });
+
+    // Recording that money has arrived is the transaction entering settlement.
+    // This is still a person pressing a button — it is not the system deciding
+    // something on its own — so the rule that nothing advances itself holds.
+    if (t.status === "ready") {
+      await update(env.DB, actor, "transaction.settling", "transactions", txId,
+        { status: "settling",
+          updated_at: new Date().toISOString().replace("T", " ").slice(0, 19) },
+        { status: t.status }, { note: "funds recorded as received" });
+    }
+    return back();
+  }
+
+  if (action === "fee") {
+    const result = await recordCustody(env, actor, txId, {
+      holder, event: "fee_taken", amountMinor,
+      currency: t.currency_in, decimals: t.decimals_in, occurredAt: on,
+      file: asFile, evidenceKind: "fee_note",
+    });
+    if (typeof result === "object") return settlePage(env, { name: "" }, txId, result.problem);
+    return back();
+  }
+
+  if (action === "payout") {
+    const participation = String(f.get("participation") ?? "");
+    // A payout on a transaction whose arrival does not reconcile is exactly
+    // the thing the variance step exists to stop.
+    const got = await arrival(env, txId);
+    if (got && !got.ok && !t.variance_note) {
+      return settlePage(env, { name: "" }, txId,
+        "What arrived does not match what was expected. Record what you are doing " +
+        "about that before paying anybody.");
+    }
+    const result = await recordCustody(env, actor, txId, {
+      holder, event: "sent", amountMinor,
+      currency: t.currency_out, decimals: t.decimals_out, occurredAt: on,
+      file: asFile, evidenceKind: "payment_confirmation",
+    });
+    if (typeof result === "object") return settlePage(env, { name: "" }, txId, result.problem);
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO payout_legs (event_id, participation_id) VALUES (?, ?)")
+      .bind(result, participation).run();
+    await log(env.DB, actor, "payout.recorded", "participations", participation,
+      { note: `${t.currency_out} ${format(amountMinor, t.decimals_out)}` });
+    return back();
+  }
+
+  return new Response("Unknown action", { status: 400 });
 }
