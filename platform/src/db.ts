@@ -13,6 +13,9 @@ export interface Env {
   /** Set with `wrangler secret put RESEND_API_KEY`. Absent means mail is
    *  skipped and the skip is logged, rather than silently going nowhere. */
   RESEND_API_KEY?: string;
+  /** Local development only — see the hostname guard where it is read. */
+  DEV_ADMIN_EMAIL?: string;
+  CLIENT_BASE?: string;
 }
 
 export interface Actor {
@@ -75,47 +78,68 @@ export async function log(
 }
 
 /**
- * Insert or update a row and log it in the same breath.
+ * Insert a row and log it, in one batch.
  *
- * D1 has no interactive transactions, so this uses a batch: the write and its
- * log entry either both land or neither does. An unlogged change is not a
- * change this system is willing to make.
+ * Insert and update are separate functions on purpose. They were one, deciding
+ * between them by whether a `before` was supplied, and that inference quietly
+ * turned an update of a transaction into an insert of a new one — caught only
+ * by a NOT NULL constraint. An operation this consequential should be named,
+ * not guessed.
  */
-export async function record(
+export async function insert(
   db: D1Database,
   actor: Actor,
   action: string,
   table: string,
   rowId: string,
   fields: Record<string, unknown>,
-  opts: { before?: unknown; note?: string } = {},
+  opts: { note?: string } = {},
 ): Promise<void> {
-  const isInsert = opts.before === undefined;
-  let stmt: D1PreparedStatement;
+  const keys = ["id", ...Object.keys(fields)];
+  const marks = keys.map(() => "?").join(", ");
+  await db.batch([
+    db.prepare(`INSERT INTO ${table} (${keys.join(", ")}) VALUES (${marks})`)
+      .bind(rowId, ...Object.values(fields)),
+    logStatement(db, actor, action, table, rowId, null, fields, opts.note),
+  ]);
+}
 
-  if (isInsert) {
-    const keys = ["id", ...Object.keys(fields)];
-    const marks = keys.map(() => "?").join(", ");
-    stmt = db.prepare(`INSERT INTO ${table} (${keys.join(", ")}) VALUES (${marks})`)
-      .bind(rowId, ...Object.values(fields));
-  } else {
-    const sets = Object.keys(fields).map((k) => `${k} = ?`).join(", ");
-    stmt = db.prepare(`UPDATE ${table} SET ${sets} WHERE id = ?`)
-      .bind(...Object.values(fields), rowId);
-  }
+/**
+ * Update a row and log it, in one batch.
+ *
+ * `before` is required rather than optional: a log entry that cannot say what
+ * the value used to be is half a record, and this system is the record.
+ */
+export async function update(
+  db: D1Database,
+  actor: Actor,
+  action: string,
+  table: string,
+  rowId: string,
+  fields: Record<string, unknown>,
+  before: Record<string, unknown>,
+  opts: { note?: string } = {},
+): Promise<void> {
+  const sets = Object.keys(fields).map((k) => `${k} = ?`).join(", ");
+  await db.batch([
+    db.prepare(`UPDATE ${table} SET ${sets} WHERE id = ?`)
+      .bind(...Object.values(fields), rowId),
+    logStatement(db, actor, action, table, rowId, before, fields, opts.note),
+  ]);
+}
 
-  const logStmt = db.prepare(
+function logStatement(db: D1Database, actor: Actor, action: string, table: string,
+                      rowId: string, before: unknown, after: unknown,
+                      note?: string): D1PreparedStatement {
+  return db.prepare(
     `INSERT INTO audit_log (actor_kind, actor_id, action, entity_kind, entity_id,
                             before_json, after_json, ip, note)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     actor.kind, actor.id, action, table, rowId,
-    opts.before === undefined ? null : JSON.stringify(opts.before),
-    JSON.stringify(fields),
-    actor.ip ?? null, opts.note ?? null,
+    before === null || before === undefined ? null : JSON.stringify(before),
+    JSON.stringify(after), actor.ip ?? null, note ?? null,
   );
-
-  await db.batch([stmt, logStmt]);
 }
 
 /**

@@ -9,7 +9,7 @@
  * over the top of this.
  */
 
-import { type Env, type Actor, id, log, record } from "./db.ts";
+import { type Env, type Actor, id, log, insert, update } from "./db.ts";
 import { page, nav, esc } from "./views.ts";
 import { send, staffEmails, enquiryLanded, enquiryAcknowledged } from "./email.ts";
 import { format, parse } from "./money.ts";
@@ -160,7 +160,7 @@ export async function submitEnquiry(request: Request, env: Env,
 
   const eid = id("enq");
   const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
-  await record(env.DB, { kind: "system", id: null, ip }, "enquiry.received", "enquiries", eid, {
+  await insert(env.DB, { kind: "system", id: null, ip }, "enquiry.received", "enquiries", eid, {
     name: s("name"), email: s("email"), phone: s("phone") || null,
     whatsapp_ok: f.get("whatsapp_ok") ? 1 : 0,
     contact_pref: ["zoom", "whatsapp", "either"].includes(s("contact_pref")) ? s("contact_pref") : null,
@@ -320,8 +320,8 @@ export async function enquiryStatus(request: Request, env: Env, actor: Actor,
   if (e.transaction_id) return Response.redirect(new URL(`/e/${eid}`, request.url).toString(), 302);
 
   if (to !== "converted") {
-    await record(env.DB, actor, `enquiry.${to}`, "enquiries", eid, { status: to },
-      { before: { status: e.status }, note: note || undefined });
+    await update(env.DB, actor, `enquiry.${to}`, "enquiries", eid, { status: to },
+      { status: e.status }, { note: note || undefined });
     return Response.redirect(new URL(`/e/${eid}`, request.url).toString(), 302);
   }
 
@@ -331,7 +331,7 @@ export async function enquiryStatus(request: Request, env: Env, actor: Actor,
   const ref = await nextRef();
   const currency = e.currency ?? "GBP";
   const decimals = CURRENCIES[currency] ?? 2;
-  await record(env.DB, actor, "transaction.created", "transactions", txId, {
+  await insert(env.DB, actor, "transaction.created", "transactions", txId, {
     ref, name: `${e.name} — enquiry ${e.created_at?.slice(0, 10) ?? ""}`.trim(),
     detail: e.detail ?? null,
     inbound: "fiat", outbound: "fiat", converts: 0,
@@ -342,9 +342,9 @@ export async function enquiryStatus(request: Request, env: Env, actor: Actor,
     status: "draft", created_by: actor.id,
   }, { note: `from enquiry ${eid}` });
 
-  await record(env.DB, actor, "enquiry.converted", "enquiries", eid,
+  await update(env.DB, actor, "enquiry.converted", "enquiries", eid,
     { status: "converted", transaction_id: txId },
-    { before: { status: e.status }, note: note || undefined });
+    { status: e.status }, { note: note || undefined });
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }

@@ -138,3 +138,56 @@ export function enquiryAcknowledged(name: string): { subject: string; text: stri
     ].join("\n"),
   };
 }
+
+/** Sent to a sender so they can set their own transaction up. */
+export function startLink(ref: string, url: string): { subject: string; text: string } {
+  return {
+    subject: `Set up your transaction — ${ref}`,
+    text: [
+      "We are ready to set up your transaction.",
+      "",
+      "Use the link below to tell us who is involved. It takes a couple of",
+      "minutes, and nothing is sent to anyone else until we have checked it.",
+      "",
+      url,
+      "",
+      "The link is for you alone and stops working once it has been used.",
+      "",
+      `Reference ${ref}`,
+      "ThePaymaster Ltd · +44 20 7088 8267",
+    ].join("\n"),
+  };
+}
+
+/** Sent to every party once we release a transaction. */
+export function invite(opts: {
+  ref: string; name: string; role: string; senderName: string; url: string;
+}): { subject: string; text: string } {
+  const part = opts.role === "recipient"
+    ? `You are down to receive part of this distribution.`
+    : opts.role === "sender"
+      ? `You are the sender on this transaction.`
+      : `You have been added to this transaction as ${opts.role}.`;
+  return {
+    subject: `${opts.ref} — ${opts.name}`,
+    text: [
+      `${opts.senderName} is using ThePaymaster to handle a distribution, and`,
+      "you are part of it.",
+      "",
+      part,
+      "",
+      "Open your account here. We will verify who you are and then ask you for",
+      "the details we need from you — never by email, and never over the phone.",
+      "",
+      opts.url,
+      "",
+      "The link is for you alone and stops working once it has been used.",
+      "",
+      `Reference ${opts.ref}`,
+      "ThePaymaster Ltd · +44 20 7088 8267",
+      "",
+      "We will never email you asking to change payment details. If you receive",
+      "anything of the sort, it is not from us — call us on the number above.",
+    ].join("\n"),
+  };
+}
