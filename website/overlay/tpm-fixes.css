@@ -1,0 +1,50 @@
+/*
+ * tpm-fixes.css — repairs for a stylesheet the origin never served.
+ *
+ * The fault below exists on the live WordPress site exactly as it exists here;
+ * it was captured faithfully, not introduced by the migration. It is fixed here
+ * because there is no longer a WordPress to fix it in.
+ *
+ * ---------------------------------------------------------------------------
+ * The breadcrumb rendered as a numbered list
+ *
+ * ElementsKit's breadcrumb widget emits an <ol class="ekit-breadcrumb"> and
+ * styles it from breadcrumb.css, which is not enqueued and 404s on the origin.
+ * With no rule to make it a row it fell back to list defaults and rendered
+ *
+ *     1. Home
+ *     2. /
+ *     3. How It Works
+ *
+ * three lines tall, with the separator counted as a step. The per-page Elementor
+ * CSS still sets justify-content:center on the same element, which means nothing
+ * unless it is a flex box — so the intent was never in doubt, the declaration
+ * that carried it was simply missing.
+ *
+ * The widget sits in an orange pill sized to its contents, so the fault was also
+ * the reason the page-title band looked different on every page: the pill was
+ * three lines tall and as wide as the longest crumb. As one row it is 26px
+ * instead of 77px and consistent across all thirty-one pages that have one.
+ *
+ * Nothing else needed touching. The title band itself was already identical
+ * page to page — heading 55px, breadcrumb at 281px, containers full width —
+ * measured against the live site at the same viewport.
+ */
+ol.ekit-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ol.ekit-breadcrumb > li {
+  display: flex;
+  align-items: center;
+}
+
+ol.ekit-breadcrumb > li.brd_sep .separate_icon {
+  display: inline-flex;
+  align-items: center;
+}

@@ -20,6 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 SITE = HERE / "site"
 DIST = HERE / "dist"
+OVERLAY = HERE / "overlay"
 DOMAIN = "https://thepaymaster.co.uk"
 
 # Head links that only resolve when WordPress is answering. Left in place they
@@ -34,6 +35,9 @@ HEADERS = """/*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
 
 /wp-content/*
   Cache-Control: public, max-age=31536000, immutable
@@ -88,6 +92,24 @@ def main() -> None:
             f.write_text(new)
             stripped += 1
 
+    # The overlay goes last in the head so it wins on equal specificity, and is
+    # cache-busted by its own mtime so a fix is never served stale.
+    (DIST / "assets").mkdir(exist_ok=True)
+    stamp = 0
+    for css in OVERLAY.glob("*.css"):
+        shutil.copy2(css, DIST / "assets" / css.name)
+        stamp = max(stamp, int(css.stat().st_mtime))
+    tags = "".join(
+        f'<link rel="stylesheet" href="/assets/{c.name}?v={stamp}">'
+        for c in sorted(OVERLAY.glob("*.css")))
+    linked = 0
+    for f in DIST.rglob("*.html"):
+        text = f.read_text("utf-8", "replace")
+        if "</head>" not in text:
+            continue
+        f.write_text(text.replace("</head>", tags + "</head>", 1))
+        linked += 1
+
     (DIST / "_headers").write_text(HEADERS)
     (DIST / "_redirects").write_text(REDIRECTS)
     (DIST / "robots.txt").write_text(ROBOTS)
@@ -104,6 +126,7 @@ def main() -> None:
     size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
     print(f"  dist        {files} files, {size/1024/1024:.1f} MB")
     print(f"  head links  stripped from {stripped} pages")
+    print(f"  overlay     linked into {linked} pages")
     print(f"  sitemap     {len(pages)} pages")
 
 
