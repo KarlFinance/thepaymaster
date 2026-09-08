@@ -12,6 +12,7 @@ import { type Env, type Actor, id, nextRef, log, record, canMove, typeName,
 import { hashPassword, verifyPassword, issue, open, cookie, clearCookie,
          fromRequest } from "./auth.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
+import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { format, parse } from "./money.ts";
 
 const CURRENCIES: Record<string, number> = {
@@ -24,6 +25,11 @@ export default {
     const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
 
     try {
+      // Public, and deliberately before the session check: the front door
+      // cannot be behind a login.
+      if (url.pathname === "/enquiry") {
+        return request.method === "POST" ? submitEnquiry(request, env) : enquiryForm();
+      }
       if (url.pathname === "/login") return login(request, env, ip);
       if (url.pathname === "/logout") return logout();
 
@@ -41,6 +47,14 @@ export default {
         return request.method === "POST"
           ? createTransaction(request, env, actor, admin)
           : newForm(admin);
+      }
+      if (url.pathname === "/enquiries") return inbox(env, admin);
+      if (url.pathname.startsWith("/e/")) {
+        const eid = url.pathname.slice(3).split("/")[0];
+        if (url.pathname.endsWith("/status") && request.method === "POST") {
+          return enquiryStatus(request, env, actor, eid, () => nextRef(env.DB));
+        }
+        return enquiryDetail(env, admin, eid);
       }
       if (url.pathname === "/log") return auditView(env, admin);
       if (url.pathname.startsWith("/t/")) {
