@@ -1,0 +1,7 @@
+# Routes are added separately rather than declared here: adding the apex route
+# is the moment the public site changes over, and that should be a deliberate
+# act rather than a side effect of a deploy.
+name = "thepaymaster-router"
+main = "index.js"
+compatibility_date = "2026-09-08"
+workers_dev = false
