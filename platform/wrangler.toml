@@ -16,13 +16,10 @@ binding = "DB"
 database_name = "thepaymaster"
 database_id = "d6439bf3-f101-4169-b21a-49e7dc6ea0cf"
 
-# Uncomment the moment R2 is enabled on the account, then create the bucket
-# with `wrangler r2 bucket create thepaymaster-docs` and deploy. Until then the
-# deploy is refused outright (code 10042), and without the binding an upload
-# refuses politely and loses nothing the client typed.
-#
-# The upload path itself is tested — miniflare simulates R2 locally whether or
-# not the account has it, so `wrangler dev` exercises the real code.
-# [[r2_buckets]]
-# binding = "DOCS"
-# bucket_name = "thepaymaster-docs"
+# Passports, proof of address, incorporation documents and, later, the
+# settlement evidence the dossier is built from. Created in WEUR deliberately:
+# it holds identity documents for UK and EU clients, and having that data sit
+# in Europe is one less thing to have to explain.
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "thepaymaster"
