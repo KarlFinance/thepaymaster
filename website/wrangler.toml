@@ -1,0 +1,8 @@
+# ThePaymaster's site lives in the karl.finance Cloudflare account, which is
+# where the thepaymaster.co.uk zone is and where everything else is being
+# consolidated. Pages config rejects account_id, so the account is pinned by
+# CLOUDFLARE_ACCOUNT_ID in deploy.sh instead — this Mac has been logged into two
+# Cloudflare accounts and wrangler otherwise reuses whichever it cached last.
+name = "thepaymaster"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-09-08"

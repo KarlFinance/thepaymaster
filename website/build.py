@@ -21,6 +21,7 @@ HERE = Path(__file__).parent
 SITE = HERE / "site"
 DIST = HERE / "dist"
 OVERLAY = HERE / "overlay"
+FUNCTIONS = HERE / "functions"
 DOMAIN = "https://thepaymaster.co.uk"
 
 # Head links that only resolve when WordPress is answering. Left in place they
@@ -53,8 +54,7 @@ HEADERS = """/*
 """
 
 # WordPress plumbing nobody should reach on a static site.
-REDIRECTS = """/wp-admin/*  /  301
-/wp-login.php  /  301
+REDIRECTS = """/wp-login.php  /  301
 /feed/*  /  301
 /comments/feed/*  /  301
 /xmlrpc.php  /  301
@@ -110,6 +110,9 @@ def main() -> None:
         f.write_text(text.replace("</head>", tags + "</head>", 1))
         linked += 1
 
+    if FUNCTIONS.is_dir():
+        shutil.copytree(FUNCTIONS, DIST / "functions")
+
     (DIST / "_headers").write_text(HEADERS)
     (DIST / "_redirects").write_text(REDIRECTS)
     (DIST / "robots.txt").write_text(ROBOTS)
@@ -128,6 +131,8 @@ def main() -> None:
     print(f"  head links  stripped from {stripped} pages")
     print(f"  overlay     linked into {linked} pages")
     print(f"  sitemap     {len(pages)} pages")
+    fns = len(list((DIST / "functions").rglob("*.js"))) if (DIST / "functions").is_dir() else 0
+    print(f"  functions   {fns}")
 
 
 if __name__ == "__main__":
