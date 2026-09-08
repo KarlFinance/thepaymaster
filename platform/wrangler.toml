@@ -1,0 +1,20 @@
+# ThePaymaster platform — admin and client, one worker, two hostnames.
+#
+# Lives in the karl.finance Cloudflare account (c2102a85...), where the
+# thepaymaster.co.uk zone is. Routes are added deliberately rather than
+# declared here, so a deploy never changes what the public sees by accident.
+name = "thepaymaster-platform"
+main = "src/index.ts"
+compatibility_date = "2026-07-17"   # the newest the installed wrangler runtime accepts
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "thepaymaster"
+database_id = "d6439bf3-f101-4169-b21a-49e7dc6ea0cf"
+
+# Document storage arrives with the dossier work. R2 needs enabling once in the
+# dashboard for this account before the binding can exist.
+# [[r2_buckets]]
+# binding = "DOCS"
+# bucket_name = "thepaymaster-docs"
