@@ -1,0 +1,10 @@
+{
+ "slug": "join-transaction",
+ "title": "Join A Transaction – ThePaymaster®",
+ "heading": "Join A Transaction",
+ "description": "",
+ "body": "<h4>Brief ThePaymaster®</h4>\n<p>This is the first stage of onboarding with ThePaymaster® as a <em><strong>Recipient</strong></em> joining a transaction. Please fill in these required details and then please lookout for an email with further details.</p>\n@@EMBED-0@@",
+ "embeds": [
+  "<div class=\"elementor-shortcode\"><script src=\"https://app.suitedash.com/frm/2uyysgNpLFJNpvTXd.js\"></script></div>"
+ ]
+}

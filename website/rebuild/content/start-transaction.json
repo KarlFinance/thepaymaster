@@ -1,0 +1,10 @@
+{
+ "slug": "start-transaction",
+ "title": "Start A Transaction – ThePaymaster®",
+ "heading": "Start A Transaction",
+ "description": "",
+ "body": "<h4>Brief ThePaymaster®</h4>\n<p>This is the first stage of onboarding with ThePaymaster® Please fill in these required details and then please lookout for an email with further.details</p>\n@@EMBED-0@@",
+ "embeds": [
+  "<div class=\"elementor-shortcode\"><script src=\"https://app.suitedash.com/frm/22KwuB8AJT3K6xDps.js\"></script></div>"
+ ]
+}

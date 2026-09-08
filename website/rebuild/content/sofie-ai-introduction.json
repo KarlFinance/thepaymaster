@@ -1,0 +1,11 @@
+{
+ "slug": "sofie-ai-introduction",
+ "title": "SOfie AI Introduction – ThePaymaster®",
+ "heading": "SOfie AI Introduction",
+ "description": "",
+ "body": "@@EMBED-0@@@@EMBED-1@@",
+ "embeds": [
+  "<script data-agent-id=\"agt__7xs0ulO\" data-client-key=\"YXV0aDB8Njc5ZjM3MjE4MGI4MDliYzMwNThiNzFmOjFvQnJkbWR2UUdValNycllsME90VA==\" data-mode=\"fabio\" data-monitor=\"true\" data-name=\"did-agent\" src=\"https://agent.d-id.com/v1/index.js\" type=\"module\">\n</script>",
+  "<button onclick=\"openAI()\" style=\"padding:15px 30px; font-size:18px; background:#f04e30; color:white; border:none; cursor:pointer;\">\n   🚀 Launch ThePaymaster AI\n</button>\n<script>\nfunction openAI() {\n    let aiWindow = window.open(\"https://studio.d-id.com/agents/share?id=agt__7xs0ulO\", \"_blank\", \"fullscreen=yes\");\n    aiWindow.focus();\n}\n</script>"
+ ]
+}

@@ -1,0 +1,10 @@
+{
+ "slug": "sofie-interview",
+ "title": "SOFie Interview – ThePaymaster®",
+ "heading": "SOFie Interview",
+ "description": "",
+ "body": "@@EMBED-0@@",
+ "embeds": [
+  "<div class=\"elementor-shortcode\"><!-- Start of Meetings Embed Script -->\n<div class=\"meetings-iframe-container\" data-src=\"https://meetings.hubspot.com/keiron3/keiron-allen?embed=true\"></div>\n<script src=\"https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js\" type=\"text/javascript\"></script>\n<!-- End of Meetings Embed Script --></div>"
+ ]
+}

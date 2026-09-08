@@ -1,0 +1,10 @@
+{
+ "slug": "book-call",
+ "title": "Book A Call – ThePaymaster®",
+ "heading": "Book A Call",
+ "description": "",
+ "body": "@@EMBED-0@@",
+ "embeds": [
+  "<div class=\"elementor-shortcode\"><!-- Start of Meetings Embed Script -->\n<div class=\"meetings-iframe-container\" data-src=\"https://meetings.hubspot.com/keiron3/briefing-and-evaluation?embed=true\"></div>\n<script src=\"https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js\" type=\"text/javascript\"></script>\n<!-- End of Meetings Embed Script --></div>"
+ ]
+}

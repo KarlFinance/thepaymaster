@@ -1,0 +1,11 @@
+{
+ "slug": "contact-us",
+ "title": "Contact Us – ThePaymaster®",
+ "heading": "Contact us",
+ "description": "",
+ "body": "<img src=\"/wp-content/uploads/2024/05/contactus-img1.jpg\" alt=\"\">.profile-header END <p>167-169 THE FIFTH FLOOR, GREAT PORTLAND STREET, LONDON GREATER LONDON W1W 5PF</p>\n.profile-body END <img src=\"/wp-content/uploads/2024/05/contactus-img2.jpg\" alt=\"\">.profile-header END <p><a href=\"mailto:info@thepaymaster.co.uk\">info@thepaymaster.co.uk</a></p>\n.profile-body END <img src=\"/wp-content/uploads/2024/05/contactus-img3.jpg\" alt=\"\">.profile-header END <p>+44 20 7088 8267<br></br> +44 20 7088 8663<br></br></p>\n.profile-body END <h3>GET IN TOUCH</h3>\n<h2>Needs help? let's get in touch</h2>\n@@EMBED-0@@<h3>LOCATION</h3>\n<h2>How to reach our location</h2>\n@@EMBED-1@@",
+ "embeds": [
+  "<script data-cfasync=\"false\" src=\"/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js\"></script><script charset=\"utf-8\" src=\"//js.hsforms.net/forms/embed/v2.js\" type=\"text/javascript\"></script>\n<script>\n  hbspt.forms.create({\n    portalId: \"48895789\",\n    formId: \"3aae0322-b41b-430c-bf26-c50ef872904b\"\n  });\n</script>",
+  "<div class=\"elementor-custom-embed\">\n<iframe aria-label=\"85 Great Portland Street, First Floor, London W1W 7LT\" loading=\"lazy\" src=\"https://maps.google.com/maps?q=85%20Great%20Portland%20Street%2C%20First%20Floor%2C%20London%20W1W%207LT&amp;t=m&amp;z=10&amp;output=embed&amp;iwloc=near\" title=\"85 Great Portland Street, First Floor, London W1W 7LT\"></iframe>\n</div>"
+ ]
+}

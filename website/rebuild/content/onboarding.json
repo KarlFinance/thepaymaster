@@ -1,0 +1,10 @@
+{
+ "slug": "onboarding",
+ "title": "Onboarding – ThePaymaster®",
+ "heading": "Onboarding",
+ "description": "",
+ "body": "<img src=\"/wp-content/uploads/2024/05/page-about-1.jpg\" alt=\"\"><h3>Success</h3>\n<h2>Thank you for contacting The Paymaster®</h2>\n<p>This is to confirm your initial transaction request has been recived and one of our team will email you shortly.</p>\n<h3>Best Quality Services</h3>\n<p>We aim to reply within 1 hour</p>\n<h3>Professional Agents</h3>\n<p>Our team care about everyone who contact us</p>\n@@EMBED-0@@",
+ "embeds": [
+  "Start of Meetings Embed Script \n<div class=\"meetings-iframe-container\" data-src=\"https://meetings.hubspot.com/keiron3/30-minute-onboarding?embed=true\"></div>\n<script src=\"https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js\" type=\"text/javascript\"></script>\n End of Meetings Embed Script"
+ ]
+}
