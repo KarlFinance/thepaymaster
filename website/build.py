@@ -1,0 +1,111 @@
+"""
+Turn the capture into something Cloudflare Pages can serve.
+
+The capture is byte-faithful WordPress output. Three things in it only made
+sense while WordPress was behind it: the head links that advertise the REST
+API, the feeds and oEmbed; the sitemap, which pointed at Cloudways; and the
+robots.txt, which pointed at a sitemap that no longer exists. Those are
+rewritten. Everything a visitor can see is left exactly as captured.
+
+    python3 build.py        # site/ -> dist/
+"""
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).parent
+SITE = HERE / "site"
+DIST = HERE / "dist"
+DOMAIN = "https://thepaymaster.co.uk"
+
+# Head links that only resolve when WordPress is answering. Left in place they
+# are forty-four pages of 404s for anything that crawls them.
+DEAD_HEAD = re.compile(
+    r'[ \t]*<link rel=(?:"|\')(?:https://api\.w\.org/|alternate|EditURI|wlwmanifest|shortlink)'
+    r'(?:"|\')[^>]*>\n?', re.I)
+DEAD_HEAD_EXTRA = re.compile(
+    r'[ \t]*<link[^>]+href=(?:"|\')(?:/wp-json/|/feed/|/comments/feed/)[^>]*>\n?', re.I)
+
+HEADERS = """/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+
+/wp-content/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/wp-includes/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/cdn-cgi/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+"""
+
+# WordPress plumbing nobody should reach on a static site.
+REDIRECTS = """/wp-admin/*  /  301
+/wp-login.php  /  301
+/feed/*  /  301
+/comments/feed/*  /  301
+/xmlrpc.php  /  301
+"""
+
+ROBOTS = f"""User-agent: *
+Allow: /
+Disallow: /wp-admin/
+
+Sitemap: {DOMAIN}/sitemap.xml
+"""
+
+
+def page_list() -> list[tuple[str, str]]:
+    """(url, lastmod) for every published page, straight from the origin."""
+    req = urllib.request.Request(
+        DOMAIN + "/wp-json/wp/v2/pages?per_page=100&_fields=link,modified,status",
+        headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        pages = json.load(r)
+    return sorted((p["link"], p["modified"][:10]) for p in pages
+                  if p.get("status", "publish") == "publish")
+
+
+def main() -> None:
+    if DIST.exists():
+        shutil.rmtree(DIST)
+    shutil.copytree(SITE, DIST)
+
+    stripped = 0
+    for f in DIST.rglob("*.html"):
+        text = f.read_text("utf-8", "replace")
+        new = DEAD_HEAD_EXTRA.sub("", DEAD_HEAD.sub("", text))
+        if new != text:
+            f.write_text(new)
+            stripped += 1
+
+    (DIST / "_headers").write_text(HEADERS)
+    (DIST / "_redirects").write_text(REDIRECTS)
+    (DIST / "robots.txt").write_text(ROBOTS)
+
+    pages = page_list()
+    urls = "".join(
+        f"  <url><loc>{u}</loc><lastmod>{m}</lastmod></url>\n" for u, m in pages)
+    (DIST / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{urls}</urlset>\n")
+
+    files = sum(1 for f in DIST.rglob("*") if f.is_file())
+    size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
+    print(f"  dist        {files} files, {size/1024/1024:.1f} MB")
+    print(f"  head links  stripped from {stripped} pages")
+    print(f"  sitemap     {len(pages)} pages")
+
+
+if __name__ == "__main__":
+    main()
