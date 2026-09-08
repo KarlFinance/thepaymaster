@@ -91,6 +91,17 @@ COMPANY = "ThePaymaster Ltd®"
 # the whole 18MB of Elementor's leftovers.
 ASSET_DIRS = ["wp-content/uploads/elementor/google-fonts"]
 
+# The three intake forms are still WordPress: the worker sends those paths to
+# Cloudways, and the HTML that comes back asks this origin for its stylesheets
+# and scripts. So their assets have to ship even though the rebuild renders none
+# of those pages — without them the forms arrive unstyled with no JavaScript,
+# which on a KYC intake is worse than a plain 404.
+WORDPRESS_PAGES = ["form", "source-of-funds-verification", "ppp-stage-one-evaluation"]
+
+# Elementor's webpack runtime names these at load time, so no HTML references
+# them and scanning cannot find them.
+RUNTIME_CHUNKS = "wp-content/plugins/elementor*/assets/js/*.bundle.min.js"
+
 
 def nav_html(current: str) -> str:
     items = []
@@ -245,6 +256,18 @@ def main() -> None:
             if f.is_file():
                 wanted.add(str(f.relative_to(CAPTURE)))
 
+    for slug in WORDPRESS_PAGES:
+        page_html = (CAPTURE / slug / "index.html")
+        if not page_html.is_file():
+            print(f"  ! {slug} missing from the capture; its assets cannot ship")
+            continue
+        raw = page_html.read_text("utf-8", "replace")
+        wanted.update(
+            m.lstrip("/") for m in re.findall(
+                r'(?:href|src)="(?:https://thepaymaster\.co\.uk)?(/wp-[^"?]+)', raw))
+    wanted.update(str(f.relative_to(CAPTURE))
+                  for f in CAPTURE.glob(RUNTIME_CHUNKS) if f.is_file())
+
     copied = missing = 0
     for rel in sorted(wanted):
         src = CAPTURE / rel
@@ -255,6 +278,36 @@ def main() -> None:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         copied += 1
+
+    (OUT / "_headers").write_text("""/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/wp-content/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+""")
+
+    # Two pages that only ever had a title band, and the WordPress plumbing.
+    (OUT / "_redirects").write_text("""/blog/*  /  301
+/blog  /  301
+/verified-wallet/*  /  301
+/verified-wallet  /  301
+/wp-login.php  /  301
+/xmlrpc.php  /  301
+/feed/*  /  301
+/comments/feed/*  /  301
+""")
+
+    (OUT / "robots.txt").write_text(
+        f"User-agent: *\nAllow: /\nDisallow: /wp-admin/\n\n"
+        f"Sitemap: {DOMAIN}/sitemap.xml\n")
 
     urls = "".join(
         f"  <url><loc>{DOMAIN}/"

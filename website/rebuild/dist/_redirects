@@ -1,0 +1,8 @@
+/blog/*  /  301
+/blog  /  301
+/verified-wallet/*  /  301
+/verified-wallet  /  301
+/wp-login.php  /  301
+/xmlrpc.php  /  301
+/feed/*  /  301
+/comments/feed/*  /  301
