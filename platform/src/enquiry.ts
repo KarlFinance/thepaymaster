@@ -11,11 +11,15 @@
 
 import { type Env, type Actor, id, log, record } from "./db.ts";
 import { page, nav, esc } from "./views.ts";
+import { send, staffEmails, enquiryLanded, enquiryAcknowledged } from "./email.ts";
 import { format, parse } from "./money.ts";
 
 const CURRENCIES: Record<string, number> = {
   GBP: 2, EUR: 2, USD: 2, USDT: 6, USDC: 6, BTC: 8, ETH: 18,
 };
+
+/** Where the notification email points. */
+const ADMIN_URL = "https://admin.thepaymaster.co.uk";
 
 const LIKELIHOOD: Record<string, string> = {
   exploring: "Exploring options",
@@ -129,7 +133,8 @@ export function enquiryForm(error = "", was: Record<string, string> = {}): Respo
 </div>`);
 }
 
-export async function submitEnquiry(request: Request, env: Env): Promise<Response> {
+export async function submitEnquiry(request: Request, env: Env,
+                                    later: (p: Promise<unknown>) => void): Promise<Response> {
   const f = await request.formData();
   const s = (k: string) => String(f.get(k) ?? "").trim();
   const was = Object.fromEntries([...f.entries()].map(([k, v]) => [k, String(v)]));
@@ -166,6 +171,30 @@ export async function submitEnquiry(request: Request, env: Env): Promise<Respons
     source: request.headers.get("Referer") ?? null,
     status: "new",
   });
+
+  // After the row is safely down, and never in the way of the response: the
+  // enquiry is saved whether or not anyone's mail server is having a good day.
+  const actor = { kind: "system" as const, id: null, ip };
+  const amount = amountMinor === null ? null
+    : `${currency} ${format(amountMinor, decimals)}`;
+  later((async () => {
+    const staff = await staffEmails(env);
+    if (staff.length) {
+      const m = enquiryLanded({
+        id: eid, name: s("name"), email: s("email"), phone: s("phone"),
+        whatsapp_ok: f.get("whatsapp_ok") ? 1 : 0,
+        contact_pref: s("contact_pref"), amount,
+        expected_on: s("expected_on"), likelihood: s("likelihood"),
+        detail: s("detail"),
+      }, ADMIN_URL);
+      await send(env as any, actor, { ...m, to: staff, replyTo: s("email"),
+        about: { kind: "enquiries", id: eid } });
+    }
+    const ack = enquiryAcknowledged(s("name"));
+    await send(env as any, actor, { ...ack, to: s("email"),
+      about: { kind: "enquiries", id: eid } });
+  })());
+
   return thanks();
 }
 

@@ -20,7 +20,7 @@ const CURRENCIES: Record<string, number> = {
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
 
@@ -28,7 +28,9 @@ export default {
       // Public, and deliberately before the session check: the front door
       // cannot be behind a login.
       if (url.pathname === "/enquiry") {
-        return request.method === "POST" ? submitEnquiry(request, env) : enquiryForm();
+        return request.method === "POST"
+          ? submitEnquiry(request, env, (p) => ctx.waitUntil(p))
+          : enquiryForm();
       }
       if (url.pathname === "/login") return login(request, env, ip);
       if (url.pathname === "/logout") return logout();
