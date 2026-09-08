@@ -13,7 +13,11 @@ import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
          handleSignOut, handleAccount } from "./adminauth.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
-import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal } from "./client.ts";
+import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
+         clientVerify } from "./client.ts";
+import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
+         history, documentsFor } from "./kyc.ts";
+import { fetchDocument } from "./documents.ts";
 import { mint } from "./tokens.ts";
 import { send, startLink, invite } from "./email.ts";
 
@@ -71,6 +75,9 @@ export default {
           return joinLink(env, url.pathname.slice(6), request);
         }
         if (url.pathname === "/signout") return signOut(env, request);
+        if (url.pathname === "/verify") {
+          return clientVerify(env, request, (p) => ctx.waitUntil(p));
+        }
         if (url.pathname === "/") return clientHome(env, request);
         if (url.pathname.startsWith("/d/")) {
           return clientDeal(env, request, url.pathname.slice(3).split("/")[0]);
@@ -115,6 +122,17 @@ export default {
           return enquiryStatus(request, env, actor, eid, () => nextRef(env.DB));
         }
         return enquiryDetail(env, admin, eid);
+      }
+      if (url.pathname === "/kyc") return kycQueue(env, admin);
+      if (url.pathname.startsWith("/p/")) {
+        const pid = url.pathname.slice(3).split("/")[0];
+        if (url.pathname.endsWith("/decide") && request.method === "POST") {
+          return kycDecide(request, env, actor, pid);
+        }
+        return partyView(env, admin, pid);
+      }
+      if (url.pathname.startsWith("/doc/")) {
+        return serveDocument(env, actor, url.pathname.slice(5));
       }
       if (url.pathname === "/log") return auditView(env, admin);
       if (url.pathname.startsWith("/t/")) {
@@ -455,4 +473,172 @@ async function release(request: Request, env: Env, actor: Actor, txId: string,
   })());
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
+}
+
+// ---------------------------------------------------------------------------
+// Verification, from our side
+// ---------------------------------------------------------------------------
+
+async function kycQueue(env: Env, admin: { name: string }): Promise<Response> {
+  const rows = await reviewQueue(env);
+  const waiting = rows.filter((r) => r.status === "pending");
+  const done = rows.filter((r) => r.status !== "pending");
+
+  const table = (list: any[]) => list.length
+    ? `<table><tr><th>Who</th><th>Kind</th><th>Documents</th><th>Sent</th><th>State</th></tr>` +
+      list.map((r) => `<tr>
+        <td><a href="/p/${esc(r.id)}">${esc(r.legal_name || r.display_name)}</a>
+          <div class="muted">${esc(r.email)}</div></td>
+        <td>${esc(r.kind)}</td><td>${r.docs}</td>
+        <td class="muted">${esc((r.kyc_submitted_at ?? "").slice(0, 16))}</td>
+        <td><span class="tag">${esc(r.status ?? "—")}</span></td></tr>`).join("") + `</table>`
+    : `<p class="muted">Nothing here.</p>`;
+
+  return page("Verification", `<h1>Verification</h1>
+    <h2>Waiting on us</h2>
+    <div class="panel" style="max-width:none">${table(waiting)}</div>
+    <h2>Decided</h2>
+    <div class="panel" style="max-width:none">${table(done)}</div>
+    <p class="muted">Checks are run at Themis. What is recorded here is what was
+       collected, what was concluded, and by whom.</p>`,
+    { nav: nav("/kyc", admin.name) });
+}
+
+async function partyView(env: Env, admin: { name: string }, partyId: string): Promise<Response> {
+  const p = await env.DB.prepare("SELECT * FROM parties WHERE id = ?")
+    .bind(partyId).first<any>();
+  if (!p) return new Response("Not found", { status: 404 });
+
+  const docs = await documentsFor(env, partyId);
+  const people = p.kind === "company" ? await peopleOf(env, partyId) : [];
+  const past = await history(env, partyId);
+  const cleared = await standingCheck(env, partyId);
+  const missing = await whatIsMissing(env, p);
+
+  const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
+  const detail = p.kind === "company"
+    ? kv("Registered name", esc(p.legal_name ?? "—")) +
+      kv("Number", esc(p.company_no ?? "—")) +
+      kv("Incorporated", `${esc(p.incorporated_in ?? "—")}${p.incorporated_on
+        ? `, ${esc(p.incorporated_on)}` : ""}`)
+    : kv("Legal name", esc(p.legal_name ?? "—")) +
+      kv("Date of birth", esc(p.date_of_birth ?? "—")) +
+      kv("Nationality", esc(p.nationality ?? "—")) +
+      kv("Resides in", esc(p.residence_country ?? "—"));
+
+  const docList = docs.length
+    ? `<table><tr><th>Document</th><th>File</th><th>Size</th><th>SHA-256</th></tr>` +
+      docs.map((d) => `<tr>
+        <td>${esc(d.kind.replace(/_/g, " "))}</td>
+        <td><a href="/doc/${esc(d.id)}">${esc(d.filename ?? d.id)}</a></td>
+        <td class="muted">${Math.round((d.bytes ?? 0) / 1024)}KB</td>
+        <td class="log muted">${esc(String(d.sha256).slice(0, 16))}…</td></tr>`).join("") +
+      `</table>`
+    : `<p class="muted">Nothing uploaded.</p>`;
+
+  const peopleList = p.kind === "company"
+    ? `<h2>Directors and owners</h2><div class="panel">${people.length
+        ? `<table><tr><th>Who</th><th>Role</th><th>Owns</th><th>Verified</th></tr>` +
+          people.map((x) => `<tr>
+            <td><a href="/p/${esc(x.id)}">${esc(x.display_name)}</a>
+              <div class="muted">${esc(x.email)}</div></td>
+            <td>${esc(x.relation)}</td>
+            <td>${x.ownership_bps ? (x.ownership_bps / 100).toFixed(2) + "%" : "—"}</td>
+            <td class="muted">${x.kyc_submitted_at ? "submitted" : "not yet"}</td>
+          </tr>`).join("") + `</table>`
+        : `<p class="muted">None recorded.</p>`}</div>`
+    : "";
+
+  const decision = `
+    <h2>Decide</h2>
+    <div class="panel">
+      ${missing.length
+        ? `<p class="muted">Still outstanding: ${esc(missing.join(", "))}.</p>` : ""}
+      <form method="post" action="/p/${esc(partyId)}/decide">
+        <label for="ceil">Cleared up to (GBP, blank for no ceiling)</label>
+        <input id="ceil" name="ceiling" placeholder="500,000.00">
+        <label for="months">Good for (months)</label>
+        <input id="months" name="months" value="12" style="max-width:110px">
+        <label for="dn">What you concluded, and from what</label>
+        <input id="dn" name="note" placeholder="Themis check clear, passport and bill match">
+        <div class="row">
+          <button class="go" name="passed" value="1">Pass</button>
+          <button class="plain" name="passed" value="0">Refuse</button>
+        </div>
+        <p class="muted">A ceiling and an expiry are required because a clearance
+          that never lapses is how somebody checked for a small deal gets waved
+          through a large one two years later.</p>
+      </form>
+    </div>`;
+
+  const pastList = past.length
+    ? `<table class="log"><tr><th>When</th><th>Kind</th><th>By</th><th>State</th><th>Notes</th></tr>` +
+      past.map((v) => `<tr><td>${esc((v.verified_at ?? v.created_at ?? "").slice(0, 16))}</td>
+        <td>${esc(v.kind)}</td><td>${esc(v.provider)}</td>
+        <td><span class="tag">${esc(v.status)}</span></td>
+        <td>${esc(v.notes ?? "")}</td></tr>`).join("") + `</table>`
+    : `<p class="muted">Nothing yet.</p>`;
+
+  return page(p.display_name, `
+    <h1>${esc(p.legal_name || p.display_name)}</h1>
+    <div class="panel"><table>
+      ${kv("Email", esc(p.email))}
+      ${kv("Kind", esc(p.kind))}
+      ${detail}
+      ${kv("Address", esc(p.address ?? "—"))}
+      ${kv("Sent to us", esc(p.kyc_submitted_at ?? "not yet"))}
+      ${kv("Standing clearance", cleared
+        ? `to ${cleared.band_ceiling_minor === null ? "no ceiling"
+            : "GBP " + format(cleared.band_ceiling_minor, 2)}, until
+           ${esc((cleared.expires_at ?? "").slice(0, 10))}`
+        : `<span class="muted">none</span>`)}
+    </table></div>
+
+    <h2>Documents</h2>
+    <div class="panel" style="max-width:none">${docList}
+      <p class="muted">Each hash was taken as the file arrived, not from our copy —
+         so it proves the file has not changed since.</p></div>
+    ${peopleList}
+    ${decision}
+
+    <h2>Everything concluded so far</h2>
+    <div class="panel" style="max-width:none">${pastList}</div>`,
+    { nav: nav("/kyc", admin.name) });
+}
+
+async function kycDecide(request: Request, env: Env, actor: Actor,
+                         partyId: string): Promise<Response> {
+  const f = await request.formData();
+  const passed = String(f.get("passed") ?? "") === "1";
+  const months = Math.max(1, Math.min(60, Number(f.get("months")) || 12));
+  const raw = String(f.get("ceiling") ?? "").trim();
+  let ceiling: number | null = null;
+  if (raw) {
+    try { ceiling = parse(raw, 2); }
+    catch { return new Response("That ceiling is not an amount", { status: 400 }); }
+  }
+  await decide(env, actor, partyId, {
+    passed, ceilingMinor: ceiling, months,
+    note: String(f.get("note") ?? "").trim(),
+  });
+  return Response.redirect(new URL(`/p/${partyId}`, request.url).toString(), 302);
+}
+
+/**
+ * Hand a stored document back.
+ *
+ * Every retrieval is logged. Somebody's passport being looked at is an event,
+ * and the dossier should be able to say who looked and when.
+ */
+async function serveDocument(env: Env, actor: Actor, artefactId: string): Promise<Response> {
+  const doc = await fetchDocument(env, artefactId);
+  if (!doc) return new Response("Not found", { status: 404 });
+  await log(env.DB, actor, "artefact.viewed", "artefacts", artefactId);
+  return new Response(doc.body, {
+    headers: {
+      "Content-Type": doc.contentType,
+      "Content-Disposition": `inline; filename="${doc.filename.replace(/"/g, "")}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 }

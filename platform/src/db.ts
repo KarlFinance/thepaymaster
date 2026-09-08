@@ -16,6 +16,11 @@ export interface Env {
   /** Local development only — see the hostname guard where it is read. */
   DEV_ADMIN_EMAIL?: string;
   CLIENT_BASE?: string;
+  /** Document storage. Absent until R2 is switched on for the account. */
+  DOCS?: R2Bucket;
+  /** Sumsub is built but dark; it wakes up when both of these exist. */
+  SUMSUB_TOKEN?: string;
+  SUMSUB_SECRET?: string;
 }
 
 export interface Actor {

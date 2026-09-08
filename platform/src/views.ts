@@ -70,7 +70,7 @@ export function page(title: string, body: string, opts: { nav?: string } = {}): 
 export function nav(current: string, who: string): string {
   const item = (href: string, label: string) =>
     `<a href="${href}"${current === href ? ' aria-current="page"' : ""}>${label}</a>`;
-  return `<header><b>ThePaymaster</b>${item("/", "Pipeline")}${item("/enquiries", "Enquiries")}${item("/new", "New transaction")}${item("/log", "Audit log")}
+  return `<header><b>ThePaymaster</b>${item("/", "Pipeline")}${item("/enquiries", "Enquiries")}${item("/kyc", "Verification")}${item("/new", "New transaction")}${item("/log", "Audit log")}
     <span style="margin-left:auto;color:#B6C0D0;font-size:14px;font-weight:600">${esc(who)}</span>
     ${item("/account", "Your password")}<a href="/signout">Sign out</a></header>`;
 }

@@ -252,6 +252,7 @@ label{display:block;margin:16px 0 5px;font-weight:600;color:var(--ink);font-size
 input{width:100%;padding:11px 13px;border:1px solid var(--rule);border-radius:9px;font:inherit;background:#fff}
 input:focus{outline:2px solid var(--accent);outline-offset:1px}
 button.go{width:100%;margin-top:20px;background:var(--accent);color:var(--ink);border:0;border-radius:9px;padding:13px;font:inherit;font-weight:700;cursor:pointer}
+a:has(button.go){text-decoration:none;display:block}
 .err{background:#FDECEA;border:1px solid #F5C2BC;color:#8A1F11;padding:11px 14px;border-radius:9px;margin-bottom:16px;font-size:14.5px}
 .ok{background:#EAF7F0;border:1px solid #B7E0C9;color:#12603D;padding:11px 14px;border-radius:9px;margin-bottom:16px;font-size:14.5px}
 .muted{color:var(--text);font-size:13.5px}
@@ -449,12 +450,24 @@ export async function handleSignOut(env: Env, request: Request): Promise<Respons
 export async function handleAccount(env: Env, request: Request, actor: Actor,
                                     admin: Admin, sessionId: string): Promise<Response> {
   const forced = admin.must_change_password === 1;
-  const render = (error = "", done = false) => screen("Your account", `
+
+  /**
+   * The done state is a page of its own rather than the form with a banner on
+   * it. Re-rendering the form after a successful change left the "before going
+   * any further" wording in place and no way onward, because `admin` was
+   * loaded at the start of the request and still said a change was owed.
+   */
+  const finished = () => screen("Password changed", `
+    <h1>Password changed</h1>
+    <p class="sub">Every other session has been signed out.</p>
+    <div class="ok">You are signed in as ${esc(admin.email)}.</div>
+    <a href="/"><button class="go" type="button">Continue to the pipeline</button></a>`);
+
+  const render = (error = "") => screen("Your account", `
     <h1>Your password</h1>
     <p class="sub">${forced ? "Choose your own before going any further."
       : `Signed in as ${esc(admin.email)}.`}</p>
     ${error ? `<div class="err">${error}</div>` : ""}
-    ${done ? `<div class="ok">Changed. Every other session has been signed out.</div>` : ""}
     <form method="post" action="/account">
       <label for="c">Current password</label>
       <div class="pw"><input id="c" name="current" type="password" required
@@ -494,5 +507,5 @@ export async function handleAccount(env: Env, request: Request, actor: Actor,
   await log(env.DB, actor, "admin.password_changed", "admins", admin.id,
     { note: "other sessions revoked" });
 
-  return render("", true);
+  return finished();
 }

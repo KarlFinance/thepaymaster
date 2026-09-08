@@ -12,6 +12,9 @@ import { type Env, type Actor, id, log, insert, update, typeName } from "./db.ts
 import { mint, peek, redeem, sessionCookie, clearSession, whoIs, endSession } from "./tokens.ts";
 import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
 import { format } from "./money.ts";
+import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
+         peopleOf, standingCheck } from "./kyc.ts";
+import { documentsFor } from "./documents.ts";
 
 const MAX_RECIPIENTS = 10;
 
@@ -63,7 +66,7 @@ function shell(title: string, body: string, who?: string): Response {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${CSS}${REVEAL_CSS}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
+<style>${CSS}${REVEAL_CSS}${kycStyles()}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
@@ -326,10 +329,64 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
         ${t.amount_minor ? ` · ${esc(t.currency_out)} ${format(t.amount_minor, t.decimals_out)}` : ""}</div>
     </a>`).join("");
 
+  const cleared = await standingCheck(env, party.id);
+  const missing = cleared ? [] : await whatIsMissing(env, party);
+  const verify = cleared
+    ? `<div class="card"><h2>You are verified</h2>
+        <p class="muted" style="margin-bottom:0">Checked on
+          ${esc((cleared.verified_at ?? "").slice(0, 10))}${cleared.expires_at
+            ? `, good until ${esc(cleared.expires_at.slice(0, 10))}` : ""}.
+          You will not be asked again unless something changes.</p></div>`
+    : party.kyc_submitted_at
+      ? `<div class="card"><h2>With us for checking</h2>
+          <p class="muted" style="margin-bottom:0">Sent
+            ${esc(party.kyc_submitted_at.slice(0, 10))}. Nothing needed from you.</p></div>`
+      : `<div class="card"><h2>Verify yourself</h2>
+          <p>Before anything can move we need to know who you are.</p>
+          ${missing.length ? `<p class="muted">Outstanding: ${esc(missing.join(", "))}.</p>` : ""}
+          <p><a href="/verify"><button>Start</button></a></p></div>`;
+
   return shell("Your account", `
     <h1>Your transactions</h1>
     <p class="sub">Everything you are part of, and what each one needs from you.</p>
+    ${verify}
     <div class="card">${deals || `<p class="muted">Nothing here yet.</p>`}</div>`,
+    party.display_name);
+}
+
+export async function clientVerify(env: Env, request: Request,
+                                   later: (p: Promise<unknown>) => void): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  let party = await env.DB.prepare("SELECT * FROM parties WHERE id = ?")
+    .bind(who.partyId).first<any>();
+  if (!party) return signOut(env, request);
+
+  const actor: Actor = { kind: "party", id: party.id,
+    ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+
+  let error = "", saved = false, submitted = false;
+  if (request.method === "POST") {
+    const result = await receiveVerification(env, actor, party, request);
+    error = result.error ?? "";
+    saved = Boolean(result.saved);
+    submitted = Boolean(result.submitted);
+    party = await env.DB.prepare("SELECT * FROM parties WHERE id = ?")
+      .bind(who.partyId).first<any>();
+  }
+
+  if (submitted) {
+    return shell("Sent", `<div class="card">
+      <h1>Thank you</h1>
+      <p class="sub">We have everything we asked for.</p>
+      <p>One of us will check it and come back to you. You do not need to do
+         anything else for now, and you will not be asked for this again.</p>
+      <p><a href="/">Back to your transactions</a></p></div>`, party.display_name);
+  }
+
+  const docs = await documentsFor(env, party.id);
+  const people = party.kind === "company" ? await peopleOf(env, party.id) : [];
+  return shell("Verify", verifyForm(party, docs, people, error, saved),
     party.display_name);
 }
 
