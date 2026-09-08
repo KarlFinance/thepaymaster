@@ -133,6 +133,27 @@ export async function assess(env: Env, transactionId: string): Promise<Readiness
       : `${parties.length} verified and in date`,
   });
 
+  // --- and, for a wallet, that it really is theirs -------------------------
+  if (t.outbound === "crypto") {
+    const unproved: string[] = [];
+    for (const r of recipients) {
+      const d = await env.DB.prepare(
+        "SELECT address, proved_at FROM destinations WHERE participation_id = ?")
+        .bind(r.participation_id).first<any>();
+      // A recipient with no wallet at all has certainly not proved one.
+      // Skipping them made this line say "all proved" when nobody had.
+      if (!d || !d.proved_at) unproved.push(r.display_name);
+    }
+    checks.push({
+      key: "wallets_proved",
+      label: "Every recipient has proved their wallet",
+      met: recipients.length > 0 && unproved.length === 0,
+      detail: unproved.length
+        ? `No signature from ${unproved.join(", ")}`
+        : recipients.length ? "All proved by signature" : "No recipients",
+    });
+  }
+
   // --- where the money goes ------------------------------------------------
   const needs = t.outbound === "fiat" ? "bank details" : "a wallet address";
   const missingDest: string[] = [];
@@ -166,12 +187,16 @@ export async function assess(env: Env, transactionId: string): Promise<Readiness
          FROM sending_wallets WHERE transaction_id = ?`)
       .bind(transactionId).first<any>();
     const n = row?.n ?? 0, proved = row?.proved ?? 0;
+    // Recorded is not enough. On an irreversible transfer the only thing that
+    // settles whose wallet this is, is a signature from the key.
     checks.push({
       key: "sending_wallets",
-      label: "The sender's wallets are recorded",
-      met: n > 0,
+      label: "The sender's wallets are proved",
+      met: n > 0 && proved === n,
       detail: n === 0 ? "No sending wallet given"
-        : `${n} wallet${n === 1 ? "" : "s"}, ${proved} proved by signature`,
+        : proved === n
+          ? `${n} wallet${n === 1 ? "" : "s"}, all proved by signature`
+          : `${n} given, only ${proved} proved by signature`,
     });
   }
 

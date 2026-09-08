@@ -17,6 +17,9 @@ import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
 import { documentsFor } from "./documents.ts";
 import { forParticipation, save as saveDestination, confirm as confirmDestination,
          problemWith, describe, type Kind } from "./destinations.ts";
+import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
+         sendingWallets, addSendingWallet, proveSendingWallet,
+         challengeForSendingWallet } from "./proof.ts";
 
 const MAX_RECIPIENTS = 10;
 
@@ -68,7 +71,7 @@ function shell(title: string, body: string, who?: string): Response {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${CSS}${REVEAL_CSS}${kycStyles()}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
+<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
@@ -467,6 +470,48 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string): strin
     </form></div>`;
 }
 
+/**
+ * The sender's side of a crypto transaction: which wallets the funds will
+ * leave from, each proved by signature.
+ *
+ * More than one is allowed because large holdings are rarely in one place, and
+ * knowing all of them in advance is what lets the arriving funds be matched to
+ * a party rather than guessed at afterwards.
+ */
+function senderWallets(part: any, wallets: any[], error: string): string {
+  const list = wallets.map((w) => `
+    <div class="wallet${w.proved_at ? " proved" : ""}">
+      <code>${esc(w.address)}</code>
+      <div class="muted">${esc(w.chain)}${w.label ? ` · ${esc(w.label)}` : ""}</div>
+      ${w.proved_at
+        ? `<div class="muted">Proved ${esc(w.proved_at.slice(0, 16))}</div>`
+        : proofForm({
+            action: "", message: challengeForSendingWallet(w, part.ref),
+            address: w.address, hidden: { action: "prove_wallet", wallet: w.id },
+          })}
+    </div>`).join("");
+
+  return `<div class="card">
+    <h2>Where will you be sending from?</h2>
+    <p>Tell us every wallet the funds will leave from, and prove you hold each one.
+       You can add more than one.</p>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
+    ${list}
+    <form method="post">
+      <input type="hidden" name="action" value="add_wallet">
+      <label for="wa">Wallet address</label>
+      <input id="wa" name="address" required spellcheck="false" placeholder="0x…">
+      <div class="pair">
+        <div><label for="wc">Chain</label>
+          <input id="wc" name="chain" value="${esc(part.chain ?? "")}" placeholder="Ethereum"></div>
+        <div><label for="wl">A name for it, if you like</label>
+          <input id="wl" name="label" placeholder="Treasury"></div>
+      </div>
+      <div style="margin-top:14px"><button>Add this wallet</button></div>
+    </form>
+  </div>`;
+}
+
 export async function clientDeal(env: Env, request: Request, txId: string): Promise<Response> {
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
@@ -483,6 +528,22 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const actor: Actor = { kind: "party", id: who.partyId,
     ip: request.headers.get("CF-Connecting-IP") ?? undefined };
   let error = "";
+  if (request.method === "POST" && part.role === "sender") {
+    const f = await request.formData();
+    const action = String(f.get("action") ?? "");
+    if (action === "add_wallet") {
+      error = await addSendingWallet(env, actor, {
+        transactionId: txId, partyId: who.partyId,
+        chain: String(f.get("chain") ?? part.chain ?? "ethereum"),
+        address: String(f.get("address") ?? ""),
+        label: String(f.get("label") ?? ""),
+      }) ?? "";
+    } else if (action === "prove_wallet") {
+      error = await proveSendingWallet(env, actor, String(f.get("wallet") ?? ""),
+        part.ref, String(f.get("signature") ?? "")) ?? "";
+    }
+  }
+
   if (request.method === "POST" && part.role === "recipient") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
@@ -502,6 +563,12 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     } else if (action === "confirm") {
       const d = await forParticipation(env, part.participation_id);
       if (d) await confirmDestination(env, actor, d.id, "read back in their own account");
+    } else if (action === "prove") {
+      const d = await forParticipation(env, part.participation_id);
+      if (d) {
+        error = await proveDestination(env, actor, d.id, part.ref,
+          String(f.get("signature") ?? "")) ?? "";
+      }
     } else if (action === "edit") {
       const d = await forParticipation(env, part.participation_id);
       if (d && d.status !== "locked") {
@@ -519,6 +586,10 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const dest = part.role === "recipient"
     ? await forParticipation(env, part.participation_id) : null;
   const cleared = await standingCheck(env, who.partyId);
+  const sending = part.role === "sender" && part.inbound === "crypto"
+    ? await sendingWallets(env, txId) : [];
+  const proofMessage = (kind === "wallet" && dest?.address && !dest.proved_at)
+    ? await challengeForDestination(env, actor, dest, part.ref) : "";
 
   const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
   return shell(part.ref, `
@@ -536,8 +607,20 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
           <p>We cannot ask for payment details until we know who you are.</p>
           <p><a href="/verify"><button>Verify</button></a></p></div>`
       : part.role === "recipient"
-        ? destinationCard(part, dest, kind, error)
-        : `<div class="card"><h2>Nothing needed yet</h2>
-            <p class="muted" style="margin-bottom:0">We will email you when there is.</p>
-          </div>`}`, party?.display_name);
+        ? destinationCard(part, dest, kind, error) +
+          (kind === "wallet" && dest && !dest.proved_at
+            ? `<div class="card"><h2>Prove it is yours</h2>${proofForm({
+                action: "", message: proofMessage, address: dest.address,
+                hidden: { action: "prove" }, error })}</div>`
+            : kind === "wallet" && dest?.proved_at
+              ? `<div class="card"><h2>Wallet proved</h2>
+                  <p class="muted" style="margin-bottom:0">You signed for
+                  <code>${esc(dest.address)}</code> on
+                  ${esc(dest.proved_at.slice(0, 16))}. Nothing further needed.</p></div>`
+              : "")
+        : part.inbound === "crypto"
+          ? senderWallets(part, sending, error)
+          : `<div class="card"><h2>Nothing needed yet</h2>
+              <p class="muted" style="margin-bottom:0">We will email you when there is.</p>
+            </div>`}`, party?.display_name);
 }
