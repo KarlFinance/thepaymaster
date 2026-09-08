@@ -10,7 +10,7 @@
 
 import { type Env, type Actor, id, log, insert, update, typeName } from "./db.ts";
 import { mint, peek, redeem, sessionCookie, clearSession, whoIs, endSession } from "./tokens.ts";
-import { esc } from "./views.ts";
+import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
 import { format } from "./money.ts";
 
 const MAX_RECIPIENTS = 10;
@@ -63,7 +63,7 @@ function shell(title: string, body: string, who?: string): Response {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${CSS}</style></head><body>${bar}<main>${body}</main></body></html>`,
+<style>${CSS}${REVEAL_CSS}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 

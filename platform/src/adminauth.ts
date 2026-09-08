@@ -18,7 +18,7 @@
 
 import { type Env, type Actor, id, log } from "./db.ts";
 import { verify as verifyTotp, randomSecret, enrolmentUri } from "./totp.ts";
-import { esc } from "./views.ts";
+import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
 
 const ITERATIONS = 210_000;               // OWASP's floor for PBKDF2-SHA512
 const SESSION_COOKIE = "tpm_admin";
@@ -230,10 +230,6 @@ p.sub{margin:0 0 22px;font-size:15px}
 label{display:block;margin:16px 0 5px;font-weight:600;color:var(--ink);font-size:14px}
 input{width:100%;padding:11px 13px;border:1px solid var(--rule);border-radius:9px;font:inherit;background:#fff}
 input:focus{outline:2px solid var(--accent);outline-offset:1px}
-.pw{position:relative}
-.pw input{padding-right:66px}
-.pw button{position:absolute;right:6px;top:6px;background:none;border:0;padding:6px 9px;font:inherit;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;border-radius:6px}
-.pw button:hover{background:var(--panel)}
 button.go{width:100%;margin-top:20px;background:var(--accent);color:var(--ink);border:0;border-radius:9px;padding:13px;font:inherit;font-weight:700;cursor:pointer}
 .err{background:#FDECEA;border:1px solid #F5C2BC;color:#8A1F11;padding:11px 14px;border-radius:9px;margin-bottom:16px;font-size:14.5px}
 .ok{background:#EAF7F0;border:1px solid #B7E0C9;color:#12603D;padding:11px 14px;border-radius:9px;margin-bottom:16px;font-size:14.5px}
@@ -243,38 +239,12 @@ code{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padd
 input.code{font-size:24px;letter-spacing:.34em;text-align:center;font-variant-numeric:tabular-nums}
 `;
 
-/**
- * The reveal button, added to every password field on the page.
- *
- * Asked for, and sensible: people mistype long passwords, and a colleague
- * behind you is a smaller risk than a lockout. It only changes the field's
- * type, so nothing is submitted or stored differently.
- */
-const REVEAL = `
-<script>
-document.querySelectorAll('.pw').forEach(function (wrap) {
-  var field = wrap.querySelector('input');
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.textContent = 'Show';
-  btn.setAttribute('aria-label', 'Show password');
-  btn.addEventListener('click', function () {
-    var shown = field.type === 'text';
-    field.type = shown ? 'password' : 'text';
-    btn.textContent = shown ? 'Show' : 'Hide';
-    btn.setAttribute('aria-label', (shown ? 'Show' : 'Hide') + ' password');
-    field.focus();
-  });
-  wrap.appendChild(btn);
-});
-</script>`;
-
 function screen(title: string, body: string, extra = ""): Response {
   return new Response(`<!doctype html><html lang="en-GB"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${CSS}</style></head><body><div class="box"><div class="card">${body}</div></div>${extra}${REVEAL}</body></html>`,
+<style>${CSS}${REVEAL_CSS}</style></head><body><div class="box"><div class="card">${body}</div></div>${extra}${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 

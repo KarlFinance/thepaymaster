@@ -108,3 +108,52 @@ export function board(rows: Row[]): string {
 
   return `<h1>Pipeline</h1><div class="board">${cols}</div>${deadList}`;
 }
+
+
+/**
+ * The show-and-hide eye on password fields, shared by staff and client screens.
+ *
+ * Wrap any password input in <div class="pw"> and this attaches the toggle. It
+ * only changes the field's type — nothing is submitted or stored differently —
+ * and it exists because people mistype long passwords, and a colleague behind
+ * you is a smaller risk than a lockout.
+ *
+ * The icon carries an accessible label that changes with it, so it is not a
+ * mystery button to anyone using a screen reader.
+ */
+export const REVEAL_CSS = `
+.pw{position:relative}
+.pw input{padding-right:48px}
+.pw .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:0;padding:7px;cursor:pointer;color:#4A5567;border-radius:7px;line-height:0}
+.pw .eye:hover{background:#F5F7FA;color:#0C1524}
+.pw .eye:focus-visible{outline:2px solid #FF8159;outline-offset:1px}
+.pw .eye svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+`;
+
+export const REVEAL_JS = `
+<script>
+(function () {
+  var OPEN  = '<path d="M1.8 12S5.4 5.8 12 5.8 22.2 12 22.2 12 18.6 18.2 12 18.2 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/>';
+  var SHUT  = '<path d="M1.8 12S5.4 5.8 12 5.8 22.2 12 22.2 12 18.6 18.2 12 18.2 1.8 12 1.8 12Z"/><circle cx="12" cy="12" r="3.1"/><path d="M4 20 20 4"/>';
+  function svg(paths) {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">' + paths + '</svg>';
+  }
+  document.querySelectorAll('.pw').forEach(function (wrap) {
+    var field = wrap.querySelector('input');
+    if (!field) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'eye';
+    btn.innerHTML = svg(SHUT);
+    btn.setAttribute('aria-label', 'Show password');
+    btn.addEventListener('click', function () {
+      var showing = field.type === 'text';
+      field.type = showing ? 'password' : 'text';
+      btn.innerHTML = svg(showing ? SHUT : OPEN);
+      btn.setAttribute('aria-label', (showing ? 'Show' : 'Hide') + ' password');
+      field.focus();
+    });
+    wrap.appendChild(btn);
+  });
+})();
+</script>`;
