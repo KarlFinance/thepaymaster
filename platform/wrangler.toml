@@ -6,7 +6,10 @@
 name = "thepaymaster-platform"
 main = "src/index.ts"
 compatibility_date = "2026-07-17"   # the newest the installed wrangler runtime accepts
-workers_dev = true
+# Off, and it must stay off. With this true the worker is also reachable at
+# thepaymaster-platform.<subdomain>.workers.dev, which Access does not protect —
+# the admin panel would sit on a public address with nothing in front of it.
+workers_dev = false
 
 [[d1_databases]]
 binding = "DB"
