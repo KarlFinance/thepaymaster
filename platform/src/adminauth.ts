@@ -20,7 +20,19 @@ import { type Env, type Actor, id, log } from "./db.ts";
 import { verify as verifyTotp, randomSecret, enrolmentUri } from "./totp.ts";
 import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
 
-const ITERATIONS = 210_000;               // OWASP's floor for PBKDF2-SHA512
+/**
+ * Workers refuses PBKDF2 above 100,000 iterations, and OWASP wants 210,000 for
+ * SHA-512. So the work is chained instead: three full rounds of the maximum,
+ * each taking the previous digest as its input. Three hundred thousand
+ * iterations of stretching, within a limit that allows a hundred thousand.
+ *
+ * Local development does not have this limit — miniflare uses Node's crypto —
+ * so a single 210,000-iteration call worked perfectly here and threw
+ * NotSupportedError the moment it reached production, on the one path a
+ * page-load check never touches.
+ */
+const ITERATIONS = 100_000;
+const ROUNDS = 3;
 const SESSION_COOKIE = "tpm_admin";
 const PENDING_COOKIE = "tpm_pending";
 const SESSION_HOURS = 12;
@@ -66,24 +78,33 @@ function future(ms: number): string {
 // Passwords
 // ---------------------------------------------------------------------------
 
+async function stretch(material: Uint8Array, salt: Uint8Array,
+                       iterations: number, rounds: number): Promise<Uint8Array> {
+  let bits = material;
+  for (let r = 0; r < rounds; r++) {
+    const key = await crypto.subtle.importKey("raw", bits, "PBKDF2", false, ["deriveBits"]);
+    bits = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-512" }, key, 256));
+  }
+  return bits;
+}
+
 export async function hashPassword(password: string, salt?: Uint8Array): Promise<string> {
   const s = salt ?? crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: s, iterations: ITERATIONS, hash: "SHA-512" }, key, 256);
-  return `pbkdf2$${ITERATIONS}$${b64(s)}$${b64(new Uint8Array(bits))}`;
+  const bits = await stretch(enc.encode(password), s, ITERATIONS, ROUNDS);
+  return `pbkdf2c$${ROUNDS}x${ITERATIONS}$${b64(s)}$${b64(bits)}`;
 }
 
 export async function checkPassword(password: string, stored: string | null): Promise<boolean> {
   // No stored hash still costs a full derivation, so "no such account" and
   // "wrong password" are indistinguishable from outside.
   const target = stored ?? await hashPassword("  no account  ");
-  const [scheme, iters, salt, digest] = target.split("$");
-  if (scheme !== "pbkdf2") return false;
-  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: unb64(salt), iterations: Number(iters), hash: "SHA-512" }, key, 256);
-  return stored !== null && same(new Uint8Array(bits), unb64(digest));
+  const [scheme, work, salt, digest] = target.split("$");
+  if (scheme !== "pbkdf2c") return false;
+  const [rounds, iters] = work.split("x").map(Number);
+  if (!rounds || !iters || iters > 100_000) return false;
+  const bits = await stretch(enc.encode(password), unb64(salt), iters, rounds);
+  return stored !== null && same(bits, unb64(digest));
 }
 
 /** Long rather than fiddly: length beats punctuation rules. */
