@@ -23,7 +23,9 @@ const TOKEN_COOKIE = "tpm_client";
 const SESSION_DAYS = 14;
 
 /** How long someone has to use a link before it stops working. */
-const LIFETIME_DAYS: Record<string, number> = { start: 14, join: 21 };
+// A return link only has to survive the walk to another desk, so it expires
+// quickly. An invitation is a different thing and keeps its longer life.
+const LIFETIME_DAYS: Record<string, number> = { start: 14, join: 21, return: 1 };
 
 function b64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
@@ -58,26 +60,30 @@ export interface Minted { url: string; tokenId: string }
  * secret will ever exist on our side — it goes straight into an email.
  */
 export async function mint(env: Env, actor: Actor, opts: {
-  purpose: "start" | "join";
+  purpose: "start" | "join" | "return";
   email: string;
   base: string;
   transactionId?: string;
   participationId?: string;
+  /** For a return link: the party being let back in. */
+  partyId?: string;
 }): Promise<Minted> {
   const value = secret();
   const tokenId = id("tok");
   await env.DB.prepare(
     `INSERT INTO tokens (id, hash, purpose, email, transaction_id,
-                         participation_id, expires_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+                         participation_id, party_id, expires_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(tokenId, await sha256(value), opts.purpose, opts.email.toLowerCase(),
     opts.transactionId ?? null, opts.participationId ?? null,
+    opts.partyId ?? null,
     daysFromNow(LIFETIME_DAYS[opts.purpose] ?? 14), actor.id).run();
 
   await log(env.DB, actor, `token.${opts.purpose}_minted`, "tokens", tokenId,
     { note: `for ${opts.email}` });
 
-  const path = opts.purpose === "start" ? "start" : "join";
+  const path = opts.purpose === "start" ? "start"
+             : opts.purpose === "return" ? "back" : "join";
   const url = `${opts.base}/${path}/${value}`;
   // The secret is never stored, so in development it would otherwise be
   // unreachable without a working mail provider.
@@ -93,6 +99,8 @@ export interface Opened {
   purpose: string;
   transactionId: string | null;
   participationId: string | null;
+  /** Set on a return link: the party being let back in. */
+  partyId: string | null;
 }
 
 /**
@@ -105,7 +113,8 @@ export interface Opened {
  */
 export async function peek(env: Env, value: string): Promise<Opened | null> {
   const row = await env.DB.prepare(
-    `SELECT id, email, purpose, transaction_id, participation_id, expires_at, used_at
+    `SELECT id, email, purpose, transaction_id, participation_id, party_id,
+            expires_at, used_at
        FROM tokens WHERE hash = ?`).bind(await sha256(value)).first<any>();
   if (!row) return null;
   if (row.used_at) return null;
@@ -113,6 +122,7 @@ export async function peek(env: Env, value: string): Promise<Opened | null> {
   return {
     tokenId: row.id, email: row.email, purpose: row.purpose,
     transactionId: row.transaction_id, participationId: row.participation_id,
+    partyId: row.party_id ?? null,
   };
 }
 

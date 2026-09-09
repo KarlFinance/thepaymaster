@@ -20,6 +20,8 @@
 
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
+import { type Env } from "./db.ts";
+import { ethCall } from "./chain.ts";
 
 const hex = (b: Uint8Array) =>
   [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -102,7 +104,7 @@ export function challenge(opts: {
 }
 
 /** The digest personal_sign actually signs. */
-function personalHash(message: string): Uint8Array {
+export function personalHash(message: string): Uint8Array {
   const body = new TextEncoder().encode(message);
   const prefix = new TextEncoder().encode(
     `\x19Ethereum Signed Message:\n${body.length}`);
@@ -151,4 +153,71 @@ export function proves(message: string, signature: string, address: string): boo
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Contract wallets
+// ---------------------------------------------------------------------------
+
+/** isValidSignature(bytes32,bytes) — the current EIP-1271 selector and answer. */
+const EIP1271 = "0x1626ba7e";
+/** isValidSignature(bytes,bytes) — the older form, still used by Safe v1.0.0. */
+const EIP1271_LEGACY = "0x20c13b0b";
+
+const word = (n: number) => n.toString(16).padStart(64, "0");
+
+/**
+ * Does this address accept this signature as its own?
+ *
+ * A Safe, or any other smart-contract wallet, has no private key — there is
+ * nothing to recover a signer from, so the ordinary check can only ever fail.
+ * EIP-1271 turns the question around: instead of working out who signed, ask
+ * the contract whether it considers the signature valid, and let it apply
+ * whatever rule it likes about owners and thresholds.
+ *
+ * Both selectors are tried. Safe v1.0.0 answers the older one, and a sender
+ * with an old Safe is exactly the sender who will not want to migrate it in
+ * the middle of a transaction.
+ */
+export async function contractAccepts(env: Env, chainId: number, opts: {
+  address: string; message: string; signature: string;
+}): Promise<boolean> {
+  let sig: Uint8Array;
+  try { sig = unhex(opts.signature.trim()); } catch { return false; }
+
+  const digest = hex(personalHash(opts.message));
+  const padded = Math.ceil(sig.length / 32) * 32;
+  const tail = hex(sig) + "0".repeat((padded - sig.length) * 2);
+
+  // (bytes32 hash, bytes signature): the second argument is dynamic, so the
+  // head holds its offset and the tail holds length then contents.
+  const modern = EIP1271 + digest + word(0x40) + word(sig.length) + tail;
+  // (bytes data, bytes signature): both dynamic.
+  const dataLen = personalHash(opts.message).length;
+  const legacy = EIP1271_LEGACY + word(0x40) + word(0x40 + 32 + dataLen) +
+    word(dataLen) + digest + word(sig.length) + tail;
+
+  for (const [data, expect] of [[modern, EIP1271], [legacy, EIP1271_LEGACY]]) {
+    try {
+      const result = await ethCall(env, chainId, opts.address, data);
+      if (typeof result === "string" && result.slice(0, 10).toLowerCase() === expect) {
+        return true;
+      }
+    } catch { /* not this shape; try the other */ }
+  }
+  return false;
+}
+
+/**
+ * Control of an address, however that address is built.
+ *
+ * An ordinary wallet is proved by recovering the signing key. A contract
+ * wallet is proved by asking the contract. The caller does not need to know
+ * which it is holding.
+ */
+export async function provesControl(env: Env, chainId: number, opts: {
+  address: string; message: string; signature: string;
+}): Promise<boolean> {
+  if (proves(opts.message, opts.signature, opts.address)) return true;
+  return contractAccepts(env, chainId, opts);
 }

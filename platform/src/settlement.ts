@@ -25,6 +25,7 @@ import { type Env, type Actor, id, log, insert, update } from "./db.ts";
 import { format } from "./money.ts";
 import { assess } from "./readiness.ts";
 import { store, DocumentProblem } from "./documents.ts";
+import { txHashProblem, receipt as txReceipt } from "./chain.ts";
 
 export type Holder = "client" | "thepaymaster_hsbc" | "otc_desk" | "none";
 export type Event = "received" | "converted" | "sent" | "fee_taken" | "returned";
@@ -37,6 +38,7 @@ export interface Leg {
   sentMinor: number | null;
   sentAt: string | null;
   evidenceId: string | null;
+  txHash: string | null;
 }
 
 /** Where funds sit for each type, so the record says which was actually used. */
@@ -72,8 +74,42 @@ export async function record(env: Env, actor: Actor, transactionId: string, opts
   note?: string;
   file?: File | null;
   evidenceKind?: string;
+  /** For a crypto leg the evidence is a hash, checked against the chain. */
+  txHash?: string | null;
+  chainId?: number | null;
 }): Promise<string | { problem: string }> {
   let evidenceId: string | null = null;
+  let block: number | null = null;
+  let verifiedAt: string | null = null;
+  let sources = 0;
+
+  if (opts.txHash) {
+    const shape = txHashProblem(opts.txHash);
+    if (shape) return { problem: shape };
+    if (!opts.chainId) return { problem: "No chain recorded on this transaction." };
+    const r = await txReceipt(env, opts.chainId, opts.txHash.trim());
+    // Unreachable and failed are different answers, and neither is success.
+    if (r === null) {
+      return { problem: "Could not reach the chain to check that hash. Try again." };
+    }
+    // Two providers that disagree about whether money moved is not a thing to
+    // average out. It means one of them is wrong, and until we know which, the
+    // honest answer is that this is not confirmed.
+    if (!r.agreed) {
+      return { problem: "The chain providers disagree about that hash, so it " +
+        `cannot be treated as confirmed — ${r.conflict}. Try again shortly; ` +
+        "if it persists, check the hash and the network." };
+    }
+    if (!r.found) {
+      return { problem: "No transaction with that hash. Check it, or wait for it to land." };
+    }
+    if (!r.succeeded) {
+      return { problem: "That transaction is on the chain but reverted — nothing moved." };
+    }
+    block = r.block;
+    sources = r.sources;
+    verifiedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  }
   if (opts.file && opts.file.size > 0) {
     try {
       const stored = await store(env, actor, opts.file, {
@@ -98,8 +134,19 @@ export async function record(env: Env, actor: Actor, transactionId: string, opts
     decimals: opts.decimals,
     occurred_at: opts.occurredAt,
     evidence_id: evidenceId,
+    tx_hash: opts.txHash ? opts.txHash.trim() : null,
+    tx_block: block,
+    tx_verified_at: verifiedAt,
     recorded_by: actor.id,
-  }, { note: opts.note ?? `${opts.currency} ${format(opts.amountMinor, opts.decimals)}` });
+    // Who recorded it, and what kind of person that is. On a sender-executed
+    // distribution this is the sender, not one of us, and the record should
+    // say so rather than implying a member of staff was involved.
+    recorded_by_kind: actor.kind,
+  }, { note: opts.note ?? `${opts.currency} ${format(opts.amountMinor, opts.decimals)}` +
+       (opts.txHash
+          ? ` — verified in block ${block}, agreed by ${sources} ` +
+            `endpoint${sources === 1 ? "" : "s"}`
+          : "") });
   return eventId;
 }
 
@@ -148,7 +195,7 @@ export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
   const out: Leg[] = [];
   for (const r of results ?? []) {
     const sent = await env.DB.prepare(
-      `SELECT c.id, c.amount_minor, c.occurred_at, c.evidence_id
+      `SELECT c.id, c.amount_minor, c.occurred_at, c.evidence_id, c.tx_hash
          FROM custody_events c
         WHERE c.transaction_id = ? AND c.event = 'sent'
           AND c.id IN (SELECT event_id FROM payout_legs WHERE participation_id = ?)
@@ -162,6 +209,7 @@ export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
       sentMinor: sent?.amount_minor ?? null,
       sentAt: sent?.occurred_at ?? null,
       evidenceId: sent?.evidence_id ?? null,
+      txHash: sent?.tx_hash ?? null,
     });
   }
   return out;
@@ -225,9 +273,9 @@ export async function settlementChecks(env: Env, transactionId: string): Promise
     },
     {
       label: "Every payment has evidence",
-      met: all.length > 0 && all.every((l) => l.sentMinor === null || l.evidenceId),
-      detail: all.some((l) => l.sentMinor !== null && !l.evidenceId)
-        ? `No document against: ${all.filter((l) => l.sentMinor !== null && !l.evidenceId)
+      met: all.length > 0 && all.every((l) => l.sentMinor === null || l.evidenceId || l.txHash),
+      detail: all.some((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash)
+        ? `Nothing against: ${all.filter((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash)
             .map((l) => l.name).join(", ")}`
         : "All accounted for",
     },

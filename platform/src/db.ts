@@ -24,6 +24,10 @@ export interface Env {
   /** A paid Ethereum endpoint. Reads fall back to a public node without it,
    *  which is fine for checking and not fine for executing. */
   ETH_RPC_URL?: string;
+  /** A second, independent provider. Confirmations are cross-checked. */
+  ETH_RPC_URL_2?: string;
+  /** Nominis wallet screening. Absent means a person records the verdict. */
+  NOMINIS_API_KEY?: string;
 }
 
 export interface Actor {
@@ -181,6 +185,32 @@ export function typeName(t: { inbound: string; outbound: string; converts: numbe
     return t.converts ? "Crypto → Crypto (with conversion)" : "Crypto → Crypto";
   }
   return `${inn} → ${out}`;
+}
+
+/**
+ * The five, in one place.
+ *
+ * Everything that offers a choice of transaction type reads this list, so a
+ * new type is added once rather than in the form, the admin panel and the
+ * enquiry queue separately.
+ */
+export const TRANSACTION_TYPES: {
+  key: string; label: string; inbound: string; outbound: string; converts: number;
+}[] = [
+  { key: "fiat_fiat",       label: "Fiat in, fiat out",
+    inbound: "fiat",   outbound: "fiat",   converts: 0 },
+  { key: "fiat_crypto",     label: "Fiat in, crypto out",
+    inbound: "fiat",   outbound: "crypto", converts: 1 },
+  { key: "crypto_fiat",     label: "Crypto in, fiat out",
+    inbound: "crypto", outbound: "fiat",   converts: 1 },
+  { key: "crypto_crypto",   label: "Crypto in, crypto out — no conversion",
+    inbound: "crypto", outbound: "crypto", converts: 0 },
+  { key: "crypto_convert",  label: "Crypto in, crypto out — with conversion",
+    inbound: "crypto", outbound: "crypto", converts: 1 },
+];
+
+export function typeByKey(key: string) {
+  return TRANSACTION_TYPES.find((t) => t.key === key) ?? null;
 }
 
 /** Only one of the five is executed by the sender rather than by us. */

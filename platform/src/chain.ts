@@ -48,17 +48,48 @@ function pad(address: string): string {
   return address.replace(/^0x/, "").toLowerCase().padStart(64, "0");
 }
 
-async function rpc(env: Env, chainId: number, method: string,
-                   params: unknown[]): Promise<any> {
-  // A public endpoint is fine for reads and costs nothing. Before a real
-  // execution this should be a paid endpoint with an agreement behind it —
-  // a public node rate-limiting at the wrong moment is not a risk worth
-  // carrying on a transaction this size.
-  const url = env.ETH_RPC_URL && chainId === 1
-    ? env.ETH_RPC_URL
-    : CHAINS[chainId]?.rpc;
-  if (!url) throw new Error(`no RPC for chain ${chainId}`);
+export interface Endpoint { name: string; url: string; }
 
+/**
+ * The same key, pointed at a different network.
+ *
+ * Alchemy and Infura name the network in the hostname and let one key serve
+ * all of them, so the testnet endpoint costs nothing extra and the rehearsal
+ * stops depending on a public node. A provider we do not recognise is only
+ * ever used for the network it was configured for — guessing a hostname is
+ * how you end up checking a mainnet payment against a testnet.
+ */
+function retarget(url: string | undefined, chainId: number): string | undefined {
+  if (!url) return undefined;
+  const slug: Record<number, { alchemy: string; infura: string }> = {
+    1:        { alchemy: "eth-mainnet", infura: "mainnet" },
+    11155111: { alchemy: "eth-sepolia", infura: "sepolia" },
+  };
+  const want = slug[chainId];
+  if (!want) return undefined;
+  if (/\/\/eth-(mainnet|sepolia)\./.test(url)) {
+    return url.replace(/\/\/eth-(mainnet|sepolia)\./, `//${want.alchemy}.`);
+  }
+  if (/\/\/(mainnet|sepolia)\.infura\.io/.test(url)) {
+    return url.replace(/\/\/(mainnet|sepolia)\.infura\.io/, `//${want.infura}.infura.io`);
+  }
+  // Unrecognised provider: take it at face value, and only for mainnet.
+  return chainId === 1 && !/sepolia|goerli|holesky/i.test(url) ? url : undefined;
+}
+
+/** Who we will ask, most trusted first. */
+export function endpoints(env: Env, chainId: number): Endpoint[] {
+  const out: Endpoint[] = [];
+  const add = (name: string, url?: string) => {
+    if (url && !out.some((e) => e.url === url)) out.push({ name, url });
+  };
+  add("primary", retarget(env.ETH_RPC_URL, chainId));
+  add("secondary", retarget(env.ETH_RPC_URL_2, chainId));
+  add("public", CHAINS[chainId]?.rpc);
+  return out;
+}
+
+async function ask(url: string, method: string, params: unknown[]): Promise<any> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,7 +101,29 @@ async function rpc(env: Env, chainId: number, method: string,
   return body.result;
 }
 
-async function ethCall(env: Env, chainId: number, to: string, data: string): Promise<string> {
+/**
+ * An ordinary read: first endpoint that answers wins.
+ *
+ * Balances and blacklist checks are inputs to a decision a person then makes,
+ * so falling through to the next provider is the right behaviour — being
+ * unable to read is worse than reading from the second choice. Confirming that
+ * money moved is a different question, and is handled by `receipt`.
+ */
+async function rpc(env: Env, chainId: number, method: string,
+                   params: unknown[]): Promise<any> {
+  const eps = endpoints(env, chainId);
+  if (!eps.length) throw new Error(`no RPC for chain ${chainId}`);
+  let last: Error | null = null;
+  for (const ep of eps) {
+    try { return await ask(ep.url, method, params); }
+    catch (err) { last = err as Error; }
+  }
+  throw last ?? new Error("no endpoint answered");
+}
+
+/** A read-only call. Exported so wallet code can ask a contract a question. */
+export async function ethCall(env: Env, chainId: number, to: string,
+                              data: string): Promise<string> {
   return rpc(env, chainId, "eth_call", [{ to, data }, "latest"]);
 }
 
@@ -161,19 +214,222 @@ export function txHashProblem(hash: string): string | null {
  * transaction can exist, be mined, and still have reverted, which looks
  * identical from the outside if all you have is the hash.
  */
-export async function receipt(env: Env, chainId: number, hash: string): Promise<{
-  found: boolean; succeeded: boolean; block: number | null; from: string | null;
-} | null> {
-  try {
-    const r = await rpc(env, chainId, "eth_getTransactionReceipt", [hash]);
-    if (!r) return { found: false, succeeded: false, block: null, from: null };
+export interface Confirmation {
+  found: boolean;
+  succeeded: boolean;
+  block: number | null;
+  from: string | null;
+  /** How many independent endpoints answered. */
+  sources: number;
+  /** True when every endpoint that answered told the same story. */
+  agreed: boolean;
+  conflict?: string;
+}
+
+/**
+ * Did this transaction happen, and did it succeed — according to more than one
+ * person?
+ *
+ * A hash somebody types in is a claim. A receipt is the fact. But a receipt
+ * from a single endpoint is only a fact if that endpoint is honest, current,
+ * and on the chain it says it is; a node that is lagging, forked, or lying
+ * would have us record a payment that did not happen. At this size that is
+ * worth a second opinion, so every endpoint we have is asked and they must
+ * agree.
+ *
+ * Disagreement is never resolved by voting. The most cautious answer is
+ * returned with `agreed` false, and the caller refuses.
+ */
+export async function receipt(env: Env, chainId: number,
+                              hash: string): Promise<Confirmation | null> {
+  const eps = endpoints(env, chainId);
+  const answers = await Promise.all(eps.map(async (ep) => {
+    try {
+      const r = await ask(ep.url, "eth_getTransactionReceipt", [hash]);
+      if (!r) return { ep, found: false, succeeded: false, block: null, from: null };
+      return {
+        ep,
+        found: true,
+        succeeded: BigInt(r.status ?? "0x0") === 1n,
+        block: r.blockNumber ? Number(BigInt(r.blockNumber)) : null,
+        from: (r.from ?? null) as string | null,
+      };
+    } catch {
+      return null;   // unreachable is not an answer
+    }
+  }));
+
+  const heard = answers.filter((a): a is NonNullable<typeof a> => a !== null);
+  if (!heard.length) return null;
+
+  const key = (a: typeof heard[number]) => `${a.found}|${a.succeeded}|${a.block}`;
+  const distinct = [...new Set(heard.map(key))];
+  const best = heard.find((a) => !a.found) ?? heard[0];   // the cautious one
+
+  if (distinct.length > 1) {
     return {
-      found: true,
-      succeeded: BigInt(r.status ?? "0x0") === 1n,
-      block: r.blockNumber ? Number(BigInt(r.blockNumber)) : null,
-      from: r.from ?? null,
+      found: false, succeeded: false, block: null, from: null,
+      sources: heard.length, agreed: false,
+      conflict: heard.map((a) => `${a.ep.name}: ` +
+        (a.found ? `block ${a.block}, ${a.succeeded ? "succeeded" : "reverted"}`
+                 : "no such transaction")).join("; "),
     };
-  } catch {
-    return null;
   }
+
+  return {
+    found: best.found, succeeded: best.succeeded, block: best.block, from: best.from,
+    sources: heard.length, agreed: true,
+  };
+}
+
+/** Which endpoints are answering, and do they see the same chain and head? */
+export async function health(env: Env, chainId: number): Promise<Array<{
+  name: string; ok: boolean; chainId: number | null; block: number | null; error?: string;
+}>> {
+  return Promise.all(endpoints(env, chainId).map(async (ep) => {
+    try {
+      const [cid, blk] = await Promise.all([
+        ask(ep.url, "eth_chainId", []),
+        ask(ep.url, "eth_blockNumber", []),
+      ]);
+      return {
+        name: ep.name, ok: true,
+        chainId: Number(BigInt(cid)), block: Number(BigInt(blk)),
+      };
+    } catch (err) {
+      return { name: ep.name, ok: false, chainId: null, block: null,
+               error: (err as Error).message };
+    }
+  }));
+}
+
+/**
+ * The transaction as it was sent, rather than only whether it worked.
+ *
+ * Anchoring needs the calldata, and calldata is the one field an endpoint
+ * could alter without the receipt looking wrong — so it is cross-checked the
+ * same way, and a disagreement is a refusal rather than a vote.
+ */
+export async function sentTransaction(env: Env, chainId: number, hash: string): Promise<{
+  input: string; from: string; to: string | null; block: number | null;
+  sources: number; agreed: boolean; conflict?: string;
+} | null> {
+  const answers = await Promise.all(endpoints(env, chainId).map(async (ep) => {
+    try {
+      const t = await ask(ep.url, "eth_getTransactionByHash", [hash]);
+      if (!t) return { ep, input: "", from: "", to: null as string | null, block: null as number | null };
+      return {
+        ep,
+        input: String(t.input ?? "").toLowerCase(),
+        from: String(t.from ?? "").toLowerCase(),
+        to: t.to ? String(t.to).toLowerCase() : null,
+        block: t.blockNumber ? Number(BigInt(t.blockNumber)) : null,
+      };
+    } catch { return null; }
+  }));
+  const heard = answers.filter((a): a is NonNullable<typeof a> => a !== null);
+  if (!heard.length) return null;
+
+  const key = (a: typeof heard[number]) => `${a.input}|${a.from}|${a.to}|${a.block}`;
+  if (new Set(heard.map(key)).size > 1) {
+    return {
+      input: "", from: "", to: null, block: null,
+      sources: heard.length, agreed: false,
+      conflict: heard.map((a) => `${a.ep.name}: ` +
+        (a.input ? `${a.input.slice(0, 18)}… in block ${a.block}` : "no such transaction")).join("; "),
+    };
+  }
+  return { ...heard[0], sources: heard.length, agreed: true };
+}
+
+/** When the chain says a block happened. Seconds since the epoch, UTC. */
+export async function blockTime(env: Env, chainId: number,
+                                block: number): Promise<number | null> {
+  try {
+    const b = await rpc(env, chainId, "eth_getBlockByNumber",
+      ["0x" + block.toString(16), false]);
+    return b?.timestamp ? Number(BigInt(b.timestamp)) : null;
+  } catch { return null; }
+}
+
+/** keccak("Transfer(address,address,uint256)") */
+const TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+/**
+ * Did this transaction actually move this token, to this address, in this
+ * amount?
+ *
+ * Matching the transaction's calldata would be simpler and would be wrong: it
+ * only recognises a payment sent directly from an ordinary wallet. A sender
+ * paying from a Safe, through a batch tool, or via any contract produces a
+ * transaction whose `to` is that contract and whose calldata is not a
+ * transfer — yet the money moves exactly as intended.
+ *
+ * The event log is the honest test. The token contract itself emits Transfer
+ * whenever its balances change, whoever asked and however the call was routed.
+ * The recipient is an indexed topic and the amount is the data word.
+ *
+ * Cross-checked, because this is the check that says money arrived.
+ */
+export async function transferHappened(env: Env, chainId: number, hash: string, want: {
+  token: string; to: string; amountMinor: number | bigint;
+}): Promise<{ ok: boolean; from: string | null; block: number | null;
+              sources: number; agreed: boolean; problem?: string } | null> {
+  const token = want.token.toLowerCase();
+  const to = want.to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const amount = BigInt(want.amountMinor);
+
+  const answers = await Promise.all(endpoints(env, chainId).map(async (ep) => {
+    try {
+      const r = await ask(ep.url, "eth_getTransactionReceipt", [hash]);
+      if (!r) return { ep, exists: false, ok: false, from: null as string | null,
+                       block: null as number | null };
+      const succeeded = BigInt(r.status ?? "0x0") === 1n;
+      const logs: any[] = Array.isArray(r.logs) ? r.logs : [];
+      const hit = logs.some((l) =>
+        String(l.address ?? "").toLowerCase() === token &&
+        String(l.topics?.[0] ?? "").toLowerCase() === TRANSFER_TOPIC &&
+        String(l.topics?.[2] ?? "").toLowerCase().endsWith(to) &&
+        BigInt(l.data ?? "0x0") === amount);
+      return {
+        ep, exists: true, ok: succeeded && hit,
+        from: (r.from ?? null) as string | null,
+        block: r.blockNumber ? Number(BigInt(r.blockNumber)) : null,
+      };
+    } catch { return null; }
+  }));
+
+  const heard = answers.filter((a): a is NonNullable<typeof a> => a !== null);
+  if (!heard.length) return null;
+
+  // A transaction that has been broadcast but not yet included has no receipt,
+  // which is indistinguishable from one that never existed if you only ask for
+  // receipts. The difference matters enormously to somebody who has just
+  // pressed send, so it is asked about separately.
+  if (heard.every((a) => !a.exists)) {
+    for (const ep of endpoints(env, chainId)) {
+      try {
+        const t = await ask(ep.url, "eth_getTransactionByHash", [hash]);
+        if (t) {
+          return { ok: false, from: t.from ?? null, block: null,
+                   sources: heard.length, agreed: true, problem: "pending" };
+        }
+      } catch { /* ask the next one */ }
+    }
+  }
+
+  const key = (a: typeof heard[number]) => `${a.exists}|${a.ok}|${a.block}`;
+  if (new Set(heard.map(key)).size > 1) {
+    return { ok: false, from: null, block: null, sources: heard.length, agreed: false,
+      problem: heard.map((a) => `${a.ep.name}: ` +
+        (a.exists ? (a.ok ? `carries it, block ${a.block}` : "does not carry it")
+                  : "no such transaction")).join("; ") };
+  }
+  const one = heard[0];
+  return {
+    ok: one.ok, from: one.from, block: one.block,
+    sources: heard.length, agreed: true,
+    problem: one.exists ? undefined : "no such transaction",
+  };
 }

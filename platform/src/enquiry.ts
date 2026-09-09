@@ -9,10 +9,13 @@
  * over the top of this.
  */
 
-import { type Env, type Actor, id, log, insert, update } from "./db.ts";
+import { type Env, type Actor, id, log, insert, update,
+         TRANSACTION_TYPES, typeByKey, typeName } from "./db.ts";
 import { page, nav, esc } from "./views.ts";
+import { SITE, SITE_HEAD, siteFoot, FAVICON, CHROME_CSS } from "./chrome.ts";
 import { send, staffEmails, enquiryLanded, enquiryAcknowledged } from "./email.ts";
 import { format, parse } from "./money.ts";
+import { countrySelect, countryName } from "./countries.ts";
 
 const CURRENCIES: Record<string, number> = {
   GBP: 2, EUR: 2, USD: 2, USDT: 6, USDC: 6, BTC: 8, ETH: 18,
@@ -51,6 +54,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 button{background:var(--accent);color:var(--ink);border:0;border-radius:9px;padding:14px 28px;font:inherit;font-weight:700;font-size:17px;cursor:pointer}
 .err{background:#FDECEA;border:1px solid #F5C2BC;color:#8A1F11;padding:12px 15px;border-radius:9px;margin-bottom:20px}
 .small{font-size:13.5px}
+
 @media(max-width:560px){.pair{grid-template-columns:1fr}}
 `;
 
@@ -59,7 +63,8 @@ function shell(title: string, body: string): Response {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title>
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${FORM_CSS}</style></head><body>${body}</body></html>`,
+${FAVICON}
+<style>${FORM_CSS}${CHROME_CSS}</style></head><body>${SITE_HEAD}${body}${siteFoot()}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
@@ -87,12 +92,25 @@ export function enquiryForm(error = "", was: Record<string, string> = {}): Respo
       <input id="phone" name="phone" type="tel" autocomplete="tel" value="${v("phone")}">
       <label class="check"><input type="checkbox" name="whatsapp_ok" value="1"${was.whatsapp_ok ? " checked" : ""}>
         <span class="small">This number is on WhatsApp and you may message me there.</span></label>
+      <label for="country">Country you are in</label>
+      ${countrySelect({ name: "country", id: "country", selected: v("country") })}
     </fieldset>
 
     <fieldset>
       <legend>The transaction</legend>
       <p class="hint">Rough figures are fine. We would rather hear early with
         approximate numbers than late with exact ones.</p>
+
+      <label for="ttype">What kind of transaction is it</label>
+      <select id="ttype" name="ttype">
+        <option value="">I am not sure — please advise</option>
+        ${TRANSACTION_TYPES.map((t) =>
+          `<option value="${t.key}"${v("ttype") === t.key ? " selected" : ""}
+            >${esc(t.label)}</option>`).join("")}
+      </select>
+      <p class="hint small">If you are sending crypto and each recipient is
+        being paid in that same coin, that is the fourth one — you keep control
+        of the funds throughout and send them yourself.</p>
       <div class="pair">
         <div><label for="amount">How much, roughly</label>
           <input id="amount" name="amount" inputmode="decimal" placeholder="1,000,000" value="${v("amount")}"></div>
@@ -150,6 +168,9 @@ export async function submitEnquiry(request: Request, env: Env,
     return enquiryForm("That email address does not look right.", was);
   }
 
+  // An unrecognised key means "not sure", which is a legitimate answer and is
+  // stored as nothing rather than as a guess.
+  const kind = typeByKey(s("ttype"));
   const currency = s("currency") || "GBP";
   const decimals = CURRENCIES[currency] ?? 2;
   let amountMinor: number | null = null;
@@ -162,9 +183,13 @@ export async function submitEnquiry(request: Request, env: Env,
   const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
   await insert(env.DB, { kind: "system", id: null, ip }, "enquiry.received", "enquiries", eid, {
     name: s("name"), email: s("email"), phone: s("phone") || null,
+    country: /^[A-Z]{2}$/.test(s("country")) ? s("country") : null,
     whatsapp_ok: f.get("whatsapp_ok") ? 1 : 0,
     contact_pref: ["zoom", "whatsapp", "either"].includes(s("contact_pref")) ? s("contact_pref") : null,
     amount_minor: amountMinor, currency: amountMinor === null ? null : currency,
+    inbound: kind?.inbound ?? null,
+    outbound: kind?.outbound ?? null,
+    converts: kind ? kind.converts : null,
     expected_on: s("expected_on") || null,
     likelihood: Object.keys(LIKELIHOOD).includes(s("likelihood")) ? s("likelihood") : null,
     detail: s("detail") || null,
@@ -205,9 +230,17 @@ function thanks(): Response {
   <p>We have your enquiry and will come back to you shortly to arrange that
      first conversation.</p>
 </div>
-<div class="shell"><p>If it is urgent, call
-  <a href="tel:+442070888267">+44 20 7088 8267</a> or email
-  <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>.</p></div>`);
+<div class="shell">
+  <p>We have sent you a confirmation by email. If it has not arrived within a
+     few minutes, check your spam folder — and do tell us, because we would
+     want to know.</p>
+  <p>If it is urgent, call <a href="tel:+442070888267">+44 20 7088 8267</a>
+     or email <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>.</p>
+  <div class="after">
+    <a class="primary" href="${SITE}/how-it-works/">How a transaction works</a>
+    <a class="plain" href="${SITE}/">Back to the website</a>
+  </div>
+</div>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,8 +309,15 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
     <div class="panel"><table>
       ${kv("Email", `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>`)}
       ${kv("Phone", e.phone ? `${esc(e.phone)} — ${wa}` : "—")}
+      ${kv("Country", e.country ? esc(countryName(e.country)) : `<span class="muted">not stated</span>`)}
       ${kv("Wants", esc(e.contact_pref ?? "—"))}
       ${kv("Amount", amount)}
+      ${kv("Type", e.inbound
+        ? esc(typeName({ inbound: e.inbound, outbound: e.outbound,
+                         converts: e.converts ?? 0 })) +
+          (e.inbound === "crypto" && e.outbound === "crypto" && !e.converts
+            ? ' <span class="tag">sender executes on-chain</span>' : "")
+        : `<span class="muted">not stated — ask on the call</span>`)}
       ${kv("Expected", esc(e.expected_on ?? "—"))}
       ${kv("Likelihood", esc(LIKELIHOOD[e.likelihood] ?? "—"))}
       ${kv("Status", `<span class="tag">${esc(e.status)}</span>`)}

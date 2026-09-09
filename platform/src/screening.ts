@@ -191,7 +191,9 @@ export async function standingCheck(env: Env, partyId: string): Promise<{
        FROM verifications
       WHERE party_id = ? AND status = 'passed'
         AND (expires_at IS NULL OR expires_at > datetime('now'))
-      ORDER BY verified_at DESC LIMIT 1`).bind(partyId).first<any>();
+      -- Same tie-break as wallet screening: one-second timestamps are not an
+      -- ordering on their own.
+      ORDER BY verified_at DESC, rowid DESC LIMIT 1`).bind(partyId).first<any>();
 }
 
 /** Everything ever concluded about a party, newest first. */

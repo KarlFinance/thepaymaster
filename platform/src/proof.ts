@@ -11,7 +11,7 @@
 
 import { type Env, type Actor, id, log, insert, update } from "./db.ts";
 import { esc } from "./views.ts";
-import { challenge, proves, addressProblem, toChecksum } from "./wallets.ts";
+import { challenge, proves, provesControl, addressProblem, toChecksum } from "./wallets.ts";
 
 function nonce(): string {
   return [...crypto.getRandomValues(new Uint8Array(8))]
@@ -24,7 +24,19 @@ export const PROOF_CSS = `
   margin:12px 0;overflow-x:auto}
 .wallet{border:1px solid var(--rule);border-radius:10px;padding:14px 16px;margin-bottom:10px}
 .wallet.proved{background:#EAF7F0;border-color:#B7E0C9}
+.wallet{position:relative}
+.wallet form.rm{position:absolute;top:12px;right:12px;margin:0}
+.wallet form.rm button.small{font-size:12.5px;padding:5px 10px}
+@media(max-width:560px){.wallet form.rm{position:static;margin-top:10px}}
 .wallet code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.lead{font-size:17px}
+.addr{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;
+  background:var(--panel);padding:2px 6px;border-radius:5px}
+.note{background:#FFF8EE;border:1px solid #F0D8B4;border-radius:10px;padding:14px 18px;margin:14px 0}
+.note ul.ways{margin:10px 0 0;padding-left:20px}
+.note ul.ways li{margin-bottom:9px;line-height:1.55}
+details.help{margin-top:20px;border-top:1px solid var(--rule);padding-top:14px}
+details.help summary{cursor:pointer;font-weight:600;color:var(--ink)}
 `;
 
 /**
@@ -43,45 +55,141 @@ export function proofForm(opts: {
 }): string {
   const hidden = Object.entries(opts.hidden ?? {})
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+
   return `
-  ${opts.error ? `<div class="err">${esc(opts.error)}</div>` : ""}
-  <p>Prove you hold the key to <code>${esc(opts.address)}</code> by signing this.
-     It moves nothing and costs nothing.</p>
+  <p class="lead">Before we can pay this wallet, you need to show us it is
+    really yours. You do that by <b>signing a short message</b> with it.
+    It moves no money, costs nothing, and cannot be used to spend anything.</p>
+
+  ${opts.error ? `<div class="err"><b>That did not work.</b> ${esc(opts.error)}</div>` : ""}
+
+  <p class="muted">The wallet being proved is
+    <code class="addr">${esc(opts.address)}</code></p>
+
+  <!-- The path for someone with a wallet in this browser. Shown only when one
+       is actually there, and replaced by a plain explanation when it is not,
+       because an absent button is the thing that leaves people stuck. -->
+  <div id="haswallet" hidden>
+    <button type="button" id="signit" class="go">Sign with my wallet</button>
+    <p class="muted" id="whichacct" hidden></p>
+  </div>
+
+  <div id="nowallet" hidden>
+    <div class="note">
+      <b>No wallet found in this browser.</b>
+      <p>That is normal — most people keep their wallet somewhere else. Pick
+         whichever describes you:</p>
+      <ul class="ways">
+        <li><b>My wallet is on my phone.</b> Open this same page inside your
+            wallet app's own browser (MetaMask, Trust and Coinbase Wallet all
+            have one), and a button will appear here.</li>
+        <li><b>I use MetaMask, but on a different browser.</b> Open this page
+            there instead. The link works as many times as you need.</li>
+        <li><b>I use a Trezor.</b> In Trezor Suite, open the account, then
+            <i>Sign &amp; verify message</i>. Paste the message below into it,
+            sign, and copy the signature back here.</li>
+        <li><b>I use a Ledger.</b> Ledger's own app cannot sign a message —
+            connect the Ledger through MetaMask or Rabby and use the button.</li>
+        <li><b>My funds are with an exchange or custodian.</b> Ask them to sign
+            the message below with that address and send you the signature.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>The message to sign</h3>
   <div class="chal" id="challenge">${esc(opts.message)}</div>
+  <p><button type="button" class="plain" id="copymsg">Copy the message</button>
+     <span class="muted" id="copied" hidden>Copied.</span></p>
+
   <form method="post" action="${esc(opts.action)}">
     ${hidden}
-    <button type="button" id="signit" class="plain" hidden>Sign with my wallet</button>
-    <label for="sig">Signature</label>
+    <label for="sig">Paste the signature here</label>
     <textarea id="sig" name="signature" rows="3" required spellcheck="false"
       placeholder="0x…"></textarea>
-    <p class="muted">If you signed elsewhere — a hardware wallet, a multisig, your
-       exchange desk — paste the signature here.</p>
-    <div style="margin-top:12px"><button>Check it</button></div>
+    <p class="muted">A signature is a long line starting <code>0x</code>.
+       Copy all of it.</p>
+    <div style="margin-top:12px"><button class="go">Check it</button></div>
   </form>
+
+  <details class="help">
+    <summary>Nothing here is working — what now?</summary>
+    <p>Tell us and we will sort it out: it is a normal thing to get stuck on.
+       Email <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>
+       or call <a href="tel:+442070888267">+44 20 7088 8267</a> and we will walk
+       through it with you.</p>
+    <p class="muted">One thing we cannot do is skip it. Paying a wallet nobody
+       has proved is how money reaches the wrong person and never comes back.</p>
+  </details>
+
   <script>
-    // Only offered when a browser wallet is actually present; everyone else
-    // uses the box, which is the same field and the same check.
-    if (window.ethereum) {
+    (function () {
+      var want = ${JSON.stringify(opts.address.toLowerCase())};
+
+      // Copying the message matters more than it looks: everybody signing
+      // somewhere else has to get these exact words across intact.
+      var copy = document.getElementById('copymsg');
+      copy.addEventListener('click', function () {
+        var text = document.getElementById('challenge').textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          var ok = document.getElementById('copied');
+          ok.hidden = false;
+          setTimeout(function () { ok.hidden = true; }, 2500);
+        });
+      });
+
+      if (!window.ethereum) {
+        document.getElementById('nowallet').hidden = false;
+        return;
+      }
+      document.getElementById('haswallet').hidden = false;
+
       var btn = document.getElementById('signit');
-      btn.hidden = false;
+      var says = document.getElementById('whichacct');
+      function tell(html) { says.hidden = !html; says.innerHTML = html; }
+
       btn.addEventListener('click', async function () {
         btn.disabled = true;
         var was = btn.textContent;
         btn.textContent = 'Check your wallet…';
         try {
           var accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+          // The wallet signs with whichever account is selected, which is not
+          // necessarily the one being proved. Signing with the wrong one gives
+          // a valid signature that fails our check for reasons the failure
+          // message cannot explain, so it is caught here instead.
+          var match = (accounts || []).find(function (a) {
+            return String(a).toLowerCase() === want;
+          });
+          if (!match) {
+            var on = (accounts && accounts[0]) ? accounts[0] : 'no account';
+            tell('Your wallet is currently on <code>' + on + '</code>, but this ' +
+                 'address is <code>' + want + '</code>.<br>Switch to that account ' +
+                 '— in MetaMask, the circle at the top right — then press the ' +
+                 'button again. If it is not in the list, connect it first: ' +
+                 'MetaMask menu, then <i>Connected sites</i>.');
+            btn.disabled = false; btn.textContent = was;
+            return;
+          }
+
+          tell('');
           var msg = document.getElementById('challenge').textContent;
           var sig = await window.ethereum.request({
-            method: 'personal_sign', params: [msg, accounts[0]]
+            method: 'personal_sign', params: [msg, match]
           });
           document.getElementById('sig').value = sig;
+          tell('<b>Signed.</b> Now press <b>Check it</b> below.');
+          document.getElementById('sig').scrollIntoView({ block: 'center' });
         } catch (e) {
-          alert('That did not complete: ' + (e && e.message ? e.message : e));
+          var m = (e && e.message) ? e.message : String(e);
+          tell(/reject|denied/i.test(m)
+            ? 'You cancelled it in your wallet. Press the button again when ready.'
+            : 'That did not complete: ' + m);
         }
         btn.disabled = false;
         btn.textContent = was;
       });
-    }
+    })();
   </script>`;
 }
 
@@ -110,9 +218,15 @@ export async function proveDestination(env: Env, actor: Actor, destinationId: st
   const message = challenge({
     ref, address: d.address, role: "recipient", nonce: d.proof_nonce,
   });
-  if (!proves(message, signature, d.address)) {
+  // A contract wallet has no key to recover, so the chain is asked instead.
+  // Which kind of wallet it is does not need to be known here.
+  const chainId = await chainOf(env, d.participation_id);
+  if (!await provesControl(env, chainId, {
+        address: d.address, message, signature })) {
     return "That signature does not come from that wallet. Check you signed with " +
-           "the right account, and that the whole signature was copied.";
+           "the right account, and that the whole signature was copied. " +
+           "If this is a Safe or another contract wallet, the signature has to " +
+           "be one the wallet itself will vouch for.";
   }
 
   await update(env.DB, actor, "destination.proved", "destinations", destinationId, {
@@ -129,7 +243,8 @@ export async function proveDestination(env: Env, actor: Actor, destinationId: st
 
 export async function sendingWallets(env: Env, transactionId: string) {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM sending_wallets WHERE transaction_id = ? ORDER BY created_at`)
+    `SELECT * FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL
+      ORDER BY created_at`)
     .bind(transactionId).all<any>();
   return results ?? [];
 }
@@ -141,10 +256,48 @@ export async function addSendingWallet(env: Env, actor: Actor, opts: {
   if (problem) return problem;
   const address = toChecksum(opts.address.trim());
 
-  const existing = await env.DB.prepare(
-    "SELECT id FROM sending_wallets WHERE transaction_id = ? AND lower(address) = ?")
+  // The token's own contract address is not a wallet. Pasting it here is an
+  // easy mistake — both are 0x addresses on the same screen — and it would
+  // otherwise sit in the list blocking the gate with a proof nobody can give.
+  const t = await env.DB.prepare(
+    "SELECT token_address, fee_wallet FROM transactions WHERE id = ?")
+    .bind(opts.transactionId).first<any>();
+  if (t?.token_address &&
+      String(t.token_address).toLowerCase() === address.toLowerCase()) {
+    return "That is the token's contract address, not a wallet. You want the " +
+           "address of the wallet the coins are held in.";
+  }
+  if (t?.fee_wallet &&
+      String(t.fee_wallet).toLowerCase() === address.toLowerCase()) {
+    return "That is our fee address, not a sending wallet.";
+  }
+
+  const live = await env.DB.prepare(
+    `SELECT id FROM sending_wallets
+      WHERE transaction_id = ? AND lower(address) = ? AND removed_at IS NULL`)
     .bind(opts.transactionId, address.toLowerCase()).first<any>();
-  if (existing) return "That wallet is already on this transaction.";
+  if (live) return "That wallet is already on this transaction.";
+
+  // A wallet that was withdrawn and is now being added back. The row is
+  // revived rather than replaced: the table holds a UNIQUE across
+  // (transaction, chain, address), which a second row would violate — it did,
+  // with a 500 that told the sender nothing. The proof goes, so control is
+  // demonstrated again rather than inherited from before it was withdrawn.
+  const withdrawn = await env.DB.prepare(
+    `SELECT id FROM sending_wallets
+      WHERE transaction_id = ? AND lower(address) = ? AND removed_at IS NOT NULL
+      ORDER BY rowid DESC LIMIT 1`)
+    .bind(opts.transactionId, address.toLowerCase()).first<any>();
+  if (withdrawn) {
+    await update(env.DB, actor, "sending_wallet.restored", "sending_wallets",
+      withdrawn.id, {
+        removed_at: null, removed_by: null,
+        chain: opts.chain.trim() || "ethereum",
+        label: opts.label?.trim() || null,
+        proved_at: null, proof: null, proof_nonce: null,
+      }, { removed_at: "set" }, { note: `${address} put back on the transaction` });
+    return null;
+  }
 
   await insert(env.DB, actor, "sending_wallet.added", "sending_wallets", id("swl"), {
     transaction_id: opts.transactionId,
@@ -162,14 +315,19 @@ export async function proveSendingWallet(env: Env, actor: Actor, walletId: strin
   const w = await env.DB.prepare("SELECT * FROM sending_wallets WHERE id = ?")
     .bind(walletId).first<any>();
   if (!w) return "No such wallet.";
+  if (w.removed_at) return "That wallet has been taken off this transaction.";
   if (!w.proof_nonce) return "Start again — the challenge has gone.";
 
   const message = challenge({
     ref, address: w.address, role: "sender", nonce: w.proof_nonce,
   });
-  if (!proves(message, signature, w.address)) {
+  const chainId = await chainForTransaction(env, w.transaction_id);
+  if (!await provesControl(env, chainId, {
+        address: w.address, message, signature })) {
     return "That signature does not come from that wallet. Check you signed with " +
-           "the right account, and that the whole signature was copied.";
+           "the right account, and that the whole signature was copied. " +
+           "If this is a Safe or another contract wallet, the signature has to " +
+           "be one the wallet itself will vouch for.";
   }
 
   await update(env.DB, actor, "sending_wallet.proved", "sending_wallets", walletId, {
@@ -179,6 +337,64 @@ export async function proveSendingWallet(env: Env, actor: Actor, walletId: strin
   return null;
 }
 
-export function challengeForSendingWallet(w: any, ref: string): string {
-  return challenge({ ref, address: w.address, role: "sender", nonce: w.proof_nonce });
+/**
+ * A sending wallet's challenge, minting the nonce if there is not one.
+ *
+ * This used to read the nonce and trust it to be there. It is not there on a
+ * wallet that has been withdrawn and put back, because reviving the row clears
+ * the proof — so the challenge rendered "Nonce: null" and no signature of it
+ * could ever be accepted. The destination version has always minted on demand;
+ * this one now does the same.
+ */
+export async function challengeForSendingWallet(env: Env, w: any,
+                                                ref: string): Promise<string> {
+  let n = w.proof_nonce;
+  if (!n) {
+    n = nonce();
+    await env.DB.prepare("UPDATE sending_wallets SET proof_nonce = ? WHERE id = ?")
+      .bind(n, w.id).run();
+  }
+  return challenge({ ref, address: w.address, role: "sender", nonce: n });
+}
+
+/** The chain a transaction runs on, defaulting to Ethereum. */
+async function chainForTransaction(env: Env, transactionId: string): Promise<number> {
+  const t = await env.DB.prepare("SELECT chain_id FROM transactions WHERE id = ?")
+    .bind(transactionId).first<any>();
+  return (t?.chain_id as number) ?? 1;
+}
+
+/** The same, reached through a participation. */
+async function chainOf(env: Env, participationId: string): Promise<number> {
+  const t = await env.DB.prepare(
+    `SELECT t.chain_id FROM transactions t
+       JOIN participations p ON p.transaction_id = t.id
+      WHERE p.id = ?`).bind(participationId).first<any>();
+  return (t?.chain_id as number) ?? 1;
+}
+
+/**
+ * Take a sending wallet back off a transaction.
+ *
+ * Kept rather than deleted: that an address was declared and then withdrawn is
+ * worth knowing, especially if it reappears. Refused once the money is moving,
+ * because by then the declaration is part of what happened.
+ */
+export async function removeSendingWallet(env: Env, actor: Actor,
+                                          walletId: string): Promise<string | null> {
+  const w = await env.DB.prepare(
+    `SELECT s.*, t.status FROM sending_wallets s
+       JOIN transactions t ON t.id = s.transaction_id
+      WHERE s.id = ?`).bind(walletId).first<any>();
+  if (!w) return "No such wallet.";
+  if (w.removed_at) return null;
+  if (["settling", "settled", "closed"].includes(String(w.status))) {
+    return "This transaction is already being settled, so the wallets it " +
+           "declared cannot be changed. Tell us and we will note it.";
+  }
+  await update(env.DB, actor, "sending_wallet.removed", "sending_wallets", walletId, {
+    removed_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+    removed_by: actor.id,
+  }, { removed_at: null }, { note: `${w.address} withdrawn` });
+  return null;
 }

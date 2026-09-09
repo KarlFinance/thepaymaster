@@ -15,6 +15,7 @@ import { type Env } from "./db.ts";
 import { settle, format, type FeeMode } from "./money.ts";
 import { standingCheck } from "./screening.ts";
 import { inspect, USDT_MAINNET, CHAINS } from "./chain.ts";
+import { standing as standingScreen } from "./walletscreen.ts";
 
 export interface Check {
   key: string;
@@ -157,7 +158,7 @@ export async function assess(env: Env, transactionId: string,
   }
 
   // --- where the money goes ------------------------------------------------
-  const needs = t.outbound === "fiat" ? "bank details" : "a wallet address";
+  const needs = t.outbound === "fiat" ? "bank details" : "wallet address";
   const missingDest: string[] = [];
   const unlocked: string[] = [];
   let lastLock: { by: string | null; at: string | null } = { by: null, at: null };
@@ -186,7 +187,7 @@ export async function assess(env: Env, transactionId: string,
   if (t.inbound === "crypto") {
     const row = await env.DB.prepare(
       `SELECT count(*) AS n, sum(proved_at IS NOT NULL) AS proved
-         FROM sending_wallets WHERE transaction_id = ?`)
+         FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL`)
       .bind(transactionId).first<any>();
     const n = row?.n ?? 0, proved = row?.proved ?? 0;
     // Recorded is not enough. On an irreversible transfer the only thing that
@@ -212,7 +213,7 @@ export async function assess(env: Env, transactionId: string,
 
     const addresses: { address: string; role: string }[] = [];
     const { results: sw } = await env.DB.prepare(
-      "SELECT address FROM sending_wallets WHERE transaction_id = ?")
+      "SELECT address FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL")
       .bind(transactionId).all<any>();
     for (const w of sw ?? []) addresses.push({ address: w.address, role: "sending" });
     for (const r of recipients) {
@@ -222,6 +223,18 @@ export async function assess(env: Env, transactionId: string,
       if (d?.address) addresses.push({ address: d.address, role: r.display_name });
     }
     if (t.fee_wallet) addresses.push({ address: t.fee_wallet, role: "our fee" });
+
+    // Without one, the 1% has nowhere to go. Skipping the check when the field
+    // is empty would let a transaction reach "ready" with no fee destination
+    // at all, which is exactly the case worth catching.
+    checks.push({
+      key: "fee_destination",
+      label: "Our fee has a destination",
+      met: Boolean(t.fee_wallet),
+      detail: t.fee_wallet
+        ? String(t.fee_wallet)
+        : "No fee wallet set on this transaction. Set one under Chain settings.",
+    });
 
     if (addresses.length) {
       const reports = await Promise.all(
@@ -257,6 +270,26 @@ export async function assess(env: Env, transactionId: string,
                 reports.filter((r) => r.role === "sending").length} wallet(s)`
             : `Holds ${format(Number(held), t.decimals_in)}, needs ${
                 format(Number(need), t.decimals_in)}`,
+      });
+
+      // Tether's blacklist says whether an address can receive. Screening says
+      // whether it should. Both, or neither is worth much.
+      const screens = await Promise.all(addresses.map(async (a) => ({
+        ...a, screen: await standingScreen(env, a.address, chainId),
+      })));
+      const unscreened = screens.filter((s) => !s.screen || s.screen.verdict === "pending");
+      const badScreens = screens.filter((s) =>
+        s.screen && (s.screen.verdict === "flagged" || s.screen.verdict === "refused"));
+      checks.push({
+        key: "screened",
+        label: "Every address has been screened",
+        met: unscreened.length === 0 && badScreens.length === 0,
+        detail: badScreens.length
+          ? `${badScreens.map((s) => `${s.role} — ${s.screen.verdict}${
+              s.screen.findings ? `: ${s.screen.findings}` : ""}`).join("; ")}`
+          : unscreened.length
+            ? `Not screened yet: ${unscreened.map((s) => s.role).join(", ")}`
+            : `${screens.length} screened and clear`,
       });
 
       // A contract can be a perfectly good destination — a Safe, an exchange —

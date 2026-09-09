@@ -17,8 +17,9 @@
  */
 
 import { type Env, type Actor, id, log } from "./db.ts";
+import { FAVICON } from "./chrome.ts";
 import { verify as verifyTotp, randomSecret, enrolmentUri } from "./totp.ts";
-import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
+import { esc, REVEAL_CSS, REVEAL_JS, page, nav } from "./views.ts";
 
 /**
  * Workers refuses PBKDF2 above 100,000 iterations, and OWASP wants 210,000 for
@@ -264,7 +265,7 @@ input.code{font-size:24px;letter-spacing:.34em;text-align:center;font-variant-nu
 function screen(title: string, body: string, extra = ""): Response {
   return new Response(`<!doctype html><html lang="en-GB"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
+<title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">${FAVICON}
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
 <style>${CSS}${REVEAL_CSS}</style></head><body><div class="box"><div class="card">${body}</div></div>${extra}${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -452,18 +453,29 @@ export async function handleAccount(env: Env, request: Request, actor: Actor,
   const forced = admin.must_change_password === 1;
 
   /**
+   * Before the first password change there is no panel to sit inside — the
+   * admin cannot reach any of it yet — so that case keeps the boxed card. A
+   * voluntary visit from the rail is an ordinary panel page and should look
+   * like one.
+   */
+  const frame = (title: string, body: string) => forced
+    ? screen(title, body)
+    : page(title, `<div class="panel" style="max-width:520px">${body}</div>`,
+           { nav: nav("/account", admin.name) });
+
+  /**
    * The done state is a page of its own rather than the form with a banner on
    * it. Re-rendering the form after a successful change left the "before going
    * any further" wording in place and no way onward, because `admin` was
    * loaded at the start of the request and still said a change was owed.
    */
-  const finished = () => screen("Password changed", `
+  const finished = () => frame("Password changed", `
     <h1>Password changed</h1>
     <p class="sub">Every other session has been signed out.</p>
     <div class="ok">You are signed in as ${esc(admin.email)}.</div>
     <a href="/"><button class="go" type="button">Continue to the pipeline</button></a>`);
 
-  const render = (error = "") => screen("Your account", `
+  const render = (error = "") => frame("Your account", `
     <h1>Your password</h1>
     <p class="sub">${forced ? "Choose your own before going any further."
       : `Signed in as ${esc(admin.email)}.`}</p>

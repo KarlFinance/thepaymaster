@@ -18,10 +18,12 @@
  */
 
 import { type Env, type Actor, id, log, insert, update } from "./db.ts";
+import { staffKycSubmitted, kycDecided } from "./notify.ts";
 import { esc, REVEAL_CSS } from "./views.ts";
 import { store, documentsFor, DocumentProblem, ACCEPTED } from "./documents.ts";
 import { beginCheck, standingCheck, history } from "./screening.ts";
 import { format } from "./money.ts";
+import { countrySelect } from "./countries.ts";
 
 /** What each kind of party must give us before we will look at it. */
 export const REQUIRED: Record<string, { kind: string; label: string; hint: string }[]> = {
@@ -106,11 +108,11 @@ export function verifyForm(party: any, docs: any[], people: any[],
       <label for="dob">Date of birth</label>
       <input id="dob" name="date_of_birth" type="date" value="${v(party.date_of_birth)}" required>
       <label for="nat">Nationality</label>
-      <input id="nat" name="nationality" value="${v(party.nationality)}"
-        placeholder="British" required>
+      ${countrySelect({ name: "nationality", id: "nat", selected: party.nationality, required: true,
+                        blank: "Choose the country of your passport" })}
       <label for="res">Country you live in</label>
-      <input id="res" name="residence_country" value="${v(party.residence_country)}"
-        placeholder="United Kingdom" required>
+      ${countrySelect({ name: "residence_country", id: "res", selected: party.residence_country,
+                        required: true })}
       <label for="addr">Home address</label>
       <textarea id="addr" name="address" rows="3" required>${v(party.address)}</textarea>
     </div>`;
@@ -283,6 +285,7 @@ export async function receiveVerification(env: Env, actor: Actor, party: any,
   await update(env.DB, actor, "party.kyc_submitted", "parties", party.id,
     { kyc_submitted_at: new Date().toISOString().replace("T", " ").slice(0, 19) },
     { kyc_submitted_at: party.kyc_submitted_at });
+  await staffKycSubmitted(env, actor, party.id);
 
   await beginCheck(env, actor, {
     partyId: party.id, kind,
@@ -424,7 +427,9 @@ export async function decide(env: Env, actor: Actor, partyId: string, opts: {
 }): Promise<void> {
   const latest = await env.DB.prepare(
     `SELECT id, status FROM verifications WHERE party_id = ?
-      ORDER BY created_at DESC LIMIT 1`).bind(partyId).first<any>();
+      -- rowid breaks the tie: created_at has one-second granularity, and
+      -- deciding on the wrong row would attach the verdict to the wrong check.
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).bind(partyId).first<any>();
   if (!latest) throw new Error("nothing to decide on");
 
   const nowStr = new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -445,6 +450,8 @@ export async function decide(env: Env, actor: Actor, partyId: string, opts: {
         ? `cleared to ${opts.ceilingMinor === null ? "no ceiling"
             : "GBP " + format(opts.ceilingMinor, 2)} until ${expires.slice(0, 10)}`
         : "refused" });
+
+  await kycDecided(env, actor, partyId, opts.passed);
 }
 
 export { standingCheck, history, documentsFor };

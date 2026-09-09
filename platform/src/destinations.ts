@@ -18,6 +18,7 @@
  */
 
 import { type Env, type Actor, id, log, insert, update } from "./db.ts";
+import { addressLocked } from "./notify.ts";
 import { esc } from "./views.ts";
 
 export type Kind = "bank" | "wallet";
@@ -166,6 +167,16 @@ export async function save(env: Env, actor: Actor, participationId: string,
     status: "draft",
     confirmed_at: null,
     confirmed_via: null,
+
+    // And the proof goes with it. A signature proves control of the address
+    // that was signed for; carrying it over to a new address would leave the
+    // record asserting something nobody ever demonstrated, and would satisfy
+    // the readiness gate for a wallet that had never been proved at all. The
+    // nonce is cleared too, so the next challenge is a fresh one and an old
+    // signature cannot be replayed against it.
+    proved_at: null,
+    proof_signature: null,
+    proof_nonce: null,
   };
 
   if (existing) {
@@ -202,6 +213,7 @@ export async function lock(env: Env, actor: Actor, destinationId: string): Promi
     status: "locked",
     locked_at: new Date().toISOString().replace("T", " ").slice(0, 19),
   }, { status: d.status, locked_at: d.locked_at ?? null });
+  await addressLocked(env, actor, destinationId);
   return null;
 }
 

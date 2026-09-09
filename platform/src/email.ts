@@ -191,3 +191,21 @@ export function invite(opts: {
     ].join("\n"),
   };
 }
+
+/** A way back in, for a client who is already on a transaction. */
+export function returnLink(url: string): { subject: string; text: string } {
+  return {
+    subject: "Your link back in — ThePaymaster",
+    text: [
+      "Someone asked for a link back into your ThePaymaster account.",
+      "",
+      url,
+      "",
+      "It works once and expires in 24 hours.",
+      "",
+      "If that was not you, you can ignore this — nobody has been let in, and",
+      "the link is useless to anyone who cannot read this inbox. Do tell us",
+      "though, at info@thepaymaster.co.uk.",
+    ].join("\n"),
+  };
+}

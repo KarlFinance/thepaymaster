@@ -12,19 +12,37 @@ import { type Env, type Actor, id, nextRef, log, insert, update, canMove, typeNa
 import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
          handleSignOut, handleAccount } from "./adminauth.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
+import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
-         clientVerify } from "./client.ts";
+         clientRecord, clientSend, requestReturn, followReturn, clientMandate,
+         clientVerify, clientHelpPage } from "./client.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
 import { fetchDocument, store, DocumentProblem } from "./documents.ts";
 import { assess, summarise } from "./readiness.ts";
+import { screen as screenAddress, recordVerdict, forTransaction as screensFor,
+         screenAll, nominis,
+         standing as standingScreen } from "./walletscreen.ts";
+import { txHashProblem, receipt as txReceipt, explorerLink, addressLink,
+         CHAINS, health as chainHealth, USDT_MAINNET } from "./chain.ts";
 import { arrival, legs, events as custodyEvents, settlementChecks,
          record as recordCustody, holderFor } from "./settlement.ts";
 import { forTransaction, lock as lockDestination, requestChange,
          approveChange, describe as describeDestination } from "./destinations.ts";
+import { toChecksum, addressProblem } from "./wallets.ts";
 import { mint } from "./tokens.ts";
+import { recipientsInvited, readyToSend } from "./notify.ts";
+import { resolve as resolveSettings, put as putSetting, clear as clearSetting,
+         list as listSettings, noteCheck } from "./settings.ts";
+import { request as requestMandate, revoke as revokeMandate,
+         standing as standingMandate, history as mandateHistory,
+         type Mandate as MandateRow } from "./mandate.ts";
 import { send, startLink, invite } from "./email.ts";
+import { dossierBundle } from "./bundle.ts";
+import { adminHelp, gateTip, tip } from "./help.ts";
+import { countryName } from "./countries.ts";
+import { ACCEPTED } from "./documents.ts";
 
 /**
  * Staff only, and only on this hostname.
@@ -51,6 +69,10 @@ const CURRENCIES: Record<string, number> = {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Credentials staff have stored are decrypted once and folded into env, so
+    // everything downstream reads them exactly as it reads a Worker secret and
+    // needs to know nothing about where they came from.
+    env = await resolveSettings(env);
     const url = new URL(request.url);
     const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
 
@@ -79,13 +101,30 @@ export default {
         if (url.pathname.startsWith("/join/")) {
           return joinLink(env, url.pathname.slice(6), request);
         }
+        if (url.pathname === "/back" && request.method === "POST") {
+          return requestReturn(env, request);
+        }
+        if (url.pathname.startsWith("/back/")) {
+          return followReturn(env, url.pathname.slice(6), request);
+        }
         if (url.pathname === "/signout") return signOut(env, request);
         if (url.pathname === "/verify") {
           return clientVerify(env, request, (p) => ctx.waitUntil(p));
         }
         if (url.pathname === "/") return clientHome(env, request);
+        if (url.pathname === "/help") return clientHelpPage(env, request);
         if (url.pathname.startsWith("/d/")) {
-          return clientDeal(env, request, url.pathname.slice(3).split("/")[0]);
+          const dealId = url.pathname.slice(3).split("/")[0];
+          if (url.pathname.endsWith("/record")) {
+            return clientRecord(env, request, dealId);
+          }
+          if (url.pathname.endsWith("/mandate") && request.method === "POST") {
+            return clientMandate(env, request, dealId);
+          }
+          if (url.pathname.endsWith("/send") || url.pathname.endsWith("/send/prepare")) {
+            return clientSend(env, request, dealId);
+          }
+          return clientDeal(env, request, dealId);
         }
         return new Response("Not found", { status: 404 });
       }
@@ -129,19 +168,54 @@ export default {
         return enquiryDetail(env, admin, eid);
       }
       if (url.pathname === "/kyc") return kycQueue(env, admin);
+      if (url.pathname === "/help") {
+        return page("Help", adminHelp(), { nav: nav("/help", admin.name) });
+      }
       if (url.pathname.startsWith("/p/")) {
         const pid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/decide") && request.method === "POST") {
           return kycDecide(request, env, actor, pid);
         }
-        return partyView(env, admin, pid);
+        if (url.pathname.endsWith("/upload") && request.method === "POST") {
+          return upload(request, env, actor, { partyId: pid }, `/p/${pid}`);
+        }
+        return partyView(env, admin, pid, url.searchParams.get("err") ?? "");
       }
       if (url.pathname.startsWith("/doc/")) {
         return serveDocument(env, actor, url.pathname.slice(5));
       }
       if (url.pathname === "/log") return auditView(env, admin);
+      if (url.pathname === "/chain") return chainView(env, admin);
+      if (url.pathname === "/providers") {
+        return request.method === "POST"
+          ? saveProvider(env, actor, admin, request)
+          : providersView(env, admin);
+      }
       if (url.pathname.startsWith("/t/")) {
         const txId = url.pathname.slice(3).split("/")[0];
+        if (url.pathname.endsWith("/dossier")) {
+          return dossierPage(env, admin, txId);
+        }
+        if (url.pathname.endsWith("/dossier/download")) {
+          const bundle = await dossierBundle(env, txId);
+          if (!bundle) return new Response("Not found", { status: 404 });
+          await log(env.DB, actor, "dossier.downloaded", "transactions", txId,
+                    { note: `${bundle.bytes.length} bytes` });
+          return new Response(bundle.bytes, { headers: {
+            "content-type": "application/zip",
+            "content-disposition": `attachment; filename="${bundle.name}"`,
+            "cache-control": "no-store",
+          } });
+        }
+        if (url.pathname.endsWith("/upload") && request.method === "POST") {
+          return upload(request, env, actor, { transactionId: txId }, `/t/${txId}`);
+        }
+        if (url.pathname.endsWith("/dossier/anchor") && request.method === "POST") {
+          return anchorNow(env, actor, txId, request);
+        }
+        if (url.pathname.endsWith("/dossier/seal") && request.method === "POST") {
+          return sealNow(env, actor, txId, request);
+        }
         if (url.pathname.endsWith("/settle")) {
           return request.method === "POST"
             ? recordSettlement(request, env, actor, txId)
@@ -156,6 +230,41 @@ export default {
         if (url.pathname.endsWith("/split") && request.method === "POST") {
           return setSplit(request, env, actor, txId);
         }
+        if (url.pathname.endsWith("/mandate") && request.method === "POST") {
+          return askForMandate(env, actor, txId, request);
+        }
+        if (url.pathname.endsWith("/mandate/withdraw") && request.method === "POST") {
+          const f = await request.formData();
+          const problem = await revokeMandate(env, actor,
+            String(f.get("mandate") ?? ""), String(f.get("reason") ?? ""));
+          if (problem) return detail(env, { name: "" }, txId, problem);
+          return Response.redirect(new URL(`/t/${txId}`, url).toString(), 302);
+        }
+        if (url.pathname.endsWith("/chain") && request.method === "POST") {
+          return setChainSettings(env, actor, txId, request);
+        }
+        if (url.pathname.endsWith("/screenall") && request.method === "POST") {
+          const out = await screenAll(env, actor, txId);
+          return detail(env, admin, txId, out.problem
+            ? `Nominis could not answer: ${out.problem}`
+            : "");
+        }
+        if (url.pathname.endsWith("/screen") && request.method === "POST") {
+          const f = await request.formData();
+          const tx = await env.DB.prepare(
+            "SELECT chain_id FROM transactions WHERE id = ?").bind(txId).first<any>();
+          const address = String(f.get("address") ?? "");
+          const verdict = String(f.get("verdict") ?? "") === "clear" ? "clear" : "flagged";
+          // Always create the row through the provider first, so the record
+          // says which provider was asked even when it was a person.
+          const screenId = await screenAddress(env, actor, {
+            address, chainId: tx?.chain_id ?? 1, transactionId: txId,
+          });
+          await recordVerdict(env, actor, screenId, {
+            verdict, findings: String(f.get("findings") ?? "").trim(), months: 3,
+          });
+          return Response.redirect(new URL(`/t/${txId}`, url).toString(), 302);
+        }
         if (url.pathname.endsWith("/lock") && request.method === "POST") {
           const f = await request.formData();
           const problem = await lockDestination(env, actor,
@@ -166,7 +275,7 @@ export default {
         if (url.pathname.endsWith("/release") && request.method === "POST") {
           return release(request, env, actor, txId, (p) => ctx.waitUntil(p));
         }
-        return detail(env, admin, txId);
+        return detail(env, admin, txId, url.searchParams.get("err") ?? "");
       }
       return new Response("Not found", { status: 404 });
     } catch (err) {
@@ -186,7 +295,107 @@ async function pipeline(env: Env, admin: { name: string }): Promise<Response> {
     `SELECT id, ref, name, status, inbound, outbound, converts,
             currency_in, decimals_in, gross_expected_minor
        FROM transactions ORDER BY updated_at DESC`).all<Row>();
-  return page("Pipeline", board(results ?? []), { nav: nav("/", admin.name) });
+  return page("Pipeline", `${await attention(env)}${board(results ?? [])}`,
+              { nav: nav("/", admin.name) });
+}
+
+/**
+ * Everything waiting on a member of staff, with a link to where it is done.
+ *
+ * The board shows where each transaction is; it does not say what is stuck on
+ * us. Notifications say so by email, but an email is read once, and the
+ * person who reads it may not be the one who acts. This is the same list,
+ * always current, at the top of the first page anyone opens.
+ */
+async function attention(env: Env): Promise<string> {
+  const q = async (sql: string, ...binds: unknown[]) =>
+    (await env.DB.prepare(sql).bind(...binds).all<any>()).results ?? [];
+
+  const [enquiries, kyc, toLock, settledOpen, live] = await Promise.all([
+    q(`SELECT id, name, created_at FROM enquiries WHERE status = 'new' ORDER BY created_at`),
+    q(`SELECT p.id, p.display_name, p.kyc_submitted_at FROM parties p
+        WHERE p.kyc_submitted_at IS NOT NULL
+          AND COALESCE((SELECT status FROM verifications v WHERE v.party_id = p.id
+                         ORDER BY v.created_at DESC LIMIT 1), 'pending') = 'pending'
+        ORDER BY p.kyc_submitted_at`),
+    q(`SELECT d.id, d.confirmed_at, y.display_name, t.id AS tx, t.ref
+         FROM destinations d
+         JOIN participations p ON p.id = d.participation_id
+         JOIN parties y ON y.id = p.party_id
+         JOIN transactions t ON t.id = p.transaction_id
+        WHERE d.status = 'confirmed' ORDER BY d.confirmed_at`),
+    q(`SELECT t.id, t.ref, t.name FROM transactions t
+        WHERE t.status = 'settled'
+          AND NOT EXISTS (SELECT 1 FROM dossier_seals s WHERE s.transaction_id = t.id)`),
+    q(`SELECT id, ref, name, status, submitted_at FROM transactions
+        WHERE status IN ('draft', 'awaiting_parties', 'kyc')`),
+  ]);
+
+  // Gate-green transactions nobody has moved on. The gate is the expensive
+  // check, so it runs only for transactions that could be waiting on it.
+  const toMove: { id: string; ref: string; name: string; status: string }[] = [];
+  const toRelease = live.filter((t: any) => t.status === "draft" && t.submitted_at);
+  for (const t of live.filter((t: any) => t.status !== "draft")) {
+    const s = await assess(env, t.id, { onChain: true });
+    if (s.ready) toMove.push(t);
+  }
+
+  const items: string[] = [];
+  const li = (href: string, what: string, when?: string) =>
+    items.push(`<li><a href="${href}">${what}</a>${when
+      ? `<span class="muted"> — ${esc(String(when).slice(0, 16))}</span>` : ""}</li>`);
+  for (const e of enquiries) li(`/e/${e.id}`, `New enquiry from <b>${esc(e.name)}</b>`, e.created_at);
+  for (const p of kyc) li(`/p/${p.id}`, `Decide <b>${esc(p.display_name)}</b>'s verification`, p.kyc_submitted_at);
+  for (const t of toRelease) li(`/t/${t.id}`, `Release <b>${esc(t.ref)}</b> — the sender has submitted it`, t.submitted_at);
+  for (const d of toLock) li(`/t/${d.tx}`, `Lock <b>${esc(d.display_name)}</b>'s confirmed details on ${esc(d.ref)}`, d.confirmed_at);
+  for (const t of toMove) li(`/t/${t.id}`, `Move <b>${esc(t.ref)}</b> on — every gate line is met (now ${esc(t.status.replace(/_/g, " "))})`);
+  for (const t of settledOpen) li(`/t/${t.id}/dossier`, `Seal the dossier for <b>${esc(t.ref)}</b> — every payment has landed`);
+
+  return `<section class="panel attention" style="max-width:none;margin-bottom:22px;border-left:4px solid ${
+      items.length ? "var(--accent)" : "#1B7F4B"}">
+    <h2 style="margin-top:0">Needs attention${tip("Everything waiting on a member of staff, with a link to where it is done. Empty means nothing is waiting on us.")}</h2>
+    ${items.length
+      ? `<ul style="margin:0;padding-left:18px;line-height:1.9">${items.join("")}</ul>`
+      : `<p class="good" style="margin:0">Nothing is waiting on us.</p>`}
+  </section>`;
+}
+
+/** A file, against a party or a transaction. Same store as the client uploads. */
+async function upload(request: Request, env: Env, actor: Actor,
+                      about: { partyId?: string; transactionId?: string },
+                      back: string): Promise<Response> {
+  const f = await request.formData();
+  const kind = String(f.get("kind") ?? "").trim().replace(/[^a-z0-9_]/gi, "_").toLowerCase() || "other";
+  const label = String(f.get("label") ?? "").trim().slice(0, 160) || undefined;
+  try {
+    await store(env, actor, f.get("file") as File, { kind, label, ...about });
+    return Response.redirect(new URL(back, request.url).toString(), 303);
+  } catch (err) {
+    if (err instanceof DocumentProblem) {
+      const u = new URL(back, request.url);
+      u.searchParams.set("err", err.message);
+      return Response.redirect(u.toString(), 303);
+    }
+    throw err;
+  }
+}
+
+/** The upload form staff see on a party or a transaction page. */
+function uploadForm(action: string, kinds: [string, string][]): string {
+  return `<form method="post" action="${esc(action)}" enctype="multipart/form-data" class="upload"
+      style="margin-top:14px;padding-top:12px;border-top:1px solid #E6EAF0">
+    <div class="row" style="align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div><label for="uk">What it is</label>
+        <select id="uk" name="kind">${kinds.map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select></div>
+      <div style="flex:1;min-width:180px"><label for="ul">Label <span class="muted">(optional)</span></label>
+        <input id="ul" name="label" placeholder="Themis report, 9 Sep 2026"></div>
+      <div><label for="uf">File</label>
+        <input id="uf" name="file" type="file" accept="${ACCEPTED}" required></div>
+      <button class="go">Upload</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">PDF or a photograph, up to 15MB. Fingerprinted as it
+      arrives and added to the dossier; it cannot be removed afterwards.</p>
+  </form>`;
 }
 
 function newForm(admin: { name: string }, error = ""): Response {
@@ -218,11 +427,40 @@ function newForm(admin: { name: string }, error = ""): Response {
       <option value="deducted">What the sender sends — fee comes out of it</option>
       <option value="grossed_up">What the recipients receive — sender sends more</option>
     </select>
-    <label for="fb">Rate (basis points)</label><input id="fb" name="fee_bps" value="100">
+    <label for="fb">Our fee</label>
+    <div class="row" style="margin-top:0">
+      <input id="fb" name="fee_bps" value="100" inputmode="numeric"
+             style="max-width:120px" aria-describedby="fbsays">
+      <span id="fbsays" class="muted">basis points — <b>1%</b></span>
+    </div>
+    <p class="muted">A basis point is a hundredth of a percent: 100 is 1%,
+      50 is 0.5%, 250 is 2.5%. Entered this way so a fee like 0.75% is 75,
+      with no decimal point to lose.</p>
+    <script>
+    (function () {
+      var box = document.getElementById("fb"), says = document.getElementById("fbsays");
+      // Say the percentage back as it is typed, so nobody has to do the sum
+      // in their head on a live transaction.
+      function show() {
+        var n = Number(box.value);
+        says.innerHTML = !box.value.trim() ? "basis points"
+          : !isFinite(n) || n < 0 ? "basis points — <b>not a number</b>"
+          : n >= 10000 ? "basis points — <b>that is 100% or more</b>"
+          : "basis points — <b>" + String(+(n / 100).toFixed(4)) + "%</b>";
+      }
+      box.addEventListener("input", show); show();
+    })();
+    </script>
 
     <h2>Agency</h2>
-    <p class="muted">Paragraph 2(b) is only available to an agent acting for one
-      side. Recorded per transaction so it is a documented fact rather than a claim.</p>
+    <p class="muted" id="agencyfiat" hidden>Paragraph 2(b) is only available to
+      an agent acting for one side. Recorded per transaction so it is a
+      documented fact rather than a claim.</p>
+    <p class="muted" id="agencycrypto" hidden>On this type the funds never reach
+      us — the sender signs every transfer from their own wallet straight to
+      each recipient — so the commercial agent exemption is not in question and
+      is not relied on. This is recorded because who engaged us is worth
+      knowing, not because anything turns on it.</p>
     <label for="af">Acting for</label>
     <select id="af" name="acting_for">
       <option value="">Not decided</option><option value="payer">The payer</option><option value="payee">The payee</option>
@@ -230,7 +468,27 @@ function newForm(admin: { name: string }, error = ""): Response {
 
     <div class="row"><button class="go">Create transaction</button>
       <a href="/" class="muted">Cancel</a></div>
-  </form>`, { nav: nav("/new", admin.name) });
+  </form>
+  <script>
+  (function () {
+    // The exemption belongs to the fiat legs. Claiming it where no payment
+    // service is provided invites a reviewer to test whether it applies, when
+    // the stronger answer is that the question does not arise.
+    var inn = document.getElementById("i"), out = document.getElementById("o");
+    var conv = document.querySelector("[name=converts]");
+    var fiat = document.getElementById("agencyfiat");
+    var crypto_ = document.getElementById("agencycrypto");
+    function show() {
+      var anyFiat = inn.value === "fiat" || out.value === "fiat";
+      fiat.hidden = !anyFiat;
+      crypto_.hidden = anyFiat;
+    }
+    [inn, out, conv].forEach(function (el) {
+      if (el) el.addEventListener("change", show);
+    });
+    show();
+  })();
+  </script>`, { nav: nav("/new", admin.name) });
 }
 
 async function createTransaction(request: Request, env: Env, actor: Actor,
@@ -245,6 +503,17 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
     return newForm(admin, `<div class="err">Unknown currency.</div>`);
   }
 
+  // The form offers only valid options, so a bad value here means something
+  // other than the form is posting — and a database CHECK failing produces a
+  // 500 with nothing useful in it. Say what was wrong instead.
+  const oneOf = (key: string, allowed: string[]) =>
+    allowed.includes(s(key)) ? null
+      : `${key.replace("_", " ")} must be one of: ${allowed.join(", ")}.`;
+  const wrong = oneOf("inbound", ["fiat", "crypto"])
+    ?? oneOf("outbound", ["fiat", "crypto"])
+    ?? (s("acting_for") ? oneOf("acting_for", ["payer", "payee"]) : null);
+  if (wrong) return newForm(admin, `<div class="err">${esc(wrong)}</div>`);
+
   let gross: number | null = null;
   if (s("gross")) {
     try { gross = parse(s("gross"), decimalsIn); }
@@ -255,7 +524,13 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
   const ref = await nextRef(env.DB);
   await insert(env.DB, actor, "transaction.created", "transactions", txId, {
     ref, name: s("name"), detail: s("detail") || null,
-    inbound: s("inbound"), outbound: s("outbound"), converts: f.get("converts") ? 1 : 0,
+    inbound: s("inbound"), outbound: s("outbound"),
+    // A checkbox is absent when unchecked, so presence would be enough — but
+    // "0" and "false" are present and truthy, and reading either as yes would
+    // silently make a non-converting transaction a converting one. That
+    // changes who executes it, so it is worth being explicit.
+    converts: ["", "0", "false", "off", "no"].includes(s("converts").toLowerCase())
+      ? 0 : 1,
     currency_in: currencyIn, currency_out: currencyOut,
     decimals_in: decimalsIn, decimals_out: decimalsOut,
     fee_bps: Number(s("fee_bps")) || 100,
@@ -269,10 +544,16 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
 
 // ---------------------------------------------------------------------------
 
-async function detail(env: Env, admin: { name: string }, txId: string): Promise<Response> {
+async function detail(env: Env, admin: { name: string }, txId: string,
+                      error = ""): Promise<Response> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
     .bind(txId).first<Record<string, any>>();
   if (!t) return new Response("Not found", { status: 404 });
+
+  const [liveMandate, pastMandates] = await Promise.all([
+    standingMandate(env, txId), mandateHistory(env, txId),
+  ]);
+  const nominisOn = nominis.active(env);
 
   const { results: trail } = await env.DB.prepare(
     `SELECT at, actor_kind, actor_id, action, note FROM audit_log
@@ -306,12 +587,14 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
     <h2>Readiness</h2>
     <div class="panel"><table>
       ${state.checks.map((c) => `<tr>
-        <td style="width:26px">${c.met ? "&#10003;" : "&#8212;"}</td>
-        <td><strong>${esc(c.label)}</strong><div class="muted">${esc(c.detail)}</div></td>
+        <td style="width:26px">${c.met
+          ? '<span class="good" title="met">&#10003;</span>'
+          : '<span class="warn" title="not yet">&#8212;</span>'}</td>
+        <td><strong>${esc(c.label)}</strong>${gateTip(c.label)}<div class="muted">${esc(c.detail)}</div></td>
         <td class="muted">${esc(c.at ?? "")}</td></tr>`).join("")}
     </table>
-    <p class="muted" style="margin-bottom:0">${state.ready
-      ? "Everything is green. This can be moved to ready."
+    <p style="margin-bottom:0" class="${state.ready ? "good" : "muted"}">${state.ready
+      ? "Every line is met. Move it on below — first to kyc, then to ready."
       : "The gate is closed until every line is ticked. Moving it on is refused, not just discouraged."}</p>
     </div>`;
 
@@ -350,6 +633,63 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
             state.settlement!.amounts[p.participation_id] ?? 0, t.decimals_out)}</td></tr>`).join("")}
       </table>` : ""}
     </div>`;
+
+  // Screening, for a crypto transaction. Every address on it, in one place,
+  // because a verdict recorded against an address nobody can find is not a
+  // record anybody will read later.
+  let screening = "";
+  if (t.inbound === "crypto" || t.outbound === "crypto") {
+    const chainId = t.chain_id ?? 1;
+    const addrs: { address: string; role: string }[] = [];
+    const { results: sw } = await env.DB.prepare(
+      "SELECT address FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL").bind(txId).all<any>();
+    for (const w of sw ?? []) addrs.push({ address: w.address, role: "sending" });
+    for (const p of (people ?? []).filter((x) => x.role === "recipient")) {
+      const d = await env.DB.prepare(
+        "SELECT address FROM destinations WHERE participation_id = ? AND kind = 'wallet'")
+        .bind(p.participation_id).first<any>();
+      if (d?.address) addrs.push({ address: d.address, role: p.display_name });
+    }
+    if (t.fee_wallet) addrs.push({ address: t.fee_wallet, role: "our fee" });
+
+    const rows = await Promise.all(addrs.map(async (a) => {
+      const st = await standingScreen(env, a.address, chainId);
+      return { ...a, st };
+    }));
+
+    screening = `
+      <h2>Screening</h2>
+      <div class="panel" style="max-width:none">
+        ${nominisOn ? `<form method="post" action="/t/${esc(t.id)}/screenall">
+            <button class="go" type="submit">Screen every address with Nominis</button>
+            <span class="muted">One call for all of them. A machine verdict
+              lasts thirty days; a considered one lasts three months.</span>
+          </form>`
+          : `<p class="muted">Nominis is not configured, so screening is by hand.
+             Set NOMINIS_API_KEY and this becomes one button.</p>`}
+        ${rows.length ? `<table>
+          <tr><th>Address</th><th>Verdict</th><th>Findings</th><th></th></tr>
+          ${rows.map((r) => `<tr>
+            <td>${esc(r.role)}<div class="muted log">
+              <a href="${esc(addressLink(chainId, r.address))}" target="_blank"
+                 rel="noopener">${esc(r.address)}</a></div></td>
+            <td><span class="tag">${esc(r.st?.verdict ?? "not screened")}</span></td>
+            <td class="muted">${esc(r.st?.findings ?? "")}</td>
+            <td>
+              <form method="post" action="/t/${esc(txId)}/screen">
+                <input type="hidden" name="address" value="${esc(r.address)}">
+                <input name="findings" placeholder="What the check said"
+                  style="max-width:220px">
+                <button class="plain" name="verdict" value="clear">Clear</button>
+                <button class="plain" name="verdict" value="flagged">Flag</button>
+              </form></td></tr>`).join("")}
+        </table>
+        <p class="muted" style="margin-bottom:0">Tether's blacklist is read live and
+          says whether an address <em>can</em> receive. This says whether it
+          <em>should</em>. Both, or neither is worth much.</p>`
+        : `<p class="muted">No addresses yet.</p>`}
+      </div>`;
+  }
 
   const dests = await forTransaction(env, txId);
   const destinations = dests.length ? `
@@ -401,7 +741,88 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
 
   const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
   return page(t.ref, `
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
     <h1>${esc(t.ref)} — ${esc(t.name)}</h1>
+    <p><a href="/t/${esc(t.id)}/dossier">Dossier</a> —
+       the whole record, and the hash that proves it —
+       <a href="/t/${esc(t.id)}/dossier/download">download it</a></p>
+    ${await txDocuments(env, t.id)}
+    ${mandatePanel(t.id, liveMandate, pastMandates)}
+    ${isOnChain(t as any) ? `<details class="panel"${t.fee_wallet ? "" : " open"}>
+      <summary><strong>Chain settings</strong>${t.fee_wallet
+        ? "" : ' — <span class="bad">no fee wallet set</span>'}</summary>
+      <p class="muted">Which chain this runs on, which token, and where our fee
+        goes. Set per transaction rather than in code, because an address in
+        code is an address nobody reviews.</p>
+      ${[!t.chain_id && "the chain", !t.token_address && "the token address",
+         !t.fee_wallet && "the fee wallet"].filter(Boolean).length
+        ? `<p class="bad" style="font-weight:600">Still to set: ${
+            [!t.chain_id && "the chain", !t.token_address && "the token address",
+             !t.fee_wallet && "the fee wallet"].filter(Boolean).join(", ")}.
+           Grey text in a box is a hint, not a saved value.</p>`
+        : `<p class="good" style="font-weight:600">All three are set.</p>`}
+      <form method="post" action="/t/${esc(t.id)}/chain">
+        <label>Chain
+          <select name="chain_id">
+            ${Object.entries(CHAINS).map(([cid, c]) =>
+              `<option value="${cid}"${String(t.chain_id) === cid ? " selected" : ""}
+                >${esc(c.name)} (${cid})</option>`).join("")}
+          </select></label>
+        <label>Token address${t.token_address
+          ? "" : ' <span class="bad">— not set</span>'}
+          <input name="token_address" size="46" spellcheck="false"
+                 placeholder="0x… the token's contract address"
+                 value="${esc(t.token_address ?? "")}"></label>
+        <p class="muted" style="margin:4px 0 0">${t.token_address
+          ? `Currently <span class="mono">${esc(t.token_address)}</span>.`
+          : `Nothing is set, so nothing can be sent. USDT on Ethereum is ` +
+            `<span class="mono">${esc(USDT_MAINNET)}</span> — but check it ` +
+            `against the chain you have chosen, because the same token has a ` +
+            `different address on every network.`}</p>
+        <label>Our fee goes to${t.fee_wallet
+          ? "" : ' <span class="bad">— not set</span>'}
+          <input name="fee_wallet" size="46" placeholder="0x…" spellcheck="false"
+                 value="${esc(t.fee_wallet ?? "")}" required></label>
+        <button type="submit">Save chain settings</button>
+      </form>
+
+      ${t.chain_id ? `<hr style="border:0;border-top:1px solid var(--rule);margin:18px 0">
+      <p class="muted" style="margin-top:0">Your browser wallet has to be on the
+        same network to send anything. It will offer to switch when you press a
+        send button, but you can do it now — and switching also makes the token
+        visible in the wallet.</p>
+      <p><button type="button" id="switchnet" class="plain">Put my wallet on
+        ${esc(CHAINS[t.chain_id as number]?.name ?? "this network")}</button>
+        <span class="muted" id="switchsays"></span></p>
+      <script>
+      (function () {
+        var btn = document.getElementById("switchnet");
+        var says = document.getElementById("switchsays");
+        if (!window.ethereum) { btn.disabled = true;
+          says.textContent = "No wallet in this browser."; return; }
+        var want = "0x${(t.chain_id as number).toString(16)}";
+        btn.addEventListener("click", async function () {
+          btn.disabled = true;
+          try {
+            await window.ethereum.request({ method: "eth_requestAccounts" });
+            await window.ethereum.request({
+              method: "wallet_switchEthereumChain", params: [{ chainId: want }] });
+            says.textContent = "Switched.";
+          } catch (e) {
+            // 4902 means the wallet does not know this network at all. Adding
+            // it is a separate permission, so it is asked for separately.
+            if (e && e.code === 4902) {
+              says.textContent = "Your wallet does not have that network — " +
+                "add it once in the wallet, then press again.";
+            } else {
+              says.textContent = (e && e.message) || "Not switched.";
+            }
+          }
+          btn.disabled = false;
+        });
+      })();
+      </script>` : ""}
+    </details>` : ""}
     <div class="panel"><table>
       ${kv("Type", esc(typeName(t as any)) + (isOnChain(t as any) ? ' <span class="tag chain">sender executes on-chain</span>' : ' <span class="tag">we settle manually</span>'))}
       ${kv("Status", `<span class="tag">${esc(t.status)}</span>`)}
@@ -412,7 +833,14 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
             ? `${esc(t.currency_in)} ${format(t.gross_expected_minor, t.decimals_in)}` : "—")}
       ${kv("Fee", `${(t.fee_bps / 100).toFixed(2)}% — ${t.fee_mode === "deducted"
             ? "deducted from what the sender sends" : "added on top so recipients get their figure"}`)}
-      ${kv("Acting for", t.acting_for ? esc(t.acting_for) : '<span class="muted">not decided</span>')}
+      ${kv("Acting for", (t.acting_for
+        ? `The ${esc(t.acting_for)}`
+        : '<span class="muted">not decided</span>') +
+        (t.inbound === "fiat" || t.outbound === "fiat"
+          ? ' <span class="muted">— one side only, for the commercial agent' +
+            ' exemption</span>'
+          : ' <span class="muted">— recorded for the file; the funds never' +
+            ' reach us on this type, so no exemption is relied on</span>'))}
       ${t.detail ? kv("Notes", esc(t.detail)) : ""}
     </table></div>
 
@@ -422,6 +850,7 @@ async function detail(env: Env, admin: { name: string }, txId: string): Promise<
 
     ${splitForm}
     ${gate}
+    ${screening}
     ${destinations}
     ${["ready","settling","settled","closed"].includes(t.status)
       ? `<h2>Settlement</h2><div class="panel">
@@ -471,6 +900,7 @@ async function move(request: Request, env: Env, actor: Actor, txId: string): Pro
   await update(env.DB, actor, `transaction.${to}`, "transactions", txId,
     { status: to, updated_at: new Date().toISOString().replace("T", " ").slice(0, 19) },
     { status: t.status }, { note: note || undefined });
+  if (to === "ready") await readyToSend(env, actor, txId);
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
 
@@ -481,12 +911,311 @@ async function auditView(env: Env, admin: { name: string }): Promise<Response> {
   const names = await adminNames(env);
   return page("Audit log", `<h1>Audit log</h1>
     <p class="muted">Append-only. Nothing in this table is ever changed or removed.</p>
-    <div class="panel" style="max-width:none"><table class="log">
+    <div class="panel" style="max-width:none"><div class="scroll"><table class="log">
       <tr><th>When</th><th>Who</th><th>What</th><th>On</th><th>Note</th></tr>
       ${(results ?? []).map((e) => `<tr><td>${esc(e.at)}</td>
         <td>${esc(names[e.actor_id] ?? e.actor_kind)}</td><td>${esc(e.action)}</td>
         <td>${esc(e.entity_kind)} ${esc(e.entity_id)}</td><td>${esc(e.note ?? "")}</td></tr>`).join("")}
-    </table></div>`, { nav: nav("/log", admin.name) });
+    </table></div></div>`, { nav: nav("/log", admin.name) });
+}
+
+/**
+ * Are we able to see the chain, and does everyone we ask see the same one?
+ *
+ * A confirmation is only worth what the endpoint behind it is worth, so the
+ * state of those endpoints should be visible before a settlement rather than
+ * discovered during one. Heads a block or two apart are normal — the chain
+ * moves while the page loads. A different chain id, or a gap of any size, is
+ * not.
+ */
+async function chainView(env: Env, admin: { name: string }): Promise<Response> {
+  const nets = [1, 11155111];
+  const seen = await Promise.all(nets.map(async (cid) => ({
+    cid, name: CHAINS[cid]?.name ?? String(cid), rows: await chainHealth(env, cid),
+  })));
+
+  const block = seen.map((n) => {
+    const heads = n.rows.filter((r) => r.ok && r.block !== null).map((r) => r.block!);
+    const spread = heads.length > 1 ? Math.max(...heads) - Math.min(...heads) : 0;
+    const wrongChain = n.rows.filter((r) => r.ok && r.chainId !== n.cid);
+    const answering = n.rows.filter((r) => r.ok).length;
+
+    const verdict = wrongChain.length
+      ? `<span class="bad">An endpoint is on the wrong chain — do not settle</span>`
+      : answering === 0 ? `<span class="bad">Nothing is answering</span>`
+      : answering === 1 ? `<span class="warn">One endpoint only — no second opinion</span>`
+      : spread > 3 ? `<span class="warn">Heads ${spread} blocks apart</span>`
+      : `<span class="good">${answering} endpoints agree on the head</span>`;
+
+    return `<div class="panel"><h2>${esc(n.name)} <span class="muted">chain ${n.cid}</span></h2>
+      <p>${verdict}</p>
+      <table class="log">
+        <tr><th>Endpoint</th><th>Answering</th><th>Chain</th><th>Head</th></tr>
+        ${n.rows.map((r) => `<tr><td>${esc(r.name)}</td>
+          <td>${r.ok ? "yes" : esc("no — " + (r.error ?? "no answer"))}</td>
+          <td>${r.chainId === null ? "&mdash;"
+                : r.chainId === n.cid ? r.chainId
+                : `<b class="bad">${r.chainId}</b>`}</td>
+          <td>${r.block === null ? "&mdash;" : r.block.toLocaleString("en-GB")}</td></tr>`).join("")}
+      </table></div>`;
+  }).join("");
+
+  const providers = [
+    ["Nominis", "wallet screening", nominis.active(env),
+     "NOMINIS_API_KEY", "Verdicts come back automatically; without it, by hand."],
+    ["Themis", "identity checks", true, "—",
+     "Checked by one of us and the conclusion recorded here."],
+    ["Sumsub", "identity checks", Boolean(env.SUMSUB_TOKEN && env.SUMSUB_SECRET),
+     "SUMSUB_TOKEN, SUMSUB_SECRET", "Written and switched off."],
+    ["Resend", "email", Boolean(env.RESEND_API_KEY), "RESEND_API_KEY",
+     "Invitations and notifications."],
+  ] as const;
+
+  return page("Chain connection", `<h1>Chain connection</h1>
+    <div class="panel">
+      <h2>Providers</h2>
+      <table class="log">
+        <tr><th>Provider</th><th>For</th><th>State</th><th>Notes</th></tr>
+        ${providers.map(([name, what, on, key, note]) => `<tr>
+          <td>${esc(name)}</td><td>${esc(what)}</td>
+          <td>${on ? `<span class="good">on</span>`
+                   : `<span class="muted">off — set ${esc(key)}</span>`}</td>
+          <td>${esc(note)}</td></tr>`).join("")}
+      </table>
+    </div>
+    <p class="muted">A confirmation is cross-checked against every endpoint listed here.
+      Where they disagree, the transaction is not treated as confirmed.
+      The primary and secondary are our own keys; the public node is a free
+      fallback and should never be the only one answering before a settlement.</p>
+    ${block}`, { nav: nav("/chain", admin.name) });
+}
+
+/**
+ * The chain a crypto transaction runs on, the token, and where our fee goes.
+ *
+ * These three were readable from the start and writable nowhere, so every
+ * transaction carried nulls: the token silently defaulted to USDT on mainnet
+ * and the fee had no destination at all. Set deliberately, per transaction —
+ * a fee address that lives in code is a fee address nobody reviews.
+ */
+async function setChainSettings(env: Env, actor: Actor, txId: string,
+                                request: Request): Promise<Response> {
+  const f = await request.formData();
+  const before = await env.DB.prepare(
+    "SELECT chain_id, token_address, fee_wallet FROM transactions WHERE id = ?")
+    .bind(txId).first<any>();
+  if (!before) return new Response("No such transaction", { status: 404 });
+
+  const chainId = Number(f.get("chain_id") ?? 0) || null;
+  const token = String(f.get("token_address") ?? "").trim();
+  const fee = String(f.get("fee_wallet") ?? "").trim();
+
+  for (const [value, what] of [[token, "token address"], [fee, "fee wallet"]] as const) {
+    if (!value) continue;
+    const problem = addressProblem(value);
+    if (problem) return detail(env, { name: "" }, txId, `${what}: ${problem}`);
+  }
+  if (chainId && !CHAINS[chainId]) {
+    return detail(env, { name: "" }, txId, "That is not a chain we know.");
+  }
+
+  await update(env.DB, actor, "transaction.chain_set", "transactions", txId, {
+    chain_id: chainId,
+    token_address: token ? toChecksum(token) : null,
+    fee_wallet: fee ? toChecksum(fee) : null,
+  }, before, { note: `chain ${chainId ?? "none"}, fee to ${fee || "nowhere"}` });
+
+  return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
+}
+
+/**
+ * Ask the sender for authority to prepare their transaction for them.
+ *
+ * Nothing changes until they sign it. The request is recorded either way, so
+ * a mandate that was asked for and declined leaves a trace.
+ */
+async function askForMandate(env: Env, actor: Actor, txId: string,
+                             request: Request): Promise<Response> {
+  const row = await env.DB.prepare(
+    `SELECT t.ref, y.id AS party_id, y.display_name
+       FROM transactions t
+       JOIN participations p ON p.transaction_id = t.id AND p.role = 'sender'
+       JOIN parties y ON y.id = p.party_id
+      WHERE t.id = ?`).bind(txId).first<any>();
+  if (!row) {
+    return detail(env, { name: "" }, txId,
+      "There is no sender on this transaction yet, so there is nobody to ask.");
+  }
+  await requestMandate(env, actor, {
+    transactionId: txId, partyId: row.party_id,
+    senderName: row.display_name, ref: row.ref,
+  });
+  return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
+}
+
+/** What staff see about acting for the sender. */
+function mandatePanel(txId: string, live: MandateRow | null,
+                      past: MandateRow[]): string {
+  const waiting = past.find((m) => !m.signed_at && !m.revoked_at);
+
+  const state = live
+    ? `<p class="good">Signed by ${esc(live.signed_name ?? "")} on
+         ${esc(live.signed_at ?? "")}. Anything you enter here is recorded as
+         done on their behalf under that authority.</p>
+       <form method="post" action="/t/${esc(txId)}/mandate/withdraw">
+         <input type="hidden" name="mandate" value="${esc(live.id)}">
+         <label for="wreason">Why it is being withdrawn</label>
+         <input id="wreason" name="reason" placeholder="Sender asked us to stop">
+         <button class="plain" type="submit">Withdraw it</button>
+       </form>`
+    : waiting
+      ? `<p class="warn">Asked on ${esc(waiting.requested_at)} — waiting for the
+           sender to sign it in their own account. Until they do, prepare
+           nothing on their behalf.</p>`
+      : `<p class="muted">You have no authority to prepare this transaction for
+           the sender. Ask for it, and they will be shown the wording to sign
+           when they next open their account.</p>
+         <form method="post" action="/t/${esc(txId)}/mandate">
+           <button class="go" type="submit">Ask the sender for authority</button>
+         </form>`;
+
+  const rows = past.filter((m) => m !== live).map((m) => `<tr>
+      <td>${esc(m.requested_at)}</td>
+      <td>${m.signed_at ? `signed by ${esc(m.signed_name ?? "")}`
+            : m.revoked_at ? "withdrawn" : "waiting"}</td>
+      <td>${esc(m.revoked_at ?? m.signed_at ?? "")}</td>
+      <td>${esc(m.revoked_reason ?? "")}</td></tr>`).join("");
+
+  return `<details class="panel"${live || waiting ? "" : ""}>
+    <summary><strong>Acting for the sender</strong>${live
+      ? ' — <span class="good">authorised</span>'
+      : waiting ? ' — <span class="warn">asked, not yet signed</span>' : ""}</summary>
+    <p class="muted">A sender who would rather not enter the detail themselves
+      can ask us to do it. They sign a short authority first, and it goes into
+      the dossier with everything else. It never covers moving money — every
+      transfer is still made and signed by them.</p>
+    ${state}
+    ${rows ? `<h3>Earlier</h3><table class="log">
+      <tr><th>Asked</th><th>What happened</th><th>When</th><th>Note</th></tr>
+      ${rows}</table>` : ""}
+  </details>`;
+}
+
+/** What can be configured here, and what each credential is for. */
+const PROVIDERS: {
+  key: string; name: string; what: string; label: string;
+  second?: string; help: string;
+}[] = [
+  { key: "nominis", name: "Nominis", what: "Wallet screening", label: "API key",
+    help: "Turns screening from a job into a button. Verdicts come back in " +
+          "one call for every address on a transaction." },
+  { key: "sumsub", name: "Sumsub", what: "Identity checks", label: "App token",
+    second: "Secret key",
+    help: "Automated KYC and KYB. Until this is on, Themis is used and the " +
+          "conclusion is recorded here by one of us." },
+  { key: "resend", name: "Resend", what: "Email", label: "API key",
+    help: "Invitations and notifications. Without it, nothing is sent and " +
+          "every attempt is logged as skipped." },
+  { key: "eth_rpc", name: "Ethereum RPC", what: "Chain reads", label: "HTTPS endpoint",
+    help: "The primary endpoint for confirming payments." },
+  { key: "eth_rpc_2", name: "Ethereum RPC, second", what: "Chain reads",
+    label: "HTTPS endpoint",
+    help: "An independent second opinion. Confirmations must satisfy both." },
+];
+
+/**
+ * Where staff manage credentials.
+ *
+ * A stored key is shown as its last four characters and nothing else. It can
+ * be replaced or removed, never read back — including by the person who typed
+ * it, who no longer needs it and might be reading over somebody's shoulder.
+ */
+async function providersView(env: Env, admin: { name: string },
+                             notice = ""): Promise<Response> {
+  const stored = await listSettings(env);
+  const bySlug = new Map(stored.map((r) => [r.provider, r]));
+  const noKey = !env.SETTINGS_KEY;
+
+  const cards = PROVIDERS.map((p) => {
+    const row = bySlug.get(p.key);
+    const on = row?.enabled === 1;
+    // A Worker secret still wins, and should be visible as the reason a
+    // provider is on despite nothing being stored here.
+    const fromSecret =
+      (p.key === "nominis" && !row?.hint && Boolean(env.NOMINIS_API_KEY)) ||
+      (p.key === "resend" && !row?.hint && Boolean(env.RESEND_API_KEY)) ||
+      (p.key === "eth_rpc" && !row?.hint && Boolean(env.ETH_RPC_URL)) ||
+      (p.key === "eth_rpc_2" && !row?.hint && Boolean(env.ETH_RPC_URL_2)) ||
+      (p.key === "sumsub" && !row?.hint && Boolean(env.SUMSUB_TOKEN));
+
+    return `<div class="panel">
+      <h2>${esc(p.name)} <span class="muted">— ${esc(p.what)}</span></h2>
+      <p class="muted">${esc(p.help)}</p>
+      <table><tr><th>State</th><td>${
+        fromSecret ? `<span class="good">on</span> <span class="muted">— set as a
+            deployment secret, which takes precedence over anything here</span>`
+        : on ? `<span class="good">on</span>`
+        : row?.hint ? `<span class="warn">off</span> <span class="muted">— a key is
+            stored but switched off</span>`
+        : `<span class="muted">off — no credential</span>`}</td></tr>
+        ${row?.hint ? `<tr><th>Stored key</th><td><span class="mono">${esc(row.hint)}</span>
+          <span class="muted">set ${esc(row.updated_at)}</span></td></tr>` : ""}
+        ${row?.second_hint ? `<tr><th>Second</th><td><span class="mono">${esc(row.second_hint)}</span></td></tr>` : ""}
+        ${row?.checked_at ? `<tr><th>Last tried</th><td>${esc(row.checked_at)} —
+          ${esc(row.checked_note ?? "")}</td></tr>` : ""}
+      </table>
+      <form method="post" action="/providers">
+        <input type="hidden" name="provider" value="${esc(p.key)}">
+        <label for="s-${esc(p.key)}">${esc(p.label)}${row?.hint ? " (replace)" : ""}</label>
+        <div class="pw"><input id="s-${esc(p.key)}" name="secret" type="password"
+          autocomplete="off" spellcheck="false" ${noKey ? "disabled" : ""}
+          placeholder="${row?.hint ? "leave blank to keep the current one" : ""}"></div>
+        ${p.second ? `<label for="t-${esc(p.key)}">${esc(p.second)}</label>
+          <div class="pw"><input id="t-${esc(p.key)}" name="second" type="password"
+            autocomplete="off" spellcheck="false" ${noKey ? "disabled" : ""}
+            placeholder="${row?.second_hint ? "leave blank to keep it" : ""}"></div>` : ""}
+        <div class="row">
+          <button class="go" name="do" value="save" ${noKey ? "disabled" : ""}>Save</button>
+          <button class="plain" name="do" value="${on ? "off" : "on"}">
+            ${on ? "Switch off" : "Switch on"}</button>
+          ${row?.hint ? `<button class="plain" name="do" value="clear">Remove the key</button>` : ""}
+        </div>
+      </form>
+    </div>`;
+  }).join("");
+
+  return page("Providers", `<h1>Providers</h1>
+    <p class="muted">Credentials for the services the platform uses. Stored
+      encrypted, shown only as their last four characters, and never rendered
+      back into a page.</p>
+    ${notice ? `<div class="err">${esc(notice)}</div>` : ""}
+    ${noKey ? `<div class="err"><strong>Credentials cannot be stored yet.</strong>
+      A Worker secret called SETTINGS_KEY is what encrypts them, and it is not
+      set. Until it is, providers can only be configured by deployment.</div>` : ""}
+    ${cards}`, { nav: nav("/providers", admin.name) });
+}
+
+async function saveProvider(env: Env, actor: Actor, admin: { name: string },
+                            request: Request): Promise<Response> {
+  const f = await request.formData();
+  const provider = String(f.get("provider") ?? "") as any;
+  if (!PROVIDERS.some((p) => p.key === provider)) {
+    return providersView(env, admin, "That is not a provider we configure here.");
+  }
+  const action = String(f.get("do") ?? "save");
+  const secret = String(f.get("secret") ?? "").trim();
+  const second = String(f.get("second") ?? "").trim();
+
+  if (action === "clear") {
+    await clearSetting(env, actor, provider);
+    return providersView(env, admin);
+  }
+  const problem = await putSetting(env, actor, provider, {
+    secret: secret || undefined,
+    second: second || undefined,
+    enabled: action === "on" ? true : action === "off" ? false : undefined,
+  });
+  return providersView(env, admin, problem ?? "");
 }
 
 async function adminNames(env: Env): Promise<Record<string, string>> {
@@ -585,6 +1314,7 @@ async function release(request: Request, env: Env, actor: Actor, txId: string,
         about: { kind: "participations", id: p.participation_id },
       });
     }
+    await recipientsInvited(env, actor, txId);
   })());
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
@@ -619,7 +1349,8 @@ async function kycQueue(env: Env, admin: { name: string }): Promise<Response> {
     { nav: nav("/kyc", admin.name) });
 }
 
-async function partyView(env: Env, admin: { name: string }, partyId: string): Promise<Response> {
+async function partyView(env: Env, admin: { name: string }, partyId: string,
+                         error = ""): Promise<Response> {
   const p = await env.DB.prepare("SELECT * FROM parties WHERE id = ?")
     .bind(partyId).first<any>();
   if (!p) return new Response("Not found", { status: 404 });
@@ -638,8 +1369,8 @@ async function partyView(env: Env, admin: { name: string }, partyId: string): Pr
         ? `, ${esc(p.incorporated_on)}` : ""}`)
     : kv("Legal name", esc(p.legal_name ?? "—")) +
       kv("Date of birth", esc(p.date_of_birth ?? "—")) +
-      kv("Nationality", esc(p.nationality ?? "—")) +
-      kv("Resides in", esc(p.residence_country ?? "—"));
+      kv("Nationality", esc(countryName(p.nationality) || "—")) +
+      kv("Resides in", esc(countryName(p.residence_country) || "—"));
 
   const docList = docs.length
     ? `<table><tr><th>Document</th><th>File</th><th>Size</th><th>SHA-256</th></tr>` +
@@ -695,6 +1426,7 @@ async function partyView(env: Env, admin: { name: string }, partyId: string): Pr
     : `<p class="muted">Nothing yet.</p>`;
 
   return page(p.display_name, `
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
     <h1>${esc(p.legal_name || p.display_name)}</h1>
     <div class="panel"><table>
       ${kv("Email", esc(p.email))}
@@ -709,10 +1441,15 @@ async function partyView(env: Env, admin: { name: string }, partyId: string): Pr
         : `<span class="muted">none</span>`)}
     </table></div>
 
-    <h2>Documents</h2>
+    <h2>Documents${tip("Everything the party sent, plus anything staff add — the Themis or other screening report goes here, before the decision, so it is in the dossier of every transaction this party is on.")}</h2>
     <div class="panel" style="max-width:none">${docList}
       <p class="muted">Each hash was taken as the file arrived, not from our copy —
-         so it proves the file has not changed since.</p></div>
+         so it proves the file has not changed since.</p>
+      ${uploadForm(`/p/${partyId}/upload`, [
+        ["kyc_report", "Screening report (Themis or other)"],
+        ["passport", "Passport or ID"], ["proof_of_address", "Proof of address"],
+        ["company_register", "Company register extract"], ["other", "Other"]])}
+    </div>
     ${peopleList}
     ${decision}
 
@@ -864,8 +1601,13 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
           value="${state.settlement ? format(state.settlement.grossMinor, t.decimals_in) : ""}">
         <label for="rd">When</label>
         <input id="rd" name="on" type="date" value="${today}" required>
-        <label for="rf">Evidence — the credit advice, statement line or MT103</label>
-        <input id="rf" name="file" type="file">
+        ${t.inbound === "crypto" ? `
+        <label for="rh">Transaction hash</label>
+        <input id="rh" name="tx_hash" placeholder="0x…" spellcheck="false">
+        <p class="muted">Checked against the chain — a hash that never landed, or
+           landed and reverted, is refused.</p>`
+        : `<label for="rf">Evidence — the credit advice, statement line or MT103</label>
+        <input id="rf" name="file" type="file">`}
         <label for="rn">Note</label><input id="rn" name="note">
         <div class="row"><button class="go">Record the receipt</button></div>
       </form>
@@ -899,7 +1641,10 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
         <td>${l.sentMinor === null ? `<span class="muted">not yet</span>`
           : `${esc(t.currency_out)} ${format(l.sentMinor, t.decimals_out)}
              <div class="muted">${esc((l.sentAt ?? "").slice(0, 10))}</div>`}</td>
-        <td>${l.evidenceId ? `<a href="/doc/${esc(l.evidenceId)}">document</a>`
+        <td>${l.txHash
+          ? `<a href="${esc(explorerLink(t.chain_id ?? 1, l.txHash))}" rel="noopener"
+               target="_blank">${esc(l.txHash.slice(0, 14))}…</a>`
+          : l.evidenceId ? `<a href="/doc/${esc(l.evidenceId)}">document</a>`
           : l.sentMinor !== null ? `
             <form method="post" action="/t/${esc(txId)}/settle" enctype="multipart/form-data">
               <input type="hidden" name="action" value="evidence">
@@ -915,7 +1660,9 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
             <input name="amount" value="${format(l.expectedMinor, t.decimals_out)}"
               style="max-width:130px">
             <input name="on" type="date" value="${today}" style="max-width:150px">
-            <input name="file" type="file" style="max-width:190px">
+            ${t.outbound === "crypto"
+              ? `<input name="tx_hash" placeholder="0x…" style="max-width:190px" spellcheck="false">`
+              : `<input name="file" type="file" style="max-width:190px">`}
             <button class="plain">Record</button>
           </form>` : ""}</td></tr>`).join("")}
       </table>
@@ -923,15 +1670,21 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
 
   const ledger = history.length ? `
     <h2>Everything that moved</h2>
-    <div class="panel" style="max-width:none"><table class="log">
+    <div class="panel" style="max-width:none"><div class="scroll"><table class="log">
       <tr><th>When</th><th>What</th><th>Held by</th><th>Amount</th><th>Evidence</th></tr>
       ${history.map((e) => `<tr>
         <td>${esc((e.occurred_at ?? "").slice(0, 16))}</td>
         <td>${esc(e.event)}</td><td>${esc(e.holder)}</td>
         <td>${esc(e.currency)} ${format(e.amount_minor, e.decimals)}</td>
-        <td>${e.artefact ? `<a href="/doc/${esc(e.artefact)}">${esc(e.filename ?? "file")}</a>
-          <div class="muted log">${esc(String(e.sha256).slice(0, 16))}…</div>`
-          : `<span class="muted">none</span>`}</td></tr>`).join("")}
+        <td>${e.tx_hash
+          ? `<a href="${esc(explorerLink(t.chain_id ?? 1, e.tx_hash))}" rel="noopener"
+               target="_blank">${esc(e.tx_hash.slice(0, 18))}…</a>
+             <div class="muted">block ${esc(e.tx_block ?? "?")}, checked
+               ${esc((e.tx_verified_at ?? "").slice(0, 16))}</div>`
+          : e.artefact
+            ? `<a href="/doc/${esc(e.artefact)}">${esc(e.filename ?? "file")}</a>
+               <div class="muted log">${esc(String(e.sha256).slice(0, 16))}…</div>`
+            : `<span class="muted">none</span>`}</td></tr>`).join("")}
     </table></div>` : "";
 
   const closing = `
@@ -1020,6 +1773,7 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
     const result = await recordCustody(env, actor, txId, {
       holder, event: "received", amountMinor,
       currency: t.currency_in, decimals: t.decimals_in, occurredAt: on,
+      txHash: String(f.get("tx_hash") ?? "").trim() || null, chainId: t.chain_id,
       note: String(f.get("note") ?? "").trim() || undefined,
       file: asFile, evidenceKind: "receipt_advice",
     });
@@ -1044,6 +1798,7 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
     const result = await recordCustody(env, actor, txId, {
       holder, event: "fee_taken", amountMinor,
       currency: t.currency_in, decimals: t.decimals_in, occurredAt: on,
+      txHash: String(f.get("tx_hash") ?? "").trim() || null, chainId: t.chain_id,
       file: asFile, evidenceKind: "fee_note",
     });
     if (typeof result === "object") return settlePage(env, { name: "" }, txId, result.problem);
@@ -1063,6 +1818,7 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
     const result = await recordCustody(env, actor, txId, {
       holder, event: "sent", amountMinor,
       currency: t.currency_out, decimals: t.decimals_out, occurredAt: on,
+      txHash: String(f.get("tx_hash") ?? "").trim() || null, chainId: t.chain_id,
       file: asFile, evidenceKind: "payment_confirmation",
     });
     if (typeof result === "object") return settlePage(env, { name: "" }, txId, result.problem);
@@ -1075,4 +1831,32 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
   }
 
   return new Response("Unknown action", { status: 400 });
+}
+
+
+/** Files on the transaction itself, and the form to add one. */
+async function txDocuments(env: Env, txId: string): Promise<string> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, kind, label, filename, bytes, sha256, uploaded_at FROM artefacts
+      WHERE transaction_id = ? ORDER BY uploaded_at`).bind(txId).all<any>();
+  const docs = results ?? [];
+  const list = docs.length
+    ? `<table><tr><th>Document</th><th>File</th><th>Size</th><th>Uploaded</th></tr>` +
+      docs.map((d: any) => `<tr>
+        <td>${esc(d.label ?? d.kind.replace(/_/g, " "))}</td>
+        <td><a href="/doc/${esc(d.id)}">${esc(d.filename ?? d.id)}</a></td>
+        <td class="muted">${Math.round((d.bytes ?? 0) / 1024)}KB</td>
+        <td class="muted">${esc(String(d.uploaded_at).slice(0, 16))}</td></tr>`).join("") + `</table>`
+    : `<p class="muted">Nothing uploaded against the transaction itself. Each party's
+        own documents are on their page and are part of this dossier too.</p>`;
+  return `<details class="panel">
+    <summary><strong>Documents</strong>${docs.length ? ` — ${docs.length}` : ""}</summary>
+    <p class="muted">Anything about the deal as a whole: the Themis report on the transaction,
+      the agency agreement, an OTC confirmation. Upload before sealing so it is in the record.</p>
+    ${list}
+    ${uploadForm(`/t/${txId}/upload`, [
+      ["kyc_report", "Screening report (Themis or other)"],
+      ["agency_agreement", "Agency agreement"], ["otc_confirmation", "OTC confirmation"],
+      ["bank_statement", "Bank statement"], ["other", "Other"]])}
+  </details>`;
 }

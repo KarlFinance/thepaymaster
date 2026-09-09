@@ -10,14 +10,26 @@
 
 import { type Env, type Actor, id, log, insert, update, typeName } from "./db.ts";
 import { mint, peek, redeem, sessionCookie, clearSession, whoIs, endSession } from "./tokens.ts";
+import { send, returnLink } from "./email.ts";
 import { esc, REVEAL_CSS, REVEAL_JS } from "./views.ts";
+import { SITE, FAVICON, thisYear } from "./chrome.ts";
 import { format } from "./money.ts";
+import { ownRecord } from "./dossier.ts";
+import { clientHelp, HELP_CSS } from "./help.ts";
+import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
+         progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
+import { staffAddressConfirmed } from "./notify.ts";
+import { plan } from "./execute.ts";
+import { standing as standingMandate, history as mandateHistory,
+         sign as signMandate, revoke as revokeMandate } from "./mandate.ts";
+import { executeBody, recordLeg, recordTest, prepare } from "./executeview.ts";
 import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
          peopleOf, standingCheck } from "./kyc.ts";
 import { documentsFor } from "./documents.ts";
 import { forParticipation, save as saveDestination, confirm as confirmDestination,
          problemWith, describe, type Kind } from "./destinations.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
+         removeSendingWallet,
          sendingWallets, addSendingWallet, proveSendingWallet,
          challengeForSendingWallet } from "./proof.ts";
 
@@ -28,11 +40,41 @@ const CSS = `
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0;font:17px/1.6 "Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);background:var(--panel)}
 a{color:var(--ink)}
-header{background:var(--ink);color:#fff;padding:16px 22px;display:flex;align-items:center;gap:18px}
-header b{font-weight:800;letter-spacing:-.01em}
-header .who{margin-left:auto;color:#B6C0D0;font-size:14px}
-header a{color:#B6C0D0;text-decoration:none;font-size:14px;font-weight:600}
-main{max-width:720px;margin:0 auto;padding:32px 20px 72px}
+
+/* The same shape as the staff panel: a rail down the left, the work centred
+   in the rest of the width. */
+body{display:flex;min-height:100vh;align-items:stretch}
+.rail{background:var(--ink);color:#C9D1DD;width:236px;flex:0 0 236px;
+  display:flex;flex-direction:column;padding:22px 0;font-size:15px}
+.rail .mark{padding:0 22px 26px}
+.rail .mark img{width:158px;height:auto;display:block}
+.rail nav{display:flex;flex-direction:column}
+.rail a{color:#C9D1DD;text-decoration:none;font-weight:600;font-size:14.5px;
+  padding:10px 22px;border-left:3px solid transparent}
+.rail a:hover{color:#fff;background:#131F33}
+.rail a[aria-current]{color:#fff;background:#131F33;border-left-color:var(--accent)}
+.rail .who{margin-top:auto;padding:18px 22px 0;border-top:1px solid #1E2A3C;
+  font-size:13px;color:#8C99AC}
+.rail .who b{display:block;color:#fff;font-size:14px;margin-bottom:8px;font-weight:700}
+.rail .who a{display:block;padding:5px 0;border-left:0;font-size:13.5px}
+.rail .who a:hover{background:none;color:var(--accent)}
+.sheet{flex:1;min-width:0;display:flex;flex-direction:column}
+main{flex:1;width:100%;max-width:780px;margin:0 auto;padding:34px 24px 44px}
+.panelfoot{padding:16px 24px 26px;text-align:center;font-size:13px;color:#8C99AC}
+@media(max-width:860px){
+  body{display:block}
+  .rail{width:auto;flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;
+    gap:2px;padding:12px 14px}
+  .rail .mark{padding:0 14px 0 0}
+  .rail .mark img{width:118px}
+  .rail nav{flex-direction:row;flex-wrap:wrap}
+  .rail a{padding:7px 11px;border-left:0;border-bottom:3px solid transparent;font-size:13.5px}
+  .rail a[aria-current]{border-left:0;border-bottom-color:var(--accent)}
+  .rail .who{margin:0 0 0 auto;padding:0 0 0 12px;border:0}
+  .rail .who b{display:inline;margin:0}
+  .rail .who a{display:inline;padding:0 0 0 10px}
+  main{padding:22px 16px 32px}
+}
 .card{background:#fff;border:1px solid var(--rule);border-radius:12px;padding:24px 26px;margin-bottom:18px}
 h1{margin:0 0 6px;font-size:clamp(24px,3.6vw,32px);color:var(--ink);font-weight:800;letter-spacing:-.02em}
 .sub{margin:0 0 26px;font-size:16px}
@@ -43,6 +85,10 @@ input,textarea,select{width:100%;padding:11px 13px;border:1px solid var(--rule);
 input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
 input[readonly]{background:var(--panel);color:var(--text)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.wording{white-space:pre-wrap;font:13.5px/1.62 ui-monospace,SFMono-Regular,Menlo,monospace;
+  background:var(--panel);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px;margin:14px 0;overflow-x:auto}
+.card.ask{border-left:4px solid var(--accent)}
 .rcpt{border:1px solid var(--rule);border-radius:10px;padding:4px 16px 18px;margin-bottom:12px;background:#fff}
 button{background:var(--accent);color:var(--ink);border:0;border-radius:9px;padding:13px 26px;font:inherit;font-weight:700;cursor:pointer}
 button.plain{background:#fff;border:1px solid var(--rule);color:var(--ink);padding:10px 18px;font-size:15px}
@@ -62,16 +108,28 @@ th{width:38%;color:var(--ink);font-weight:600}
 @media(max-width:560px){.pair{grid-template-columns:1fr}}
 `;
 
-function shell(title: string, body: string, who?: string): Response {
-  const bar = who
-    ? `<header><b>ThePaymaster</b><span class="who">${esc(who)}</span>
-       <a href="/signout">Sign out</a></header>`
-    : `<header><b>ThePaymaster</b></header>`;
+function shell(title: string, body: string, who?: string,
+               current = ""): Response {
+  const item = (href: string, label: string) =>
+    `<a href="${href}"${current === href ? ' aria-current="page"' : ""}>${esc(label)}</a>`;
+  // The white logo on the dark rail, as on the site's own footer.
+  const bar = `<aside class="rail">
+    <div class="mark"><a href="${SITE}/"><img
+      src="${SITE}/wp-content/uploads/2024/05/b-logo.png"
+      alt="ThePaymaster" width="158" height="45"></a></div>
+    ${who ? `<nav>${item("/", "Your transactions")}${item("/verify", "Your details")}${item("/help", "Help")}</nav>
+      <div class="who"><b>${esc(who)}</b><a href="/signout">Sign out</a></div>` : ""}
+  </aside>`;
   return new Response(`<!doctype html><html lang="en-GB"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
-<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}</style></head><body>${bar}<main>${body}</main>${REVEAL_JS}</body></html>`,
+${FAVICON}
+<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}${JOURNEY_CSS}${HELP_CSS}
+.card.now{border-color:var(--accent);box-shadow:0 0 0 3px #FFF3ED}</style></head>
+<body>${bar}<div class="sheet"><main>${body}</main>
+<div class="panelfoot">&copy; ThePaymaster Ltd &reg; ${thisYear()} All Rights Reserved</div>
+</div>${REVEAL_JS}</body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
@@ -304,15 +362,35 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
   });
 }
 
+/** Help is readable signed in or not — a person with a dead link needs it most. */
+export async function clientHelpPage(env: Env, request: Request): Promise<Response> {
+  const who = await whoIs(env, request);
+  return shell("Help", `<div class="card">${clientHelp()}</div>`, who?.display_name, "/help");
+}
+
 export async function clientHome(env: Env, request: Request): Promise<Response> {
   const who = await whoIs(env, request);
   if (!who) {
+    const sent = new URL(request.url).searchParams.has("sent");
     return shell("Sign in", `<div class="card">
       <h1>Your account</h1>
       <p class="sub">Accounts here are opened by invitation.</p>
-      <p>If you are expecting to be part of a transaction, use the link in the email
-         we sent you. If that link has expired, ask us for another —
-         <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>.</p></div>`);
+      <p>If you have not been invited yet, start
+         <a href="${SITE}/enquiry">with an enquiry</a>. If you have, and you are
+         on a different computer or your invitation link has been used, ask for
+         a link back in.</p>
+      ${sent
+        ? `<div class="ok">If that address is on a transaction with us, a link
+             is on its way. It works once and expires in 24 hours.</div>`
+        : `<form method="post" action="/back">
+             <label for="em">Your email address</label>
+             <input id="em" name="email" type="email" required autocomplete="email"
+                    placeholder="you@example.com">
+             <button class="go" type="submit">Email me a link</button>
+           </form>`}
+      <p class="muted">We will not tell you whether an address is on a
+         transaction — that would let anybody find out who we work with.</p>
+      </div>`);
   }
 
   const party = await env.DB.prepare(
@@ -404,7 +482,8 @@ export async function clientVerify(env: Env, request: Request,
  * transposed pair in the same glance; shown the whole thing again, out of the
  * boxes they typed it into, they often do.
  */
-function destinationCard(part: any, dest: any, kind: Kind, error: string): string {
+function destinationCard(part: any, dest: any, kind: Kind, error: string,
+                         editing = false): string {
   if (dest?.status === "locked") {
     return `<div class="card"><h2>Payment details settled</h2>
       <pre style="white-space:pre-wrap;font:inherit;margin:0 0 10px">${esc(describe(dest))}</pre>
@@ -413,15 +492,17 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string): strin
          of an email, and neither should anyone else.</p></div>`;
   }
 
-  if (dest && dest.status === "confirmed") {
+  // A correction jumps past the states below to the form, pre-filled. Without
+  // this, "something is wrong" only ever redrew the screen that was wrong.
+  if (editing && dest && dest.status !== "locked") {
+    // fall through to the form at the end
+  } else if (dest && dest.status === "confirmed") {
     return `<div class="card"><h2>Thank you</h2>
       <pre style="white-space:pre-wrap;font:inherit;margin:0 0 10px">${esc(describe(dest))}</pre>
       <p class="muted">Confirmed. We will check it over and lock it.</p>
-      <form method="post"><button name="action" value="edit" class="plain">
-        Change these</button></form></div>`;
-  }
-
-  if (dest && dest.status === "draft") {
+      <form method="post"><button name="action" value="edit" class="plain"
+        formaction="?edit=1">Change these</button></form></div>`;
+  } else if (dest && dest.status === "draft") {
     return `<div class="card"><h2>Read this back</h2>
       <p>This is where the money will go. Read every character — once it is locked
          it takes two of us and a call to change it.</p>
@@ -430,39 +511,48 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string): strin
         >${esc(describe(dest))}</pre>
       <form method="post">
         <button name="action" value="confirm">That is correct</button>
-        <button name="action" value="edit" class="plain" style="margin-left:8px">
-          Something is wrong</button>
+        <button name="action" value="edit" class="plain" style="margin-left:8px"
+          formaction="?edit=1">Something is wrong — change it</button>
       </form></div>`;
   }
 
+  // Pre-filled when correcting something already entered: being made to type
+  // a whole account back in because one character was wrong is how the second
+  // attempt acquires its own mistake.
+  const was = (k: string) => esc(String((dest as any)?.[k] ?? ""));
   const bank = `
     <label for="an">Name on the account</label>
-    <input id="an" name="account_name" required>
-    <label for="bn">Bank</label><input id="bn" name="bank_name" required>
+    <input id="an" name="account_name" required value="${was("account_name")}">
+    <label for="bn">Bank</label><input id="bn" name="bank_name" required value="${was("bank_name")}">
     <label for="bc">Country the account is held in</label>
-    <input id="bc" name="bank_country" required>
-    <label for="ib">IBAN</label><input id="ib" name="iban">
+    <input id="bc" name="bank_country" required value="${was("bank_country")}">
+    <label for="ib">IBAN</label><input id="ib" name="iban" value="${was("iban")}">
     <p class="muted">Or, for a UK account without an IBAN:</p>
     <div class="pair">
-      <div><label for="ac">Account number</label><input id="ac" name="account_number"></div>
-      <div><label for="sc">Sort code</label><input id="sc" name="sort_code"></div>
+      <div><label for="ac">Account number</label>
+        <input id="ac" name="account_number" value="${was("account_number")}"></div>
+      <div><label for="sc">Sort code</label>
+        <input id="sc" name="sort_code" value="${was("sort_code")}"></div>
     </div>
-    <label for="bi">BIC or SWIFT, if you have it</label><input id="bi" name="bic">`;
+    <label for="bi">BIC or SWIFT, if you have it</label>
+    <input id="bi" name="bic" value="${was("bic")}">`;
 
   const wallet = `
     <label for="ch">Chain</label>
-    <input id="ch" name="chain" placeholder="Ethereum" required>
+    <input id="ch" name="chain" placeholder="Ethereum" required value="${was("chain")}">
     <label for="ad">Wallet address</label>
-    <input id="ad" name="address" required spellcheck="false">
+    <input id="ad" name="address" required spellcheck="false" value="${was("address")}">
     <p class="muted">Copy and paste it. Do not type it out.</p>`;
 
   return `<div class="card">
-    <h2>Where should your money go?</h2>
+    <h2>${dest ? "Change where your money goes" : "Where should your money go?"}</h2>
     <p>${part.outbound === "fiat"
       ? "The account you want to be paid into."
       : "The wallet you want to be paid to."}</p>
     ${error ? `<div class="err">${esc(error)}</div>` : ""}
-    <form method="post">
+    <!-- action="?" drops the edit flag, so a successful save lands on the
+         read-back rather than redrawing the form it just came from. -->
+    <form method="post" action="?">
       ${kind === "bank" ? bank : wallet}
       <div style="margin-top:18px"><button name="action" value="save">Continue</button></div>
       <p class="muted">Only you can enter this. We will never accept payment details
@@ -478,18 +568,25 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string): strin
  * knowing all of them in advance is what lets the arriving funds be matched to
  * a party rather than guessed at afterwards.
  */
-function senderWallets(part: any, wallets: any[], error: string): string {
-  const list = wallets.map((w) => `
+async function senderWallets(env: Env, part: any, wallets: any[], error: string,
+                             errorWallet = ""): Promise<string> {
+  const list = (await Promise.all(wallets.map(async (w) => `
     <div class="wallet${w.proved_at ? " proved" : ""}">
       <code>${esc(w.address)}</code>
       <div class="muted">${esc(w.chain)}${w.label ? ` · ${esc(w.label)}` : ""}</div>
+      <form method="post" class="rm">
+        <input type="hidden" name="action" value="remove_wallet">
+        <input type="hidden" name="wallet" value="${esc(w.id)}">
+        <button class="plain small" type="submit">Remove this wallet</button>
+      </form>
       ${w.proved_at
         ? `<div class="muted">Proved ${esc(w.proved_at.slice(0, 16))}</div>`
         : proofForm({
-            action: "", message: challengeForSendingWallet(w, part.ref),
+            action: "", message: await challengeForSendingWallet(env, w, part.ref),
             address: w.address, hidden: { action: "prove_wallet", wallet: w.id },
+            error: w.id === errorWallet ? error : undefined,
           })}
-    </div>`).join("");
+    </div>`))).join("");
 
   return `<div class="card">
     <h2>Where will you be sending from?</h2>
@@ -528,6 +625,10 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const actor: Actor = { kind: "party", id: who.partyId,
     ip: request.headers.get("CF-Connecting-IP") ?? undefined };
   let error = "";
+  // Which wallet a failure belongs to. With several sending wallets on the
+  // page, an error shown against all of them is as unhelpful as one shown
+  // against none — and none is what happened.
+  let errorWallet = "";
   if (request.method === "POST" && part.role === "sender") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
@@ -538,7 +639,11 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         address: String(f.get("address") ?? ""),
         label: String(f.get("label") ?? ""),
       }) ?? "";
+    } else if (action === "remove_wallet") {
+      error = await removeSendingWallet(env, actor,
+        String(f.get("wallet") ?? "")) ?? "";
     } else if (action === "prove_wallet") {
+      errorWallet = String(f.get("wallet") ?? "");
       error = await proveSendingWallet(env, actor, String(f.get("wallet") ?? ""),
         part.ref, String(f.get("signature") ?? "")) ?? "";
     }
@@ -563,6 +668,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     } else if (action === "confirm") {
       const d = await forParticipation(env, part.participation_id);
       if (d) await confirmDestination(env, actor, d.id, "read back in their own account");
+      if (d) await staffAddressConfirmed(env, actor, d.id);
     } else if (action === "prove") {
       const d = await forParticipation(env, part.participation_id);
       if (d) {
@@ -579,7 +685,8 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }
   }
 
-  const party = await env.DB.prepare("SELECT display_name FROM parties WHERE id = ?")
+  const party = await env.DB.prepare(
+    "SELECT display_name, kyc_submitted_at FROM parties WHERE id = ?")
     .bind(who.partyId).first<any>();
 
   const kind: Kind = part.outbound === "fiat" ? "bank" : "wallet";
@@ -591,36 +698,326 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const proofMessage = (kind === "wallet" && dest?.address && !dest.proved_at)
     ? await challengeForDestination(env, actor, dest, part.ref) : "";
 
-  const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
+  // Any authority we have asked this sender for, signed or not.
+  const askedFor = part.role === "sender"
+    ? (await mandateHistory(env, txId)).find((m) => !m.revoked_at)
+    : undefined;
+  const mandateError = new URL(request.url).searchParams.get("mandate_error") ?? "";
+  const editing = new URL(request.url).searchParams.has("edit");
+
+  // Where they are. Decided from the record, never from what was last shown.
+  const out = await outcome(env, txId);
+  const progress = part.role === "sender" ? await recipientProgress(env, txId) : [];
+  const steps = part.role === "recipient"
+    ? recipientJourney({
+        cleared, submittedAt: party?.kyc_submitted_at ?? null, dest, kind,
+        paidHash: out.paidFor(part.participation_id), sealed: out.sealed })
+    : senderJourney({
+        cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
+        recipients: progress, status: part.status, allPaid: out.allPaid,
+        sealed: out.sealed, onChain: part.inbound === "crypto" });
+
+  // The one card that is open: whatever the current step needs. Everything
+  // else is a line, so a finished thing reads as finished and a waiting thing
+  // says who it is waiting on.
+  const open = async (key: string): Promise<string> => {
+    switch (key) {
+      case "verify":
+        return `<div class="card now"><h2>Verify yourself</h2>
+          <p>Before anything can move we need to know who you are: your details,
+             a passport and a proof of address, uploaded here.</p>
+          <p><a href="/verify"><button>Start</button></a></p></div>`;
+      case "details":
+        return destinationCard(part, dest, kind, error, editing);
+      case "prove":
+        return `<div class="card now"><h2>Prove it is yours</h2>${proofForm({
+          action: "", message: proofMessage, address: dest.address,
+          hidden: { action: "prove" }, error })}</div>`;
+      case "wallets":
+        return await senderWallets(env, part, sending, error, errorWallet);
+      case "send":
+        return `<div class="card now"><h2>Ready to send</h2>
+          <p>Everyone is verified, every address is proved, screened and locked,
+             and the amounts add up. You will see every recipient, their full
+             address and their amount on one screen before anything moves.</p>
+          <p><a href="/d/${esc(txId)}/send"><button>Review and send</button></a></p></div>`;
+      default:
+        return "";
+    }
+  };
+
+  const body: string[] = [];
+  for (const step of steps) {
+    if (step.state === "now") body.push(await open(step.key));
+    else if (editing && step.key === "details") body.push(destinationCard(part, dest, kind, error, true));
+    else body.push(line(step));
+    // The sender's recipients are worth a table whatever state they are in:
+    // "2 of 3 ready" is the headline, who the third is is the question.
+    if (step.key === "recipients" && progress.length) {
+      body.push(`<div class="card"><h2>Your recipients</h2>
+        ${progressTable(progress, part.inbound === "crypto")}
+        <p class="muted" style="margin:12px 0 0">Each of them has their own account
+          and is doing their own part. You cannot do it for them, and neither can we.</p>
+      </div>`);
+    }
+  }
+
+  const stageOk = ["ready", "settled", "closed"].includes(part.status);
   return shell(part.ref, `
     <h1>${esc(part.ref)}</h1>
-    <p class="sub">${esc(part.name)}</p>
-    <div class="card"><table>
-      ${kv("Your part", `You are the <strong>${esc(part.role)}</strong>`)}
-      ${kv("Type", esc(typeName(part)))}
-      ${kv("Stage", `<span class="tag wait">${esc(part.status)}</span>`)}
-      ${part.amount_minor ? kv("Your amount",
-        `${esc(part.currency_out)} ${format(part.amount_minor, part.decimals_out)}`) : ""}
-    </table></div>
-    ${!cleared
-      ? `<div class="card"><h2>First, verify yourself</h2>
-          <p>We cannot ask for payment details until we know who you are.</p>
-          <p><a href="/verify"><button>Verify</button></a></p></div>`
-      : part.role === "recipient"
-        ? destinationCard(part, dest, kind, error) +
-          (kind === "wallet" && dest && !dest.proved_at
-            ? `<div class="card"><h2>Prove it is yours</h2>${proofForm({
-                action: "", message: proofMessage, address: dest.address,
-                hidden: { action: "prove" }, error })}</div>`
-            : kind === "wallet" && dest?.proved_at
-              ? `<div class="card"><h2>Wallet proved</h2>
-                  <p class="muted" style="margin-bottom:0">You signed for
-                  <code>${esc(dest.address)}</code> on
-                  ${esc(dest.proved_at.slice(0, 16))}. Nothing further needed.</p></div>`
-              : "")
-        : part.inbound === "crypto"
-          ? senderWallets(part, sending, error)
-          : `<div class="card"><h2>Nothing needed yet</h2>
-              <p class="muted" style="margin-bottom:0">We will email you when there is.</p>
-            </div>`}`, party?.display_name);
+    <p class="sub">${esc(part.name)} &middot;
+      <span class="stage${stageOk ? " ok" : ""}">${esc(STAGE[part.status] ?? part.status)}</span>
+      &middot; You are the ${esc(part.role)}${part.amount_minor
+        ? ` &middot; ${esc(part.currency_out)} ${format(part.amount_minor, part.decimals_out)}` : ""}</p>
+    ${strip(steps)}
+    ${askedFor ? mandateBlock(askedFor, txId, mandateError) : ""}
+    ${body.join("")}
+    <p class="muted" style="margin-top:22px"><a href="/d/${esc(txId)}/record">Your record</a>
+      — what is on file about your part, and proof it has not been altered.</p>`,
+    party?.display_name);
+}
+
+/**
+ * A recipient's own record, and the arithmetic that ties it to the whole.
+ *
+ * A party sees what they did and nothing else — not the other recipients, not
+ * their addresses, not their amounts. What they can still do is prove their own
+ * entry belongs to the sealed record, by folding a short list of hashes into
+ * their own. That is enough for their bank or accountant, and discloses
+ * nothing about anybody else.
+ */
+export async function clientRecord(env: Env, request: Request,
+                                   txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+
+  const part = await env.DB.prepare(
+    `SELECT t.ref, t.name FROM participations p
+       JOIN transactions t ON t.id = p.transaction_id
+      WHERE p.transaction_id = ? AND p.party_id = ?`)
+    .bind(txId, who.partyId).first<any>();
+  if (!part) return new Response("Not found", { status: 404 });
+
+  const record = await ownRecord(env, txId, who.partyId);
+
+  const entries = record.facts.map((f, n) => `<section class="fact">
+    <h3>${n + 1}. ${esc(f.title)}</h3>
+    <table class="kv">${Object.entries(f.data)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => `<tr><th>${esc(k.replace(/_/g, " "))}</th>
+        <td>${esc(String(v))}</td></tr>`).join("")}</table>
+    <p class="leaf mono">leaf ${esc(f.leaf)}</p>
+    <details><summary>Proof that this entry is in the sealed record</summary>
+      <ol class="path">${f.path.map((step) =>
+        `<li><span class="muted">${step.side}</span>
+           <span class="mono">${esc(step.hash)}</span></li>`).join("")}</ol>
+      <p class="muted">Fold each hash into your own, in order: where it says
+        left, put it before yours; where it says right, put it after. Take the
+        SHA-256 of the two 32-byte values joined together, and repeat. You will
+        arrive at the record root below.</p>
+    </details>
+  </section>`).join("");
+
+  return shell(`Your record — ${part.ref}`, `
+    <h1>Your record</h1>
+    <p class="muted">${esc(part.ref)}${part.name ? " — " + esc(part.name) : ""}</p>
+    <div class="panel">
+      <table class="kv">
+        <tr><th>Record root</th><td><span class="mono big">${esc(record.root)}</span></td></tr>
+        <tr><th>Sealed</th><td>${record.sealedAt
+          ? esc(record.sealedAt)
+          : "Not yet sealed — this transaction is still in progress."}</td></tr>
+        <tr><th>Your entries</th><td>${record.facts.length}</td></tr>
+        <tr><th>Other parties' entries</th><td>${record.others}
+          <span class="muted">— counted, never shown</span></td></tr>
+      </table>
+    </div>
+    ${entries}`, who.name);
+}
+
+/**
+ * The sender's execution screen. Sender only — a recipient has no business
+ * seeing the other legs, and says so by getting a 404 rather than a lecture.
+ */
+export async function clientSend(env: Env, request: Request,
+                                 txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+
+  const part = await env.DB.prepare(
+    `SELECT p.role, t.ref FROM participations p
+       JOIN transactions t ON t.id = p.transaction_id
+      WHERE p.transaction_id = ? AND p.party_id = ?`)
+    .bind(txId, who.partyId).first<any>();
+  if (!part || part.role !== "sender") return new Response("Not found", { status: 404 });
+
+  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/prepare")) {
+    const f = await request.formData();
+    return prepare(env, txId, String(f.get("leg") ?? ""), String(f.get("kind") ?? ""));
+  }
+
+  const actor: Actor = { kind: "party", id: who.partyId,
+    ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+
+  let notice = "";
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const leg = String(f.get("leg") ?? "");
+    const hash = String(f.get("tx_hash") ?? "");
+    notice = String(f.get("kind") ?? "") === "test"
+      ? await recordTest(env, actor, txId, leg, hash)
+      : await recordLeg(env, actor, txId, leg, hash);
+  }
+
+  const p = await plan(env, txId);
+  return shell(`Send — ${part.ref}`, executeBody(p, txId, notice), who.name);
+}
+
+/**
+ * A client asking to be let back in.
+ *
+ * The reply is identical whether or not the address is known to us. Saying
+ * "no such client" would turn this box into a way of asking whether a given
+ * person is one of our clients, which is not something a stranger should be
+ * able to find out.
+ *
+ * A link is only ever sent to the address already on the party record, so the
+ * worst an attacker achieves by guessing is to send that person an email.
+ */
+export async function requestReturn(env: Env, request: Request): Promise<Response> {
+  const f = await request.formData();
+  const email = String(f.get("email") ?? "").trim().toLowerCase();
+  const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
+  const actor: Actor = { kind: "system", id: null, ip };
+  const url = new URL(request.url);
+
+  // Only a party who is actually on a transaction, and only to their own
+  // address as we already hold it.
+  const party = email
+    ? await env.DB.prepare(
+        `SELECT p.id, p.email, p.display_name FROM parties p
+          WHERE lower(p.email) = ?
+            AND EXISTS (SELECT 1 FROM participations x WHERE x.party_id = p.id)
+          LIMIT 1`).bind(email).first<any>()
+    : null;
+
+  if (party) {
+    const minted = await mint(env, actor, {
+      purpose: "return", email: party.email,
+      base: `${url.protocol}//${url.host}`, partyId: party.id,
+    });
+    await send(env, actor, {
+      ...returnLink(minted.url), to: party.email,
+      about: { kind: "parties", id: party.id },
+    });
+  } else {
+    // Recorded so a burst of guesses is visible in the log, without saying
+    // here whether any of them landed.
+    await log(env.DB, actor, "client.return_unknown", "parties", email || "(blank)",
+      { note: "no party on a transaction with that address" });
+  }
+
+  return Response.redirect(new URL("/?sent=1", request.url).toString(), 303);
+}
+
+/** Following a return link: sign the party back in. */
+export async function followReturn(env: Env, value: string,
+                                   request: Request): Promise<Response> {
+  const ip = request.headers.get("CF-Connecting-IP") ?? undefined;
+  const tok = await peek(env, value);
+  if (!tok || tok.purpose !== "return" || !tok.partyId) {
+    return shell("That link has gone", `<div class="card">
+      <h1>That link no longer works</h1>
+      <p>Return links work once and last a day. Ask for another below.</p>
+      <p><a href="/">Back to sign in</a></p></div>`);
+  }
+  // redeem marks the link spent and opens the session in one batch, so a
+  // link cannot be used twice even if two tabs follow it at once.
+  const session = await redeem(env, value, tok.partyId, request);
+  if (!session) {
+    return shell("That link has gone", `<div class="card">
+      <h1>That link no longer works</h1>
+      <p>It may already have been used. Ask for another below.</p>
+      <p><a href="/">Back to sign in</a></p></div>`);
+  }
+  return new Response(null, {
+    status: 303,
+    headers: { Location: "/", "Set-Cookie": sessionCookie(session) },
+  });
+}
+
+/**
+ * The authority, put in front of the sender to read and sign.
+ *
+ * Shown in full, as plain text in a fixed-width block, because a wall of
+ * prose in a modal is how people come to sign things they have not read. The
+ * button is not enabled by a checkbox — they type their own name, which is a
+ * deliberate act rather than a reflex.
+ */
+export function mandateBlock(m: any, txId: string, error = ""): string {
+  if (m.signed_at) {
+    return `<div class="card">
+      <h2>You asked us to prepare this for you</h2>
+      <p class="muted">Signed by ${esc(m.signed_name)} on ${esc(m.signed_at)}.
+        You can withdraw this at any time; it does not affect anything already
+        agreed, and we stop at once.</p>
+      <details><summary>Read what you signed</summary>
+        <pre class="wording">${esc(m.wording)}</pre></details>
+      <form method="post" action="/d/${esc(txId)}/mandate">
+        <input type="hidden" name="action" value="withdraw">
+        <input type="hidden" name="mandate" value="${esc(m.id)}">
+        <button class="plain" type="submit">Withdraw this authority</button>
+      </form>
+    </div>`;
+  }
+
+  return `<div class="card ask">
+    <h2>ThePaymaster has asked to prepare this transaction for you</h2>
+    <p>You do not have to agree. If you would rather enter the recipients and
+      amounts yourself, ignore this and carry on below — nothing is blocked
+      either way.</p>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}
+    <pre class="wording">${esc(m.wording)}</pre>
+    <form method="post" action="/d/${esc(txId)}/mandate">
+      <input type="hidden" name="action" value="sign">
+      <input type="hidden" name="mandate" value="${esc(m.id)}">
+      <label for="typed">Type your full name to sign</label>
+      <input id="typed" name="typed_name" autocomplete="name" required
+             placeholder="Your full name">
+      <button class="go" type="submit">I agree, and this is my signature</button>
+    </form>
+    <p class="muted">Your name, the date, and the words above are recorded
+      together in the transaction's dossier.</p>
+  </div>`;
+}
+
+/** The sender signing or withdrawing it. */
+export async function clientMandate(env: Env, request: Request,
+                                    txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+
+  const part = await env.DB.prepare(
+    `SELECT role FROM participations WHERE transaction_id = ? AND party_id = ?`)
+    .bind(txId, who.partyId).first<any>();
+  if (!part || part.role !== "sender") return new Response("Not found", { status: 404 });
+
+  const f = await request.formData();
+  const actor: Actor = { kind: "party", id: who.partyId,
+    ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  const mandateId = String(f.get("mandate") ?? "");
+
+  let problem: string | null = null;
+  if (String(f.get("action") ?? "") === "withdraw") {
+    problem = await revokeMandate(env, actor, mandateId, "Withdrawn by the sender");
+  } else {
+    problem = await signMandate(env, actor, mandateId, {
+      typedName: String(f.get("typed_name") ?? ""),
+      ip: request.headers.get("CF-Connecting-IP") ?? undefined,
+      agent: request.headers.get("User-Agent") ?? undefined,
+    });
+  }
+  const to = new URL(`/d/${txId}`, request.url);
+  if (problem) to.searchParams.set("mandate_error", problem);
+  return Response.redirect(to.toString(), 303);
 }

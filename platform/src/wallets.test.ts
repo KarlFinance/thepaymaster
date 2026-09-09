@@ -79,3 +79,13 @@ check("the challenge names the transaction", msg.includes("TPM-2026-0042"), true
 check("the challenge names the wallet", msg.includes(address), true);
 
 console.log(bad ? `\n${bad} FAILED` : "\nall passed");
+
+// ---------------------------------------------------------------------------
+// A proof belongs to the address it was made for
+// ---------------------------------------------------------------------------
+
+check("a signature for one address does not prove another",
+  proves(challenge({ ref: "TPM-2026-0002", address,
+                     role: "recipient", nonce: "abc123" }),
+         signature, "0x4eD60b74A1Bd407e1E7004F469a00286E65E452E"),
+  false);
