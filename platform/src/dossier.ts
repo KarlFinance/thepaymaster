@@ -216,6 +216,19 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
       WHERE pt.transaction_id = ?`, txId)) {
     add("06-destination", d.id, "Destination", d);
   }
+  for (const a of await q(
+    `SELECT a.* FROM address_attestations a
+       JOIN destinations d ON d.id = a.destination_id
+       JOIN participations pt ON pt.id = d.participation_id
+      WHERE pt.transaction_id = ?`, txId)) {
+    // The title carries the caveat. Anyone skimming the record must see, at
+    // the line, that this address was accepted on evidence and not by its key.
+    add("06b-address-attestation", a.id,
+        a.revoked_at
+          ? `Address accepted without signature — ${a.custodian} — REVOKED`
+          : `Address accepted without signature — ${a.custodian} deposit address, on evidence`,
+        a);
+  }
   for (const s of await q(
     "SELECT * FROM wallet_screens WHERE transaction_id = ?", txId)) {
     add("07-screening", s.id, `Screening — ${s.verdict}`, drop(s, ["payload"]));

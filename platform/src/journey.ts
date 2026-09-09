@@ -87,14 +87,19 @@ export function recipientJourney(o: {
     steps.push({ key: "details", label: what, state: "now" });
   }
 
-  // 3. prove it — wallets only
+  // 3. prove it — wallets only. By signature, or accepted by us on evidence
+  //    when the address is at an exchange and cannot sign.
   if (o.kind === "wallet") {
     if (!confirmed) steps.push({ key: "prove", label: "Prove it is yours", state: "todo" });
     else if (o.dest.proved_at) steps.push({ key: "prove", label: "Prove it is yours",
       state: "done", summary: `Signed ${o.dest.proved_at.slice(0, 16)}` });
+    else if (o.dest.attested) steps.push({ key: "prove", label: "Prove it is yours",
+      state: "done", summary: `Accepted as your ${o.dest.attested.custodian} deposit address on the evidence you sent` });
+    else if (o.dest.proof_unavailable_at) steps.push({ key: "prove", label: "Prove it is yours",
+      state: "wait", summary: "You told us you cannot sign from this address. We are reviewing it — nothing needed from you unless we write." });
     else steps.push({ key: "prove", label: "Prove it is yours", state: "now" });
   }
-  const proved = o.kind !== "wallet" || Boolean(o.dest?.proved_at);
+  const proved = o.kind !== "wallet" || Boolean(o.dest?.proved_at || o.dest?.attested);
 
   // 4. we lock it
   if (!(confirmed && proved)) steps.push({ key: "locked", label: "Checked and locked by us", state: "todo" });
@@ -135,6 +140,9 @@ export async function recipientProgress(env: Env, txId: string): Promise<Recipie
   const { results } = await env.DB.prepare(
     `SELECT p.id AS participation_id, y.id AS party_id, y.display_name,
             d.status AS dstatus, d.proved_at,
+            EXISTS (SELECT 1 FROM address_attestations a
+                     WHERE a.destination_id = d.id AND a.revoked_at IS NULL
+                       AND lower(a.address) = lower(d.address)) AS attested,
             EXISTS (SELECT 1 FROM verifications v
                      WHERE v.party_id = y.id AND v.status = 'passed'
                        AND (v.expires_at IS NULL OR v.expires_at > datetime('now'))) AS verified,
@@ -149,7 +157,7 @@ export async function recipientProgress(env: Env, txId: string): Promise<Recipie
     name: r.display_name,
     verified: Boolean(r.verified),
     locked: r.dstatus === "locked",
-    proved: Boolean(r.proved_at),
+    proved: Boolean(r.proved_at || r.attested),
     paid: Boolean(r.paid),
   }));
 }

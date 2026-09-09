@@ -30,7 +30,7 @@ export const GATE_TIPS: Record<string, string> = {
   recipients: "At least one person or company receives money. The sender names them; you release the invitations.",
   split: "Every recipient's share, plus our fee, must account for exactly the whole amount — not a penny more or less. Fix it in the Split panel.",
   verified: "Every party has sent their documents and a member of staff has recorded a Pass with a ceiling and an expiry. Refused or expired clearances count as unverified.",
-  proved: "Each recipient has signed a message from the wallet they gave us, proving they hold its key. A wallet address that cannot be signed from — an exchange deposit address, say — cannot be paid.",
+  proved: "Each recipient has signed a message from the wallet they gave us, proving they hold its key. An exchange deposit address cannot sign; staff may instead accept it on evidence that it belongs to the recipient's account at a named exchange, with the evidence attached — and the dossier says so in those words.",
   locked: "A recipient's details were entered, then confirmed by them, then locked by staff. Only a locked destination can be paid. Changing a locked one is a separate, logged request.",
   senderwallets: "The sender has proved control of the wallet they will send from, so the payment provably comes from the person we verified.",
   fee: "The transaction names the wallet our fee goes to. It is set per transaction, in Chain settings, so an address nobody reviews never ends up in code.",
@@ -146,7 +146,7 @@ export function clientHelp(): string {
   ${q("Which wallets can I use?",
       "Any wallet whose key you hold and can sign from: MetaMask, Ledger, Trezor, Rabby, Coinbase Wallet, Trust Wallet, a Gnosis Safe and most others. The address has to be on the right network — Ethereum mainnet for a real transaction.")}
   ${q("Can I use my exchange deposit address (Binance, Coinbase, Kraken…)?",
-      "Not directly, because you cannot sign a message from an exchange's address — the exchange holds the key, not you. Give us a wallet you control and move the money on to the exchange afterwards. If that is impossible for you, tell us and we will talk it through.")}
+      "You cannot sign a message from it — the exchange holds the key, not you — so the simplest route is a wallet you control, moving the money on to the exchange afterwards. If that is not possible, use 'I cannot sign from this address' under the proof step and tell us. We can accept an exchange deposit address on evidence that it is yours — usually a screenshot of the exchange's deposit page showing your name and the address — and the record will state it was accepted that way rather than by signature. A test payment of one unit still goes first.")}
   ${q("What does 'prove your wallet' actually do?",
       "Your wallet signs a short message that includes your name, our reference and a one-time code. Signing is free, sends nothing and gives us no access to your funds; it just shows the address is yours. We check the signature on our side.")}
   ${q("The Sign button does nothing.",
@@ -290,7 +290,7 @@ export function adminHelp(): string {
   ${q("A party says they never got their email.",
       "Check the audit log for the send. Ask them to look in spam for mail from send.thepaymaster.co.uk, or request a fresh link from the sign-in page. Their progress is not lost.")}
   ${q("A recipient's address is an exchange deposit address.",
-      "They cannot prove it, so it cannot be locked. Ask for a wallet they control; they can forward to the exchange afterwards.")}
+      "They cannot sign from it. First choice: ask for a wallet they control; they forward to the exchange afterwards. Second: accept it on evidence. On the transaction page, under Where the money goes, 'Accept without a signature' asks for the custodian's name, what you saw, and the evidence file (a screenshot of their deposit page with their name on it, or a letter from the exchange). It is recorded under your name, the dossier says in plain words that the address was accepted on evidence and not by signature, and a change of address voids it. It can be revoked by anyone on staff with a reason. Screening, confirmation, locking and the dust test all still apply.")}
   ${q("The sender's wallet is a Safe or a hardware wallet.",
       "Both work. Safes prove control through the contract (EIP-1271); hardware wallets sign through their companion app. The Send page's Sent it another way? covers payments the page cannot watch itself.")}
   ${q("Something is stuck and I cannot tell why.",

@@ -25,6 +25,7 @@
 import { type Env } from "./db.ts";
 import { legs as payoutLegs, holderFor, type Leg } from "./settlement.ts";
 import { assess } from "./readiness.ts";
+import { proved as provedAddress } from "./attest.ts";
 import { tokenBalance, isBlacklisted, isContract, endpoints,
          USDT_MAINNET } from "./chain.ts";
 import { standing } from "./walletscreen.ts";
@@ -125,14 +126,18 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
 
   for (const leg of raw) {
     const d = await env.DB.prepare(
-      `SELECT address, proved_at, locked_at FROM destinations
+      `SELECT id, address, proved_at, locked_at FROM destinations
         WHERE participation_id = ? AND kind = 'wallet'`)
       .bind(leg.participationId).first<any>();
 
     const problems: string[] = [];
     const notes: string[] = [];
     if (!d?.address) problems.push("No wallet address supplied yet");
-    if (d?.address && !d.proved_at) problems.push("Address not proved by signature");
+    if (d?.address) {
+      const p = await provedAddress(env, d);
+      if (!p.ok) problems.push("Address not proved by signature or accepted on evidence");
+      else if (p.how === "attested") notes.push(`Accepted as a ${p.attestation!.custodian} deposit address on evidence, not by signature`);
+    }
     if (leg.expectedMinor <= 0) problems.push("No amount allocated");
 
     lines.push({

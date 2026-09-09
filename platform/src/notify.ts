@@ -394,3 +394,77 @@ export async function sealed(env: Env, actor: Actor, txId: string, root: string)
     }
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// An address that cannot be signed for
+// ---------------------------------------------------------------------------
+
+/** A recipient says they cannot sign from their address. Somebody has to look. */
+export async function staffCannotSign(env: Env, actor: Actor, destinationId: string,
+                                      note: string): Promise<void> {
+  await quietly("cannot sign", async () => {
+    const row = await env.DB.prepare(
+      `SELECT d.address, y.display_name, t.id AS tx_id, t.ref
+         FROM destinations d
+         JOIN participations p ON p.id = d.participation_id
+         JOIN parties y ON y.id = p.party_id
+         JOIN transactions t ON t.id = p.transaction_id
+        WHERE d.id = ?`).bind(destinationId).first<any>();
+    const staff = await staffEmails(env);
+    if (!row || !staff.length) return;
+    await send(env, actor, {
+      to: staff,
+      subject: `${row.ref}: ${row.display_name} cannot sign from their address — review it`,
+      text: [
+        `${row.display_name} says they cannot sign a message from the address they`,
+        `gave on ${row.ref} — usually because it is a deposit address at an exchange:`,
+        ``,
+        `  ${row.address}`,
+        note ? `\nIn their words: "${note}"\n` : ``,
+        `Two ways forward. Ask them for a wallet they control and they can move`,
+        `the money on themselves; or, if they can show the address belongs to their`,
+        `account at a named exchange, accept it on that evidence from the`,
+        `transaction page. The record will say which.`,
+        ``,
+        `${ADMIN}/t/${row.tx_id}`,
+      ].join("\n"),
+      about: { kind: "destinations", id: destinationId },
+    });
+  });
+}
+
+/** Staff accepted the address on evidence. The recipient hears the step is done. */
+export async function addressAttested(env: Env, actor: Actor, attestationId: string): Promise<void> {
+  await quietly("address attested", async () => {
+    const row = await env.DB.prepare(
+      `SELECT a.address, a.custodian, y.display_name, y.email, t.id AS tx_id, t.ref
+         FROM address_attestations a
+         JOIN destinations d ON d.id = a.destination_id
+         JOIN participations p ON p.id = d.participation_id
+         JOIN parties y ON y.id = p.party_id
+         JOIN transactions t ON t.id = p.transaction_id
+        WHERE a.id = ?`).bind(attestationId).first<any>();
+    if (!row) return;
+    await send(env, actor, {
+      to: row.email,
+      subject: `${row.ref}: your ${row.custodian} address is accepted`,
+      text: [
+        `${first(row.display_name)},`,
+        ``,
+        `We have accepted the address you gave us on ${row.ref} as your deposit`,
+        `address at ${row.custodian}, on the evidence you sent:`,
+        ``,
+        `  ${row.address}`,
+        ``,
+        `You do not need to sign anything. The record will say the address was`,
+        `accepted on evidence rather than by signature; that is normal for an`,
+        `exchange account. We will screen and lock it next, and you will see a test`,
+        `payment of a fraction of a penny before the real amount.`,
+        ``,
+        `${CLIENT}/d/${row.tx_id}`,
+      ].join("\n"),
+      about: { kind: "address_attestations", id: attestationId },
+    });
+  });
+}

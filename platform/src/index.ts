@@ -40,9 +40,12 @@ import { request as requestMandate, revoke as revokeMandate,
          type Mandate as MandateRow } from "./mandate.ts";
 import { send, startLink, invite } from "./email.ts";
 import { dossierBundle } from "./bundle.ts";
-import { adminHelp, gateTip, tip } from "./help.ts";
+import { adminHelp, gateTip, tip, GATE_TIPS } from "./help.ts";
+const GATE_TIPS_PROVED = GATE_TIPS.proved;
 import { countryName } from "./countries.ts";
 import { ACCEPTED } from "./documents.ts";
+import { grant as grantAttestation, revoke as revokeAttestation,
+         forTransaction as attestationsFor } from "./attest.ts";
 
 /**
  * Staff only, and only on this hostname.
@@ -265,6 +268,26 @@ export default {
           });
           return Response.redirect(new URL(`/t/${txId}`, url).toString(), 302);
         }
+        if (url.pathname.endsWith("/attest") && request.method === "POST") {
+          const f = await request.formData();
+          const problem = await grantAttestation(env, actor, {
+            destinationId: String(f.get("destination") ?? ""),
+            custodian: String(f.get("custodian") ?? ""),
+            basis: String(f.get("basis") ?? ""),
+            evidence: f.get("evidence") as File | null,
+          });
+          const u = new URL(`/t/${txId}`, url);
+          if (problem) u.searchParams.set("err", problem);
+          return Response.redirect(u.toString(), 303);
+        }
+        if (url.pathname.endsWith("/attest/revoke") && request.method === "POST") {
+          const f = await request.formData();
+          const problem = await revokeAttestation(env, actor,
+            String(f.get("attestation") ?? ""), String(f.get("reason") ?? ""));
+          const u = new URL(`/t/${txId}`, url);
+          if (problem) u.searchParams.set("err", problem);
+          return Response.redirect(u.toString(), 303);
+        }
         if (url.pathname.endsWith("/lock") && request.method === "POST") {
           const f = await request.formData();
           const problem = await lockDestination(env, actor,
@@ -311,7 +334,7 @@ async function attention(env: Env): Promise<string> {
   const q = async (sql: string, ...binds: unknown[]) =>
     (await env.DB.prepare(sql).bind(...binds).all<any>()).results ?? [];
 
-  const [enquiries, kyc, toLock, settledOpen, live] = await Promise.all([
+  const [enquiries, kyc, toLock, settledOpen, live, cantSign] = await Promise.all([
     q(`SELECT id, name, created_at FROM enquiries WHERE status = 'new' ORDER BY created_at`),
     q(`SELECT p.id, p.display_name, p.kyc_submitted_at FROM parties p
         WHERE p.kyc_submitted_at IS NOT NULL
@@ -329,6 +352,17 @@ async function attention(env: Env): Promise<string> {
           AND NOT EXISTS (SELECT 1 FROM dossier_seals s WHERE s.transaction_id = t.id)`),
     q(`SELECT id, ref, name, status, submitted_at FROM transactions
         WHERE status IN ('draft', 'awaiting_parties', 'kyc')`),
+    q(`SELECT d.proof_unavailable_at, y.display_name, t.id AS tx, t.ref
+         FROM destinations d
+         JOIN participations p ON p.id = d.participation_id
+         JOIN parties y ON y.id = p.party_id
+         JOIN transactions t ON t.id = p.transaction_id
+        WHERE d.proof_unavailable_at IS NOT NULL AND d.proved_at IS NULL
+          AND t.status NOT IN ('settled', 'closed', 'abandoned', 'declined')
+          AND NOT EXISTS (SELECT 1 FROM address_attestations a
+                           WHERE a.destination_id = d.id AND a.revoked_at IS NULL
+                             AND lower(a.address) = lower(d.address))
+        ORDER BY d.proof_unavailable_at`),
   ]);
 
   // Gate-green transactions nobody has moved on. The gate is the expensive
@@ -347,6 +381,7 @@ async function attention(env: Env): Promise<string> {
   for (const e of enquiries) li(`/e/${e.id}`, `New enquiry from <b>${esc(e.name)}</b>`, e.created_at);
   for (const p of kyc) li(`/p/${p.id}`, `Decide <b>${esc(p.display_name)}</b>'s verification`, p.kyc_submitted_at);
   for (const t of toRelease) li(`/t/${t.id}`, `Release <b>${esc(t.ref)}</b> — the sender has submitted it`, t.submitted_at);
+  for (const d of cantSign) li(`/t/${d.tx}`, `Review <b>${esc(d.display_name)}</b>'s address on ${esc(d.ref)} — they cannot sign from it`, d.proof_unavailable_at);
   for (const d of toLock) li(`/t/${d.tx}`, `Lock <b>${esc(d.display_name)}</b>'s confirmed details on ${esc(d.ref)}`, d.confirmed_at);
   for (const t of toMove) li(`/t/${t.id}`, `Move <b>${esc(t.ref)}</b> on — every gate line is met (now ${esc(t.status.replace(/_/g, " "))})`);
   for (const t of settledOpen) li(`/t/${t.id}/dossier`, `Seal the dossier for <b>${esc(t.ref)}</b> — every payment has landed`);
@@ -692,14 +727,49 @@ async function detail(env: Env, admin: { name: string }, txId: string,
   }
 
   const dests = await forTransaction(env, txId);
+  const attestations = await attestationsFor(env, txId);
+  const proofCell = (d: any): string => {
+    if (!d.id || d.kind !== "wallet" || !d.address) return "";
+    if (d.proved_at) return `<div class="good" style="font-size:13px">Proved by signature</div>`;
+    const live = attestations.find((a) => a.destination_id === d.id && !a.revoked_at
+      && a.address.toLowerCase() === String(d.address).toLowerCase());
+    if (live) return `<div class="warn" style="font-size:13px">Accepted without signature —
+        ${esc(live.custodian)} deposit address${tip("Accepted on evidence by a member of staff rather than proved by the key. The dossier says so in these words. Screening, locking and the dust test still apply.")}
+        <div class="muted" style="font-weight:400">${esc(live.granted_at.slice(0, 16))} — ${esc(live.basis)}${
+          live.evidence_artefact ? ` — <a href="/doc/${esc(live.evidence_artefact)}">evidence</a>` : ""}</div>
+        <form method="post" action="/t/${esc(txId)}/attest/revoke" class="row" style="margin-top:6px;gap:6px">
+          <input type="hidden" name="attestation" value="${esc(live.id)}">
+          <input name="reason" placeholder="Why it is withdrawn" style="max-width:220px" required>
+          <button class="plain">Revoke</button></form></div>`;
+    const asked = d.proof_unavailable_at
+      ? `<div class="bad" style="font-size:13px">Recipient says they cannot sign${
+          d.proof_unavailable_note ? `: <span style="font-weight:400">“${esc(d.proof_unavailable_note)}”</span>` : ""}
+          <span class="muted" style="font-weight:400"> — ${esc(String(d.proof_unavailable_at).slice(0, 16))}</span></div>`
+      : `<div class="muted" style="font-size:13px">Not yet proved</div>`;
+    if (d.status === "draft") return asked;
+    return `${asked}<details${d.proof_unavailable_at ? " open" : ""} style="margin-top:6px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600">Accept without a signature${tip(GATE_TIPS_PROVED)}</summary>
+      <form method="post" action="/t/${esc(txId)}/attest" enctype="multipart/form-data" style="margin-top:6px">
+        <input type="hidden" name="destination" value="${esc(d.id)}">
+        <label>Custodian <input name="custodian" placeholder="Kraken" required style="max-width:200px"></label>
+        <label>What you saw, and how it ties this address to ${esc(d.display_name)}
+          <textarea name="basis" rows="2" required minlength="20"
+            placeholder="Screenshot of the Kraken deposit page for USDT (ERC-20), account in the recipient's legal name, showing this address"></textarea></label>
+        <label>Evidence file <input name="evidence" type="file" accept="${ACCEPTED}" required></label>
+        <div class="row"><button class="plain">Accept on this evidence, under my name</button></div>
+        <p class="muted" style="font-size:12.5px;margin:6px 0 0">Prefer a wallet they control. Only do this
+          when that is not possible, and never on a recipient's word alone.</p>
+      </form></details>`;
+  };
   const destinations = dests.length ? `
     <h2>Where the money goes</h2>
     <div class="panel" style="max-width:none"><table>
-      <tr><th>Recipient</th><th>Details</th><th>State</th><th></th></tr>
+      <tr><th>Recipient</th><th>Details</th><th>Proof</th><th>State</th><th></th></tr>
       ${dests.map((d) => `<tr>
         <td>${esc(d.display_name)}<div class="muted">${esc(d.email)}</div></td>
         <td><pre style="white-space:pre-wrap;font:inherit;margin:0;font-size:13.5px">${
           d.id ? esc(describeDestination(d as any)) : '<span class="muted">nothing yet</span>'}</pre></td>
+        <td style="max-width:360px">${proofCell(d)}</td>
         <td><span class="tag">${esc(d.status ?? "none")}</span></td>
         <td>${d.status === "confirmed"
           ? `<form method="post" action="/t/${esc(txId)}/lock">

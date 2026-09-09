@@ -177,6 +177,10 @@ export async function save(env: Env, actor: Actor, participationId: string,
     proved_at: null,
     proof_signature: null,
     proof_nonce: null,
+    // What they said about the old address is about the old address. Any
+    // attestation is keyed to the address text and lapses by itself.
+    proof_unavailable_at: null,
+    proof_unavailable_note: null,
   };
 
   if (existing) {

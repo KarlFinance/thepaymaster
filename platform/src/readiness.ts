@@ -16,6 +16,7 @@ import { settle, format, type FeeMode } from "./money.ts";
 import { standingCheck } from "./screening.ts";
 import { inspect, USDT_MAINNET, CHAINS } from "./chain.ts";
 import { standing as standingScreen } from "./walletscreen.ts";
+import { proved as provedAddress } from "./attest.ts";
 
 export interface Check {
   key: string;
@@ -139,13 +140,16 @@ export async function assess(env: Env, transactionId: string,
   // --- and, for a wallet, that it really is theirs -------------------------
   if (t.outbound === "crypto") {
     const unproved: string[] = [];
+    const attested: string[] = [];
     for (const r of recipients) {
       const d = await env.DB.prepare(
-        "SELECT address, proved_at FROM destinations WHERE participation_id = ?")
+        "SELECT id, address, proved_at FROM destinations WHERE participation_id = ?")
         .bind(r.participation_id).first<any>();
       // A recipient with no wallet at all has certainly not proved one.
       // Skipping them made this line say "all proved" when nobody had.
-      if (!d || !d.proved_at) unproved.push(r.display_name);
+      const p = await provedAddress(env, d);
+      if (!p.ok) unproved.push(r.display_name);
+      else if (p.how === "attested") attested.push(`${r.display_name} (${p.attestation!.custodian})`);
     }
     checks.push({
       key: "wallets_proved",
@@ -153,7 +157,10 @@ export async function assess(env: Env, transactionId: string,
       met: recipients.length > 0 && unproved.length === 0,
       detail: unproved.length
         ? `No signature from ${unproved.join(", ")}`
-        : recipients.length ? "All proved by signature" : "No recipients",
+        : !recipients.length ? "No recipients"
+        : attested.length
+          ? `Proved by signature, except accepted on evidence without one: ${attested.join(", ")}`
+          : "All proved by signature",
     });
   }
 

@@ -16,6 +16,7 @@ import { SITE, FAVICON, thisYear } from "./chrome.ts";
 import { format } from "./money.ts";
 import { ownRecord } from "./dossier.ts";
 import { clientHelp, HELP_CSS } from "./help.ts";
+import { proved as provedAddress, cannotSign } from "./attest.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -675,6 +676,9 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         error = await proveDestination(env, actor, d.id, part.ref,
           String(f.get("signature") ?? "")) ?? "";
       }
+    } else if (action === "cant_sign") {
+      const d = await forParticipation(env, part.participation_id);
+      if (d) error = await cannotSign(env, actor, d.id, String(f.get("note") ?? "")) ?? "";
     } else if (action === "edit") {
       const d = await forParticipation(env, part.participation_id);
       if (d && d.status !== "locked") {
@@ -695,7 +699,8 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const cleared = await standingCheck(env, who.partyId);
   const sending = part.role === "sender" && part.inbound === "crypto"
     ? await sendingWallets(env, txId) : [];
-  const proofMessage = (kind === "wallet" && dest?.address && !dest.proved_at)
+  const destProof = dest ? await provedAddress(env, dest as any) : null;
+  const proofMessage = (kind === "wallet" && dest?.address && !destProof?.ok)
     ? await challengeForDestination(env, actor, dest, part.ref) : "";
 
   // Any authority we have asked this sender for, signed or not.
@@ -710,7 +715,8 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const progress = part.role === "sender" ? await recipientProgress(env, txId) : [];
   const steps = part.role === "recipient"
     ? recipientJourney({
-        cleared, submittedAt: party?.kyc_submitted_at ?? null, dest, kind,
+        cleared, submittedAt: party?.kyc_submitted_at ?? null, kind,
+        dest: dest ? { ...dest, attested: destProof?.attestation ?? null } : null,
         paidHash: out.paidFor(part.participation_id), sealed: out.sealed })
     : senderJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
@@ -732,7 +738,23 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       case "prove":
         return `<div class="card now"><h2>Prove it is yours</h2>${proofForm({
           action: "", message: proofMessage, address: dest.address,
-          hidden: { action: "prove" }, error })}</div>`;
+          hidden: { action: "prove" }, error })}
+          <details class="cantsign" style="margin-top:18px;border-top:1px solid #E6EAF0;padding-top:12px">
+            <summary style="cursor:pointer;font-weight:700">I cannot sign from this address</summary>
+            <p class="muted" style="margin:10px 0 6px">If this is a deposit address at an exchange
+              (Binance, Kraken, Coinbase…) the exchange holds the key and you cannot sign with it.
+              The simplest route is to give us a wallet you control and move the money on afterwards.
+              If that is not possible, tell us here: we can accept an exchange address on evidence
+              that it is yours — a screenshot of the deposit page showing your name and the address —
+              and the record will say it was accepted that way.</p>
+            <form method="post" action="?">
+              <input type="hidden" name="action" value="cant_sign">
+              <label for="cs">Tell us about it</label>
+              <textarea id="cs" name="note" rows="2" maxlength="500"
+                placeholder="It is my Kraken deposit address. I can send a screenshot of the deposit page."></textarea>
+              <div class="row"><button class="plain">Send this to ThePaymaster</button></div>
+            </form>
+          </details></div>`;
       case "wallets":
         return await senderWallets(env, part, sending, error, errorWallet);
       case "send":
