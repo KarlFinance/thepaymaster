@@ -25,12 +25,11 @@ import { screen as screenAddress, recordVerdict, forTransaction as screensFor,
          screenAll, nominis,
          standing as standingScreen } from "./walletscreen.ts";
 import { txHashProblem, receipt as txReceipt, explorerLink, addressLink,
-         CHAINS, health as chainHealth, USDT_MAINNET } from "./chain.ts";
+         CHAINS, USDT_MAINNET } from "./chain.ts";
 import { arrival, legs, events as custodyEvents, settlementChecks,
          record as recordCustody, holderFor } from "./settlement.ts";
 import { forTransaction, lock as lockDestination, requestChange,
          approveChange, describe as describeDestination } from "./destinations.ts";
-import { toChecksum, addressProblem } from "./wallets.ts";
 import { mint } from "./tokens.ts";
 import { recipientsInvited, readyToSend } from "./notify.ts";
 import { resolve as resolveSettings, put as putSetting, clear as clearSetting,
@@ -43,6 +42,7 @@ import { dossierBundle } from "./bundle.ts";
 import { adminHelp, gateTip, tip, GATE_TIPS } from "./help.ts";
 const GATE_TIPS_PROVED = GATE_TIPS.proved;
 import { countryName } from "./countries.ts";
+import { railFor, railByKey, railChoice, RAILS } from "./rail.ts";
 import { ACCEPTED } from "./documents.ts";
 import { grant as grantAttestation, revoke as revokeAttestation,
          forTransaction as attestationsFor } from "./attest.ts";
@@ -674,7 +674,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
   // record anybody will read later.
   let screening = "";
   if (t.inbound === "crypto" || t.outbound === "crypto") {
-    const chainId = t.chain_id ?? 1;
+    const chainId = railFor(t as any).chainId;
     const addrs: { address: string; role: string }[] = [];
     const { results: sw } = await env.DB.prepare(
       "SELECT address FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL").bind(txId).all<any>();
@@ -706,7 +706,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
           <tr><th>Address</th><th>Verdict</th><th>Findings</th><th></th></tr>
           ${rows.map((r) => `<tr>
             <td>${esc(r.role)}<div class="muted log">
-              <a href="${esc(addressLink(chainId, r.address))}" target="_blank"
+              <a href="${esc(railFor(t as any).explorer.address(r.address))}" target="_blank"
                  rel="noopener">${esc(r.address)}</a></div></td>
             <td><span class="tag">${esc(r.st?.verdict ?? "not screened")}</span></td>
             <td class="muted">${esc(r.st?.findings ?? "")}</td>
@@ -818,81 +818,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
        <a href="/t/${esc(t.id)}/dossier/download">download it</a></p>
     ${await txDocuments(env, t.id)}
     ${mandatePanel(t.id, liveMandate, pastMandates)}
-    ${isOnChain(t as any) ? `<details class="panel"${t.fee_wallet ? "" : " open"}>
-      <summary><strong>Chain settings</strong>${t.fee_wallet
-        ? "" : ' — <span class="bad">no fee wallet set</span>'}</summary>
-      <p class="muted">Which chain this runs on, which token, and where our fee
-        goes. Set per transaction rather than in code, because an address in
-        code is an address nobody reviews.</p>
-      ${[!t.chain_id && "the chain", !t.token_address && "the token address",
-         !t.fee_wallet && "the fee wallet"].filter(Boolean).length
-        ? `<p class="bad" style="font-weight:600">Still to set: ${
-            [!t.chain_id && "the chain", !t.token_address && "the token address",
-             !t.fee_wallet && "the fee wallet"].filter(Boolean).join(", ")}.
-           Grey text in a box is a hint, not a saved value.</p>`
-        : `<p class="good" style="font-weight:600">All three are set.</p>`}
-      <form method="post" action="/t/${esc(t.id)}/chain">
-        <label>Chain
-          <select name="chain_id">
-            ${Object.entries(CHAINS).map(([cid, c]) =>
-              `<option value="${cid}"${String(t.chain_id) === cid ? " selected" : ""}
-                >${esc(c.name)} (${cid})</option>`).join("")}
-          </select></label>
-        <label>Token address${t.token_address
-          ? "" : ' <span class="bad">— not set</span>'}
-          <input name="token_address" size="46" spellcheck="false"
-                 placeholder="0x… the token's contract address"
-                 value="${esc(t.token_address ?? "")}"></label>
-        <p class="muted" style="margin:4px 0 0">${t.token_address
-          ? `Currently <span class="mono">${esc(t.token_address)}</span>.`
-          : `Nothing is set, so nothing can be sent. USDT on Ethereum is ` +
-            `<span class="mono">${esc(USDT_MAINNET)}</span> — but check it ` +
-            `against the chain you have chosen, because the same token has a ` +
-            `different address on every network.`}</p>
-        <label>Our fee goes to${t.fee_wallet
-          ? "" : ' <span class="bad">— not set</span>'}
-          <input name="fee_wallet" size="46" placeholder="0x…" spellcheck="false"
-                 value="${esc(t.fee_wallet ?? "")}" required></label>
-        <button type="submit">Save chain settings</button>
-      </form>
-
-      ${t.chain_id ? `<hr style="border:0;border-top:1px solid var(--rule);margin:18px 0">
-      <p class="muted" style="margin-top:0">Your browser wallet has to be on the
-        same network to send anything. It will offer to switch when you press a
-        send button, but you can do it now — and switching also makes the token
-        visible in the wallet.</p>
-      <p><button type="button" id="switchnet" class="plain">Put my wallet on
-        ${esc(CHAINS[t.chain_id as number]?.name ?? "this network")}</button>
-        <span class="muted" id="switchsays"></span></p>
-      <script>
-      (function () {
-        var btn = document.getElementById("switchnet");
-        var says = document.getElementById("switchsays");
-        if (!window.ethereum) { btn.disabled = true;
-          says.textContent = "No wallet in this browser."; return; }
-        var want = "0x${(t.chain_id as number).toString(16)}";
-        btn.addEventListener("click", async function () {
-          btn.disabled = true;
-          try {
-            await window.ethereum.request({ method: "eth_requestAccounts" });
-            await window.ethereum.request({
-              method: "wallet_switchEthereumChain", params: [{ chainId: want }] });
-            says.textContent = "Switched.";
-          } catch (e) {
-            // 4902 means the wallet does not know this network at all. Adding
-            // it is a separate permission, so it is asked for separately.
-            if (e && e.code === 4902) {
-              says.textContent = "Your wallet does not have that network — " +
-                "add it once in the wallet, then press again.";
-            } else {
-              says.textContent = (e && e.message) || "Not switched.";
-            }
-          }
-          btn.disabled = false;
-        });
-      })();
-      </script>` : ""}
-    </details>` : ""}
+    ${isOnChain(t as any) ? chainSettingsPanel(t) : ""}
     <div class="panel"><table>
       ${kv("Type", esc(typeName(t as any)) + (isOnChain(t as any) ? ' <span class="tag chain">sender executes on-chain</span>' : ' <span class="tag">we settle manually</span>'))}
       ${kv("Status", `<span class="tag">${esc(t.status)}</span>`)}
@@ -999,34 +925,32 @@ async function auditView(env: Env, admin: { name: string }): Promise<Response> {
  * not.
  */
 async function chainView(env: Env, admin: { name: string }): Promise<Response> {
-  const nets = [1, 11155111];
-  const seen = await Promise.all(nets.map(async (cid) => ({
-    cid, name: CHAINS[cid]?.name ?? String(cid), rows: await chainHealth(env, cid),
-  })));
+  const seen = await Promise.all(RAILS.map(async (r) => {
+    const rail = railByKey(r.key)!;
+    return { key: r.key, name: rail.name, rows: await rail.health(env) };
+  }));
 
   const block = seen.map((n) => {
-    const heads = n.rows.filter((r) => r.ok && r.block !== null).map((r) => r.block!);
+    const heads = n.rows.filter((r) => r.ok && r.height !== null).map((r) => r.height!);
     const spread = heads.length > 1 ? Math.max(...heads) - Math.min(...heads) : 0;
-    const wrongChain = n.rows.filter((r) => r.ok && r.chainId !== n.cid);
+    const wrong = n.rows.filter((r) => r.wrongNetwork);
     const answering = n.rows.filter((r) => r.ok).length;
 
-    const verdict = wrongChain.length
-      ? `<span class="bad">An endpoint is on the wrong chain — do not settle</span>`
+    const verdict = wrong.length
+      ? `<span class="bad">An endpoint is on the wrong network — do not settle</span>`
       : answering === 0 ? `<span class="bad">Nothing is answering</span>`
       : answering === 1 ? `<span class="warn">One endpoint only — no second opinion</span>`
       : spread > 3 ? `<span class="warn">Heads ${spread} blocks apart</span>`
       : `<span class="good">${answering} endpoints agree on the head</span>`;
 
-    return `<div class="panel"><h2>${esc(n.name)} <span class="muted">chain ${n.cid}</span></h2>
+    return `<div class="panel"><h2>${esc(n.name)} <span class="muted">${esc(n.key)}</span></h2>
       <p>${verdict}</p>
       <table class="log">
-        <tr><th>Endpoint</th><th>Answering</th><th>Chain</th><th>Head</th></tr>
+        <tr><th>Endpoint</th><th>Answering</th><th>Head</th></tr>
         ${n.rows.map((r) => `<tr><td>${esc(r.name)}</td>
-          <td>${r.ok ? "yes" : esc("no — " + (r.error ?? "no answer"))}</td>
-          <td>${r.chainId === null ? "&mdash;"
-                : r.chainId === n.cid ? r.chainId
-                : `<b class="bad">${r.chainId}</b>`}</td>
-          <td>${r.block === null ? "&mdash;" : r.block.toLocaleString("en-GB")}</td></tr>`).join("")}
+          <td>${r.ok ? (r.wrongNetwork ? '<b class="bad">wrong network</b>' : "yes")
+                     : esc("no — " + (r.note ?? "no answer"))}</td>
+          <td>${r.height === null ? "&mdash;" : r.height.toLocaleString("en-GB")}</td></tr>`).join("")}
       </table></div>`;
   }).join("");
 
@@ -1072,28 +996,39 @@ async function setChainSettings(env: Env, actor: Actor, txId: string,
                                 request: Request): Promise<Response> {
   const f = await request.formData();
   const before = await env.DB.prepare(
-    "SELECT chain_id, token_address, fee_wallet FROM transactions WHERE id = ?")
+    "SELECT rail, chain_id, token_address, fee_wallet FROM transactions WHERE id = ?")
     .bind(txId).first<any>();
   if (!before) return new Response("No such transaction", { status: 404 });
 
-  const chainId = Number(f.get("chain_id") ?? 0) || null;
+  // The rail by key; or, from the rehearsal script and anything else still
+  // speaking the old dialect, an Ethereum chain id.
+  const legacyChain = Number(f.get("chain_id") ?? 0) || null;
+  const key = String(f.get("rail") ?? "").trim() || (legacyChain ? `eth:${legacyChain}:usdt` : "");
+  const choice = railChoice(key);
+  if (!choice) return detail(env, { name: "" }, txId, "Choose a rail.");
+  const rail = railByKey(key)!;
+
   const token = String(f.get("token_address") ?? "").trim();
   const fee = String(f.get("fee_wallet") ?? "").trim();
-
-  for (const [value, what] of [[token, "token address"], [fee, "fee wallet"]] as const) {
-    if (!value) continue;
-    const problem = addressProblem(value);
-    if (problem) return detail(env, { name: "" }, txId, `${what}: ${problem}`);
+  let tokenOk: string | null = null;
+  if (choice.needsToken && token) {
+    const n = rail.normalise(token);
+    if (!n.ok) return detail(env, { name: "" }, txId, `token address: ${n.why}`);
+    tokenOk = n.address;
   }
-  if (chainId && !CHAINS[chainId]) {
-    return detail(env, { name: "" }, txId, "That is not a chain we know.");
+  let feeOk: string | null = null;
+  if (fee) {
+    const n = rail.normalise(fee);
+    if (!n.ok) return detail(env, { name: "" }, txId, `fee wallet: ${n.why}`);
+    feeOk = n.address;
   }
 
   await update(env.DB, actor, "transaction.chain_set", "transactions", txId, {
-    chain_id: chainId,
-    token_address: token ? toChecksum(token) : null,
-    fee_wallet: fee ? toChecksum(fee) : null,
-  }, before, { note: `chain ${chainId ?? "none"}, fee to ${fee || "nowhere"}` });
+    rail: key,
+    chain_id: choice.chainId,
+    token_address: choice.needsToken ? tokenOk : null,
+    fee_wallet: feeOk,
+  }, before, { note: `${rail.name}, fee to ${feeOk || "nowhere"}` });
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
@@ -1712,7 +1647,7 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
           : `${esc(t.currency_out)} ${format(l.sentMinor, t.decimals_out)}
              <div class="muted">${esc((l.sentAt ?? "").slice(0, 10))}</div>`}</td>
         <td>${l.txHash
-          ? `<a href="${esc(explorerLink(t.chain_id ?? 1, l.txHash))}" rel="noopener"
+          ? `<a href="${esc(railFor(t as any).explorer.tx(l.txHash))}" rel="noopener"
                target="_blank">${esc(l.txHash.slice(0, 14))}…</a>`
           : l.evidenceId ? `<a href="/doc/${esc(l.evidenceId)}">document</a>`
           : l.sentMinor !== null ? `
@@ -1747,7 +1682,7 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
         <td>${esc(e.event)}</td><td>${esc(e.holder)}</td>
         <td>${esc(e.currency)} ${format(e.amount_minor, e.decimals)}</td>
         <td>${e.tx_hash
-          ? `<a href="${esc(explorerLink(t.chain_id ?? 1, e.tx_hash))}" rel="noopener"
+          ? `<a href="${esc(railFor(t as any).explorer.tx(e.tx_hash))}" rel="noopener"
                target="_blank">${esc(e.tx_hash.slice(0, 18))}…</a>
              <div class="muted">block ${esc(e.tx_block ?? "?")}, checked
                ${esc((e.tx_verified_at ?? "").slice(0, 16))}</div>`
@@ -1929,4 +1864,114 @@ async function txDocuments(env: Env, txId: string): Promise<string> {
       ["agency_agreement", "Agency agreement"], ["otc_confirmation", "OTC confirmation"],
       ["bank_statement", "Bank statement"], ["other", "Other"]])}
   </details>`;
+}
+
+
+/**
+ * Which rail a crypto transaction runs on, the token where the rail has one,
+ * and where our fee goes.
+ *
+ * Set per transaction rather than in code, because an address in code is an
+ * address nobody reviews. The fee address is checked against the rail chosen,
+ * so a Bitcoin fee cannot be pointed at an Ethereum address or the reverse.
+ */
+function chainSettingsPanel(t: Record<string, any>): string {
+  const rail = railFor(t as any);
+  const chosen = t.rail || (t.chain_id ? `eth:${t.chain_id}:usdt` : "");
+  const choice = railChoice(chosen);
+  const needsToken = choice ? choice.needsToken : true;
+  const missing = [
+    !chosen && "the rail",
+    needsToken && !t.token_address && "the token address",
+    !t.fee_wallet && "the fee wallet",
+  ].filter(Boolean) as string[];
+  const isEth = rail.key.startsWith("eth:");
+
+  return `<details class="panel"${t.fee_wallet ? "" : " open"}>
+      <summary><strong>Chain settings</strong> — ${esc(rail.name)}${t.fee_wallet
+        ? "" : ' <span class="bad">— no fee wallet set</span>'}</summary>
+      <p class="muted">Which rail this runs on — the chain and the asset — and where
+        our fee goes. Set per transaction rather than in code, because an address in
+        code is an address nobody reviews.</p>
+      ${missing.length
+        ? `<p class="bad" style="font-weight:600">Still to set: ${esc(missing.join(", "))}.
+           Grey text in a box is a hint, not a saved value.</p>`
+        : `<p class="good" style="font-weight:600">Everything is set.</p>`}
+      <form method="post" action="/t/${esc(t.id)}/chain">
+        <label>Rail${tip("The chain and the asset. USDT on Ethereum for the usual case; Bitcoin for BTC. The two rehearsal rails are test networks where nothing is worth anything — use them to walk a transaction through before a real one.")}
+          <select name="rail" id="railsel">
+            ${!chosen ? `<option value="" selected>Choose…</option>` : ""}
+            ${RAILS.map((r) => `<option value="${r.key}" data-token="${r.needsToken ? 1 : 0}"${
+              chosen === r.key ? " selected" : ""}>${esc(r.label)}</option>`).join("")}
+          </select></label>
+        <div id="tokenrow"${needsToken ? "" : " hidden"}>
+          <label>Token address${needsToken && !t.token_address
+            ? ' <span class="bad">— not set</span>' : ""}
+            <input name="token_address" size="46" spellcheck="false"
+                   placeholder="0x… the token's contract address"
+                   value="${esc(t.token_address ?? "")}"></label>
+          <p class="muted" style="margin:4px 0 0">${t.token_address
+            ? `Currently <span class="mono">${esc(t.token_address)}</span>.`
+            : `Nothing is set, so nothing can be sent. USDT on Ethereum is ` +
+              `<span class="mono">${esc(USDT_MAINNET)}</span> — but check it ` +
+              `against the chain you have chosen, because the same token has a ` +
+              `different address on every network.`}</p>
+        </div>
+        <label>Our fee goes to${t.fee_wallet
+          ? "" : ' <span class="bad">— not set</span>'}
+          <input name="fee_wallet" size="46" placeholder="${isEth ? "0x…" : "bc1…"}" spellcheck="false"
+                 value="${esc(t.fee_wallet ?? "")}" required></label>
+        <p class="muted" style="margin:4px 0 0">Must be an address on the rail chosen above;
+          it is checked when you save.</p>
+        <button type="submit">Save chain settings</button>
+      </form>
+      <script>
+      (function () {
+        var sel = document.getElementById("railsel"), row = document.getElementById("tokenrow");
+        var fee = document.querySelector('input[name="fee_wallet"]');
+        sel.addEventListener("change", function () {
+          var o = sel.options[sel.selectedIndex];
+          row.hidden = o.dataset.token !== "1";
+          fee.placeholder = /^btc:/.test(o.value) ? "bc1…" : "0x…";
+        });
+      })();
+      </script>
+
+      ${isEth && t.chain_id ? `<hr style="border:0;border-top:1px solid var(--rule);margin:18px 0">
+      <p class="muted" style="margin-top:0">Your browser wallet has to be on the
+        same network to send anything. It will offer to switch when you press a
+        send button, but you can do it now — and switching also makes the token
+        visible in the wallet.</p>
+      <p><button type="button" id="switchnet" class="plain">Put my wallet on
+        ${esc(CHAINS[t.chain_id as number]?.name ?? "this network")}</button>
+        <span class="muted" id="switchsays"></span></p>
+      <script>
+      (function () {
+        var btn = document.getElementById("switchnet");
+        var says = document.getElementById("switchsays");
+        if (!window.ethereum) { btn.disabled = true;
+          says.textContent = "No wallet in this browser."; return; }
+        var want = "0x${(t.chain_id as number).toString(16)}";
+        btn.addEventListener("click", async function () {
+          btn.disabled = true;
+          try {
+            await window.ethereum.request({ method: "eth_requestAccounts" });
+            await window.ethereum.request({
+              method: "wallet_switchEthereumChain", params: [{ chainId: want }] });
+            says.textContent = "Switched.";
+          } catch (e) {
+            // 4902 means the wallet does not know this network at all. Adding
+            // it is a separate permission, so it is asked for separately.
+            if (e && e.code === 4902) {
+              says.textContent = "Your wallet does not have that network — " +
+                "add it once in the wallet, then press again.";
+            } else {
+              says.textContent = (e && e.message) || "Not switched.";
+            }
+          }
+          btn.disabled = false;
+        });
+      })();
+      </script>` : ""}
+    </details>`;
 }

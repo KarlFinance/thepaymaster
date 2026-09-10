@@ -11,7 +11,6 @@ import { esc } from "./views.ts";
 import { format } from "./money.ts";
 import { plan, transferData, gasNeeded,
          type Plan, type Line } from "./execute.ts";
-import { explorerLink, addressLink } from "./chain.ts";
 import { record } from "./settlement.ts";
 import { paymentLanded } from "./notify.ts";
 
@@ -30,7 +29,7 @@ function lineRow(l: Line, p: Plan): string {
       <td>${esc(l.name)}<div class="muted mono">${esc(l.address ?? "")}</div></td>
       <td class="num">${amount}</td>
       <td><span class="good">paid</span>${l.txHash
-        ? ` <a class="mono" href="${esc(explorerLink(p.chainId, l.txHash))}"
+        ? ` <a class="mono" href="${esc(p.rail.explorer.tx(l.txHash))}"
              >${esc(l.txHash.slice(0, 12))}…</a>` : ""}</td>
     </tr>`;
   }
@@ -43,14 +42,14 @@ function lineRow(l: Line, p: Plan): string {
   return `<tr>
     <td>${esc(l.name)}
       <div class="muted mono">${l.address
-        ? `<a href="${esc(addressLink(p.chainId, l.address))}">${esc(l.address)}</a>`
+        ? `<a href="${esc(p.rail.explorer.address(l.address))}">${esc(l.address)}</a>`
         : "no address yet"}</div>
       ${l.problems.map((x) => `<div class="bad">${esc(x)}</div>`).join("")}
       ${l.notes.map((x) => `<div class="warn">${esc(x)}</div>`).join("")}</td>
     <td class="num">${amount}</td>
     <td>${l.testedHash
         ? `<div class="muted">test landed
-             <a class="mono" href="${esc(explorerLink(p.chainId, l.testedHash))}"
+             <a class="mono" href="${esc(p.rail.explorer.tx(l.testedHash))}"
                >${esc(l.testedHash.slice(0, 10))}…</a></div>`
         : ""}
       ${blocked
@@ -162,14 +161,19 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
       </form>
     </div>` : ""}
 
+    <script>${p.rail.browser.script}</script>
     <script>
     (function () {
-      var provider = window.ethereum;
-      var want = "0x${p.chainId.toString(16)}";
+      var wallet = window.railWallet;
       var base = "/d/${esc(txId)}/send";
+      var hint = ${JSON.stringify(p.rail.browser.walletHint)};
 
       async function sign(button, kind) {
-        if (!provider) { alert("No wallet found in this browser."); return; }
+        if (!wallet || !wallet.present()) {
+          alert("No wallet found in this browser (" + hint + "). You can still pay from any " +
+                "wallet and record the transaction id under 'Sent it another way?'.");
+          return;
+        }
         button.disabled = true;
         var was = button.textContent;
         try {
@@ -185,42 +189,38 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
           }).then(function (r) { return r.json(); });
 
           if (check.problem) {
-            alert(check.problem + "\\n\\nThe page will reload with the current position.");
+            alert(check.problem + "\n\nThe page will reload with the current position.");
             location.reload();
             return;
           }
 
           if (!confirm("Send " + check.human + " to " + button.dataset.name +
-                       "?\\n\\n" + check.to)) {
+                       "?\n\n" + check.to)) {
             button.textContent = was; button.disabled = false; return;
           }
 
-          var accounts = await provider.request({ method: "eth_requestAccounts" });
-          if (await provider.request({ method: "eth_chainId" }) !== want) {
-            await provider.request({ method: "wallet_switchEthereumChain",
-                                     params: [{ chainId: want }] });
-          }
+          await wallet.accounts();
+          await wallet.prepare();
           button.textContent = "Confirm in your wallet…";
-          var hash = await provider.request({ method: "eth_sendTransaction", params: [{
-            from: accounts[0], to: check.token, value: "0x0", data: check.data }] });
+          var hash = await wallet.send(check);
 
           // The wallet returns as soon as the transaction is broadcast, which
-          // is a good ten seconds before it is in a block. Submitting then
-          // asks the chain about a transaction that has not landed and gets a
-          // perfectly correct "no such transaction" — which reads as a
-          // failure when nothing has failed. So wait for it here.
+          // is well before it is in a block. Submitting then asks the chain
+          // about a transaction that has not landed and gets a perfectly
+          // correct "not found" — which reads as a failure when nothing has
+          // failed. So wait for it here, for as long as this rail suggests.
           button.textContent = "Sent — waiting for it to land…";
           var landed = false;
-          for (var i = 0; i < 60 && !landed; i++) {
+          var ticks = Math.ceil((wallet.waitSeconds || 120) / 2);
+          for (var i = 0; i < ticks && !landed; i++) {
             await new Promise(function (r) { setTimeout(r, 2000); });
-            try {
-              var rec = await provider.request({
-                method: "eth_getTransactionReceipt", params: [hash] });
-              if (rec) { landed = true; }
-            } catch (ignored) { /* keep waiting */ }
-            if (!landed) {
-              button.textContent = "Waiting for it to land… " + ((i + 1) * 2) + "s";
-            }
+            try { landed = await wallet.landed(hash); } catch (ignored) { /* keep waiting */ }
+            if (!landed) button.textContent = "Waiting for it to land… " + ((i + 1) * 2) + "s";
+          }
+          if (!landed && wallet.pendingAdvice) {
+            var box = document.getElementById("manualhash");
+            if (box) box.value = hash;
+            alert(wallet.pendingAdvice + "\n\nTransaction id: " + hash);
           }
 
           document.getElementById("leg").value = button.dataset.leg;
@@ -316,12 +316,12 @@ export async function recordTest(env: Env, actor: Actor, txId: string,
   }
   if (moved.problem === "pending") {
     return "That payment has been broadcast but has not been included in a " +
-           "block yet. Nothing is wrong — wait a few seconds and record the " +
-           "hash again.";
+           "block yet. Nothing is wrong — wait for it to confirm and record the " +
+           `hash again: ${txHash.trim()}`;
   }
   if (moved.problem === "pending") {
     return "That test payment has been broadcast but has not been included in " +
-           "a block yet. Wait a few seconds and record the hash again.";
+           `a block yet. Wait for it to confirm and record the hash again: ${txHash.trim()}`;
   }
   if (moved.problem === "no such transaction") {
     return "No transaction with that hash. Check it, or wait for it to land.";
@@ -421,7 +421,7 @@ export async function recordLeg(env: Env, actor: Actor, txId: string,
 
   await paymentLanded(env, actor, txId, {
     participationId: line.participationId, name: line.name, amountMinor: line.amountMinor,
-  }, txHash.trim(), explorerLink(p.chainId, txHash.trim()));
+  }, txHash.trim(), p.rail.explorer.tx(txHash.trim()));
   return "";
 }
 

@@ -144,7 +144,7 @@ export function clientHelp(): string {
 
   <h2 id="wallet">Wallets and proving one</h2>
   ${q("Which wallets can I use?",
-      "Any wallet whose key you hold and can sign from: MetaMask, Ledger, Trezor, Rabby, Coinbase Wallet, Trust Wallet, a Gnosis Safe and most others. The address has to be on the right network — Ethereum mainnet for a real transaction.")}
+      "Any wallet whose key you hold and can sign from. For USDT on Ethereum: MetaMask, Ledger, Trezor, Rabby, Coinbase Wallet, Trust Wallet, a Gnosis Safe and most others. For Bitcoin: Unisat, OKX, Xverse, Leather, Sparrow, Electrum, Ledger and Trezor. The address has to be on the right network — Ethereum mainnet or Bitcoin mainnet for a real transaction; your page says which.")}
   ${q("Can I use my exchange deposit address (Binance, Coinbase, Kraken…)?",
       "You cannot sign a message from it — the exchange holds the key, not you — so the simplest route is a wallet you control, moving the money on to the exchange afterwards. If that is not possible, use 'I cannot sign from this address' under the proof step and tell us. We can accept an exchange deposit address on evidence that it is yours — usually a screenshot of the exchange's deposit page showing your name and the address — and the record will state it was accepted that way rather than by signature. A test payment of one unit still goes first.")}
   ${q("What does 'prove your wallet' actually do?",
@@ -248,8 +248,10 @@ export function adminHelp(): string {
   <div class="note">The ? beside each line on the transaction page shows the same explanation in place.</div>
 
   <h2 id="chain">Chain settings</h2>
-  ${q("What are the three things?",
-      "Which chain (Ethereum mainnet for real money; Sepolia for a rehearsal), the token contract address (USDT on mainnet is pre-filled as a hint — it is a hint, not a value, until you save it), and the fee wallet our 1% goes to. All three must be saved before anything is sent.")}
+  ${q("What am I setting?",
+      "The rail — the chain and the asset together: USDT on Ethereum, or Bitcoin — the token contract address where the rail has one (USDT on mainnet is shown as a hint, not a value, until you save it), and the fee wallet our 1% goes to, which must be an address on the rail you chose. The two 'rehearsal only' rails are test networks where nothing is worth anything; use them to walk a transaction through before a real one. Everything must be saved before anything is sent.")}
+  ${q("What is different about Bitcoin?",
+      "Nobody can freeze a Bitcoin address, so that gate line does not appear. A payment takes about ten minutes to confirm rather than seconds, so the sender's page waits a few minutes and then tells them to come back and paste the transaction id under 'Sent it another way?' once it has confirmed. The test payment is 1,000 sats rather than one unit, because Bitcoin will not carry anything smaller. Proof of control is a BIP-322 or legacy signed message — Unisat, OKX, Sparrow, Electrum, Ledger and Trezor all produce one — and exchange deposit addresses go through attestation exactly as on Ethereum.")}
   ${q("The page says 'Still to set' but the boxes have text in them.",
       "Grey text in a box is a placeholder showing the shape of the answer. Type or paste the value and Save.")}
   ${q("What does the Chain page show?",

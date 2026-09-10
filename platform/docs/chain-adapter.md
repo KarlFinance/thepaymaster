@@ -1,8 +1,18 @@
 # One platform, several rails — the chain adapter
 
-*Design sketch, 10 Sep 2026. **Step 1 is done** (`src/rail.ts`, `src/rails/ethereum.ts`;
-execute, executeview, proof and readiness go through the rail). The browser-side
-fragments, the chain-settings form and `transactions.rail` are steps 2–3.*
+*10 Sep 2026 — **steps 1–3 are built and deployed.** `src/rail.ts` is the boundary;
+`src/rails/ethereum.ts` and `src/rails/bitcoin.ts` sit behind it; `src/btc.ts`
+holds the Bitcoin primitives (addresses, BIP-322, legacy signed messages),
+tested against the BIPs' vectors in `src/btc.test.ts`. `transactions.rail`
+exists (migration 0021) and the Chain-settings form is a rail picker. The
+proof and send pages take their wallet from `rail.browser`. `rehearsal/btc.mjs`
+funds, signs and pays on signet.*
+
+*Still to do, in order of value:* the signet rehearsal end to end (needs the
+throwaway key funded from a faucet — `node rehearsal/btc.mjs address`); Xverse
+and Leather in the browser script (sats-connect — today they use the
+copy-sign-paste route); one PSBT paying every recipient (below); Nominis
+screening for Bitcoin once the key arrives (the chain map already says `btc`).
 
 ## Where the chain leaks in today
 

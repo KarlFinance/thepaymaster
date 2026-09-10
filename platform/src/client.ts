@@ -17,6 +17,7 @@ import { format } from "./money.ts";
 import { ownRecord } from "./dossier.ts";
 import { clientHelp, HELP_CSS } from "./help.ts";
 import { proved as provedAddress, cannotSign } from "./attest.ts";
+import { railForTransaction, type Rail } from "./rail.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -572,7 +573,7 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string,
  * a party rather than guessed at afterwards.
  */
 async function senderWallets(env: Env, part: any, wallets: any[], error: string,
-                             errorWallet = ""): Promise<string> {
+                             errorWallet = "", rail: Rail): Promise<string> {
   const list = (await Promise.all(wallets.map(async (w) => `
     <div class="wallet${w.proved_at ? " proved" : ""}">
       <code>${esc(w.address)}</code>
@@ -586,7 +587,7 @@ async function senderWallets(env: Env, part: any, wallets: any[], error: string,
         ? `<div class="muted">Proved ${esc(w.proved_at.slice(0, 16))}</div>`
         : proofForm({
             action: "", message: await challengeForSendingWallet(env, w, part.ref),
-            address: w.address, hidden: { action: "prove_wallet", wallet: w.id },
+            address: w.address, rail, hidden: { action: "prove_wallet", wallet: w.id },
             error: w.id === errorWallet ? error : undefined,
           })}
     </div>`))).join("");
@@ -701,6 +702,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const cleared = await standingCheck(env, who.partyId);
   const sending = part.role === "sender" && part.inbound === "crypto"
     ? await sendingWallets(env, txId) : [];
+  const rail = await railForTransaction(env, txId);
   const destProof = dest ? await provedAddress(env, dest as any) : null;
   const proofMessage = (kind === "wallet" && dest?.address && !destProof?.ok)
     ? await challengeForDestination(env, actor, dest, part.ref) : "";
@@ -739,7 +741,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         return destinationCard(part, dest, kind, error, editing);
       case "prove":
         return `<div class="card now"><h2>Prove it is yours</h2>${proofForm({
-          action: "", message: proofMessage, address: dest.address,
+          action: "", message: proofMessage, address: dest.address, rail,
           hidden: { action: "prove" }, error })}
           <details class="cantsign" style="margin-top:18px;border-top:1px solid #E6EAF0;padding-top:12px">
             <summary style="cursor:pointer;font-weight:700">I cannot sign from this address</summary>
@@ -758,7 +760,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
             </form>
           </details></div>`;
       case "wallets":
-        return await senderWallets(env, part, sending, error, errorWallet);
+        return await senderWallets(env, part, sending, error, errorWallet, rail);
       case "send":
         return `<div class="card now"><h2>Ready to send</h2>
           <p>Everyone is verified, every address is proved, screened and locked,

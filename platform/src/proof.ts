@@ -12,7 +12,7 @@
 import { type Env, type Actor, id, log, insert, update } from "./db.ts";
 import { esc } from "./views.ts";
 import { challenge, proves } from "./wallets.ts";
-import { railForTransaction, railForParticipation } from "./rail.ts";
+import { railForTransaction, railForParticipation, type Rail } from "./rail.ts";
 
 function nonce(): string {
   return [...crypto.getRandomValues(new Uint8Array(8))]
@@ -51,11 +51,13 @@ export function proofForm(opts: {
   action: string;
   message: string;
   address: string;
+  rail: Rail;
   hidden?: Record<string, string>;
   error?: string;
 }): string {
   const hidden = Object.entries(opts.hidden ?? {})
     .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join("");
+  const btc = opts.rail.key.startsWith("btc:");
 
   return `
   <p class="lead">Before we can pay this wallet, you need to show us it is
@@ -80,7 +82,21 @@ export function proofForm(opts: {
       <b>No wallet found in this browser.</b>
       <p>That is normal — most people keep their wallet somewhere else. Pick
          whichever describes you:</p>
-      <ul class="ways">
+      ${btc ? `<ul class="ways">
+        <li><b>My wallet is on my phone.</b> Open this same page inside the
+            wallet app's own browser (Unisat and OKX have one), and a button
+            will appear here.</li>
+        <li><b>I use Sparrow or Electrum.</b> <i>Tools → Sign/Verify Message</i>:
+            choose this address, paste the message below, sign, and copy the
+            signature back here.</li>
+        <li><b>I use a Ledger or Trezor.</b> Connect it to Sparrow and sign the
+            message from there.</li>
+        <li><b>I use Xverse or Leather.</b> Sign the message in the wallet's own
+            <i>Sign message</i> screen and paste the result here.</li>
+        <li><b>My funds are with an exchange.</b> An exchange deposit address
+            cannot sign. Use <i>I cannot sign from this address</i> below and we
+            will take it from there.</li>
+      </ul>` : `<ul class="ways">
         <li><b>My wallet is on my phone.</b> Open this same page inside your
             wallet app's own browser (MetaMask, Trust and Coinbase Wallet all
             have one), and a button will appear here.</li>
@@ -93,7 +109,7 @@ export function proofForm(opts: {
             connect the Ledger through MetaMask or Rabby and use the button.</li>
         <li><b>My funds are with an exchange or custodian.</b> Ask them to sign
             the message below with that address and send you the signature.</li>
-      </ul>
+      </ul>`}
     </div>
   </div>
 
@@ -106,9 +122,10 @@ export function proofForm(opts: {
     ${hidden}
     <label for="sig">Paste the signature here</label>
     <textarea id="sig" name="signature" rows="3" required spellcheck="false"
-      placeholder="0x…"></textarea>
-    <p class="muted">A signature is a long line starting <code>0x</code>.
-       Copy all of it.</p>
+      placeholder="${btc ? "A long line of letters, digits and = signs" : "0x…"}"></textarea>
+    <p class="muted">${btc
+      ? "A signature is a long line of letters and digits, usually ending in <code>=</code>."
+      : "A signature is a long line starting <code>0x</code>."} Copy all of it.</p>
     <div style="margin-top:12px"><button class="go">Check it</button></div>
   </form>
 
@@ -122,9 +139,11 @@ export function proofForm(opts: {
        has proved is how money reaches the wrong person and never comes back.</p>
   </details>
 
+  <script>${opts.rail.browser.script}</script>
   <script>
     (function () {
-      var want = ${JSON.stringify(opts.address.toLowerCase())};
+      var want = ${JSON.stringify(opts.address)};
+      var wallet = window.railWallet;
 
       // Copying the message matters more than it looks: everybody signing
       // somewhere else has to get these exact words across intact.
@@ -138,7 +157,7 @@ export function proofForm(opts: {
         });
       });
 
-      if (!window.ethereum) {
+      if (!wallet || !wallet.present()) {
         document.getElementById('nowallet').hidden = false;
         return;
       }
@@ -153,31 +172,26 @@ export function proofForm(opts: {
         var was = btn.textContent;
         btn.textContent = 'Check your wallet…';
         try {
-          var accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          var accounts = await wallet.accounts();
 
           // The wallet signs with whichever account is selected, which is not
           // necessarily the one being proved. Signing with the wrong one gives
           // a valid signature that fails our check for reasons the failure
           // message cannot explain, so it is caught here instead.
-          var match = (accounts || []).find(function (a) {
-            return String(a).toLowerCase() === want;
-          });
+          var match = (accounts || []).find(function (a) { return wallet.same(a, want); });
           if (!match) {
             var on = (accounts && accounts[0]) ? accounts[0] : 'no account';
             tell('Your wallet is currently on <code>' + on + '</code>, but this ' +
                  'address is <code>' + want + '</code>.<br>Switch to that account ' +
-                 '— in MetaMask, the circle at the top right — then press the ' +
-                 'button again. If it is not in the list, connect it first: ' +
-                 'MetaMask menu, then <i>Connected sites</i>.');
+                 'in your wallet, then press the button again. If it is not in ' +
+                 'the list, connect it to this site first.');
             btn.disabled = false; btn.textContent = was;
             return;
           }
 
           tell('');
           var msg = document.getElementById('challenge').textContent;
-          var sig = await window.ethereum.request({
-            method: 'personal_sign', params: [msg, match]
-          });
+          var sig = await wallet.signMessage(match, msg);
           document.getElementById('sig').value = sig;
           tell('<b>Signed.</b> Now press <b>Check it</b> below.');
           document.getElementById('sig').scrollIntoView({ block: 'center' });

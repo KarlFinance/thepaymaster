@@ -70,7 +70,7 @@ export const manual: ScreenProvider = {
 const NOMINIS = "https://authapi0.nominis.io:8443/v2";
 
 /** Chain slugs for the deep endpoint. Only ones we have actually seen named. */
-const NOMINIS_CHAIN: Record<number, string> = { 1: "eth" };
+const NOMINIS_CHAIN: Record<number, string> = { 1: "eth", 100000: "btc" };
 
 export interface QuickLabel {
   address: string;
