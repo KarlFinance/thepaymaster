@@ -16,7 +16,9 @@ import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
-         clientVerify, clientHelpPage, clientFolder, verifyRecordPage } from "./client.ts";
+         clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
+         clientStartOwn, clientAgain, clientCounterparties } from "./client.ts";
+import { cloneTransaction } from "./loop.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
 import { room, invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
@@ -125,6 +127,8 @@ export default {
         if (url.pathname === "/") return clientHome(env, request);
         if (url.pathname === "/help") return clientHelpPage(env, request);
         if (url.pathname === "/verify-record") return verifyRecordPage(env, request);
+        if (url.pathname === "/start-own" && request.method === "POST") return clientStartOwn(env, request);
+        if (url.pathname === "/counterparties") return clientCounterparties(env, request);
         if (url.pathname.startsWith("/room/")) {
           const [token, ...rest] = url.pathname.slice(6).split("/");
           return room(env, request, token, rest.length ? rest.join("/") : "room");
@@ -158,6 +162,9 @@ export default {
           }
           if (url.pathname.endsWith("/room") && request.method === "POST") {
             return clientDeal(env, request, dealId);
+          }
+          if (url.pathname.endsWith("/again") && request.method === "POST") {
+            return clientAgain(env, request, dealId);
           }
           if (url.pathname.endsWith("/send") || url.pathname.endsWith("/send/prepare")) {
             return clientSend(env, request, dealId);
@@ -286,6 +293,11 @@ export default {
         }
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { transactionId: txId }, `/t/${txId}`);
+        }
+        if (url.pathname.endsWith("/clone") && request.method === "POST") {
+          const made = await cloneTransaction(env, actor, txId, { requestedBy: "admin" });
+          if ("problem" in made) return detail(env, admin, txId, made.problem);
+          return Response.redirect(new URL(`/t/${made.id}`, url).toString(), 303);
         }
         if (url.pathname.endsWith("/summary") && request.method === "POST") {
           const f = await request.formData();
@@ -903,7 +915,9 @@ async function detail(env: Env, admin: { name: string }, txId: string,
     <h1>${esc(t.ref)} — ${esc(t.name)}</h1>
     <p><a href="/t/${esc(t.id)}/dossier">Dossier</a> —
        the whole record, and the hash that proves it —
-       <a href="/t/${esc(t.id)}/dossier/download">download it</a></p>
+       <a href="/t/${esc(t.id)}/dossier/download">download it</a>${["settled", "closed"].includes(String(t.status))
+         ? ` — <form method="post" action="/t/${esc(t.id)}/clone" style="display:inline"><button class="plain small" type="submit">Run it again</button></form>${tip("Clone this distribution: same recipients and shares, addresses and proofs carried over as confirmed (you screen and lock again), chain settings kept, amount blank. It arrives submitted and ready to release.")}`
+         : ""}</p>
     ${await txDocuments(env, t.id)}
     <details class="panel"${t.summary ? "" : " open"}>
       <summary><strong>Executive summary</strong>${t.summary ? "" : ' — <span class="muted">not written yet</span>'}${tip("A paragraph a bank's compliance officer can read first: what this transaction is, who is paying whom and why. It opens the dossier PDF and appears in every party's Counterparty Certification. It is a fact in the record; each save is logged.")}</summary>

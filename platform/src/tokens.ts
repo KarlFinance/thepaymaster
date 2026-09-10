@@ -77,7 +77,10 @@ export async function mint(env: Env, actor: Actor, opts: {
   ).bind(tokenId, await sha256(value), opts.purpose, opts.email.toLowerCase(),
     opts.transactionId ?? null, opts.participationId ?? null,
     opts.partyId ?? null,
-    daysFromNow(LIFETIME_DAYS[opts.purpose] ?? 14), actor.id).run();
+    // created_by points at an admin; a party or the system minting a token
+    // (a self-service start link, a return link) leaves it empty and is named
+    // in the audit line instead.
+    daysFromNow(LIFETIME_DAYS[opts.purpose] ?? 14), actor.kind === "admin" ? actor.id : null).run();
 
   await log(env.DB, actor, `token.${opts.purpose}_minted`, "tokens", tokenId,
     { note: `for ${opts.email}` });

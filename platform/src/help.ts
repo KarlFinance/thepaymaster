@@ -169,6 +169,10 @@ export function clientHelp(): string {
   <h2 id="record">Your record</h2>
   ${q("What is the record, and why would I want it?",
       "A sealed statement of the transaction: who was involved, that each was checked, what was agreed and what was paid, each fact fingerprinted and the whole thing rolled into one hash that can be verified without trusting us. Recipients see their own details and the sender's; not other recipients'. Banks and accountants ask for exactly this.")}
+  ${q("Can I run the same distribution again?",
+      "Yes — on a finished distribution's page, Set up the same distribution again. The new one has the same recipients and shares, their addresses and proofs carried over and the same chain settings. We set the amount with you, screen the addresses again (screening is only good for a week), lock them and release. Your recipients are not asked for anything they have already given.")}
+  ${q("Can I start a distribution of my own?",
+      "Once you are verified, yes: Start a new distribution on your account page opens the sender's form — recipients' names, emails and amounts. Your identity clearance carries over. Everyone you have paid before is listed under Everyone you have paid, with whether each is still cleared.")}
   ${q("How do I show my dossier to my bank?",
       "Share it with your bank on your page: give the name of the person (and their organisation), optionally their email, choose how long the link should work, and whether to include your documents as well as the certification and record. They get a private data room — every page watermarked with their name and the time — and you are emailed the first time they open it. Revoke the link whenever you like. It saves emailing PDFs about, and the bank can verify everything they see without contacting anyone.")}
   ${q("How does a bank check my dossier is genuine?",
@@ -282,6 +286,8 @@ export function adminHelp(): string {
       "Every fact about the transaction — parties, verifications, destinations, proofs, screenings, payments, mandates, documents and the audit log — each hashed, the hashes rolled up into one Merkle root. The page explains how anyone can verify it without us.")}
   ${q("What does each party get?",
       "Their Peaceful Enjoyment dossier: certification.pdf (the Counterparty Certification — the transaction as it concerns them, drawn from the record, with the executive summary and their source-of-funds narrative; the letter a bank asks for), record.pdf and record.json (their entries with Merkle proofs; nothing about anyone else), and documents (their uploads, plus anything you ticked 'Share with the party' when uploading). They download it from their account; you can download it from the roster to send on; and the main dossier bundle carries a parties/ folder with one for each. A Themis report goes into their folder only if you ticked the box — it stays in the main dossier regardless.")}
+  ${q("Running a distribution again",
+      "Run it again on a settled or closed transaction (or the sender asks from their page) clones it: same recipients and shares, chain settings kept, addresses carried over as confirmed with their proof dates — not locked, because screening lasts a week and locking is our act. It arrives submitted. Set the amount in the split panel, screen and lock, release. Verified parties are cleared already; recipients who have not verified since are asked again.")}
   ${q("The data room",
       "Data room, on the roster, per party: a private expiring link for a bank or accountant to view that party's certification and record (and documents if you tick it), watermarked with the viewer's name and time. Every opening is logged; the party is emailed on the first. Parties can make their own from their page. Revoke from the same screen. Reads stay out of the sealed record, so viewing never drifts a seal.")}
   ${q("Seal or download first?",

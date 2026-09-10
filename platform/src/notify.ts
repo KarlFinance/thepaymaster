@@ -536,3 +536,55 @@ export async function roomOpened(env: Env, actor: Actor, inviteId: string): Prom
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// The return loop
+// ---------------------------------------------------------------------------
+
+/** A finished distribution has been cloned; staff set the amount and release it. */
+export async function staffCloned(env: Env, actor: Actor, txId: string, fromRef: string,
+                                  by: "party" | "admin"): Promise<void> {
+  await quietly("cloned", async () => {
+    const t = await tx(env, txId);
+    const staff = await staffEmails(env);
+    if (!t || !staff.length) return;
+    const sender = (await peopleOn(env, txId)).find((p) => p.role === "sender");
+    await send(env, actor, {
+      to: staff,
+      subject: `${t.ref}: ${fromRef} is to run again${by === "party" ? ` — asked for by ${sender?.display_name ?? "the sender"}` : ""}`,
+      text: [
+        `${by === "party" ? `${sender?.display_name ?? "The sender"} has asked to run ${fromRef} again.` : `${fromRef} has been cloned.`}`,
+        `The new transaction is ${t.ref}: same recipients and shares, addresses and`,
+        `proofs carried over, chain settings carried over. Still to do before release:`,
+        ``,
+        `  - set the amount (the split panel)`,
+        `  - screen the addresses again and lock them (they arrive confirmed, not locked)`,
+        `  - release, which invites everyone to their pages`,
+        ``,
+        `${ADMIN}/t/${txId}`,
+      ].join("\n"),
+      about: { kind: "transactions", id: txId },
+    });
+  });
+}
+
+/** A recipient has started a distribution of their own. */
+export async function staffStartedOwn(env: Env, actor: Actor, txId: string, who: string): Promise<void> {
+  await quietly("started own", async () => {
+    const t = await tx(env, txId);
+    const staff = await staffEmails(env);
+    if (!t || !staff.length) return;
+    await send(env, actor, {
+      to: staff,
+      subject: `${t.ref}: ${who} is starting a distribution of their own`,
+      text: [
+        `${who} — a verified party on an earlier transaction — has started ${t.ref} from`,
+        `their own account and is filling in the recipients now. It will arrive for`,
+        `release like any other draft; their identity clearance carries over.`,
+        ``,
+        `${ADMIN}/t/${txId}`,
+      ].join("\n"),
+      about: { kind: "transactions", id: txId },
+    });
+  });
+}

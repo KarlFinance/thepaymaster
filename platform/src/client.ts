@@ -21,6 +21,7 @@ import { railForTransaction, type Rail } from "./rail.ts";
 import { folderData, statementPdf, statementStatus, ownRecordPdf, partyFolder } from "./folder.ts";
 import { verifyBody, checkRecord, checkReference, VERIFY_CSS, VERIFY_URL } from "./verify.ts";
 import { invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
+import { cloneTransaction, startOwn, counterparties } from "./loop.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -367,6 +368,51 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
   });
 }
 
+/** A verified party starts a distribution of their own: a draft, and the start form. */
+export async function clientStartOwn(env: Env, request: Request): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  if (!await standingCheck(env, who.partyId)) return Response.redirect(new URL("/", request.url).toString(), 303);
+  const actor: Actor = { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  const made = await startOwn(env, actor, who.partyId, new URL(request.url).origin);
+  if ("problem" in made) return new Response(made.problem, { status: 400 });
+  return Response.redirect(made.url, 303);
+}
+
+/** The sender asks to run a finished distribution again. */
+export async function clientAgain(env: Env, request: Request, txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const actor: Actor = { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  const made = await cloneTransaction(env, actor, txId, { requestedBy: "party", partyId: who.partyId });
+  if ("problem" in made) return new Response(made.problem, { status: 400 });
+  return Response.redirect(new URL(`/d/${made.id}`, request.url).toString(), 303);
+}
+
+/** Everyone this sender has paid, and whether each is still cleared. */
+export async function clientCounterparties(env: Env, request: Request): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const party = await env.DB.prepare("SELECT display_name FROM parties WHERE id = ?").bind(who.partyId).first<any>();
+  const rows = await counterparties(env, who.partyId);
+  const table = rows.length ? `<table class="progress">
+      <tr><th>Recipient</th><th>Paid</th><th>Last paid</th><th>Cleared</th><th>Locked address</th></tr>
+      ${rows.map((c) => `<tr>
+        <td>${esc(c.name)}<div class="muted">${esc(c.email)}</div></td>
+        <td>${c.transactions} time${c.transactions === 1 ? "" : "s"}<div class="muted">last ${esc(c.lastRef)}</div></td>
+        <td>${c.lastPaidAt ? `${esc(String(c.lastPaidAt).slice(0, 10))}<div class="muted">${c.lastAmountMinor !== null ? `${esc(c.currency ?? "")} ${format(c.lastAmountMinor, c.decimals)}` : ""}</div>` : `<span class="muted">—</span>`}</td>
+        <td>${c.cleared ? `<span class="good">&#10003; until ${esc(String(c.clearedUntil).slice(0, 10))}</span>` : `<span class="muted">needs re-verifying</span>`}</td>
+        <td class="mono" style="font-size:12px">${c.address ? `${esc(c.address)}${c.addressProved ? ` <span class="good">&#10003; proved</span>` : ""}` : "—"}</td>
+      </tr>`).join("")}</table>`
+    : `<p class="muted">Nobody yet — once you have sent a distribution, everyone you paid appears here.</p>`;
+  return shell("Everyone you have paid", `
+    <h1>Everyone you have paid</h1>
+    <p class="sub">Across every distribution you have sent. A recipient who is still cleared and has a locked,
+      proved address can be paid again without being asked for anything.</p>
+    <div class="card">${table}</div>
+    <p class="muted"><a href="/">Back to your transactions</a></p>`, party?.display_name, "/counterparties");
+}
+
 /** The public verifier: no login, nothing stored, nothing revealed. */
 export async function verifyRecordPage(env: Env, request: Request): Promise<Response> {
   const who = await whoIs(env, request);
@@ -453,11 +499,23 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
           ${missing.length ? `<p class="muted">Outstanding: ${esc(missing.join(", "))}.</p>` : ""}
           <p><a href="/verify"><button>Start</button></a></p></div>`;
 
+  const hasSent = (results ?? []).some((t) => t.role === "sender");
+  const loop = cleared ? `
+    <div class="card">
+      <h2>${hasSent ? "Send another distribution" : "Start a distribution of your own"}</h2>
+      <p>You are verified with us, so you can be a sender in one step: name your recipients and their
+        amounts, and we take it from there. Your identity clearance carries over; nothing is asked twice.</p>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <form method="post" action="/start-own" style="margin:0"><button class="go">Start a new distribution</button></form>
+        ${hasSent ? `<a href="/counterparties"><button type="button" class="plain">Everyone you have paid</button></a>` : ""}
+      </div>
+    </div>` : "";
   return shell("Your account", `
     <h1>Your transactions</h1>
     <p class="sub">Everything you are part of, and what each one needs from you.</p>
     ${verify}
-    <div class="card">${deals || `<p class="muted">Nothing here yet.</p>`}</div>`,
+    <div class="card">${deals || `<p class="muted">Nothing here yet.</p>`}</div>
+    ${loop}`,
     party.display_name);
 }
 
@@ -823,6 +881,18 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       });
       if ("problem" in made) roomError = made.problem; else roomLink = made.url;
     }
+  }
+
+  // A finished distribution can be run again by its sender: same recipients,
+  // shares, addresses and proofs; only the amount and the fresh checks remain.
+  if (part.role === "sender" && ["settled", "closed"].includes(part.status)) {
+    body.push(`<div class="card">
+      <h2>Run this distribution again</h2>
+      <p>Same recipients and shares, their addresses and proofs carried over, chain settings kept.
+        We set the new amount with you, screen the addresses again, and release it — usually the same day.
+        Nothing is asked of your recipients that they have already given.</p>
+      <form method="post" action="/d/${esc(txId)}/again"><button class="go">Set up the same distribution again</button></form>
+    </div>`);
   }
 
   // The folder is theirs from the moment they are verified: the statement
