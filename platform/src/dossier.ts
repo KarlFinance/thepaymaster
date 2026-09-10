@@ -38,6 +38,7 @@
 import { type Env, type Actor, id, insert, update } from "./db.ts";
 import { sentTransaction, blockTime, txHashProblem } from "./chain.ts";
 import { sealed } from "./notify.ts";
+import { attestationFor } from "./attestation.ts";
 
 export const ALGORITHM = "sha256-merkle-v1";
 
@@ -327,8 +328,12 @@ export async function seal(env: Env, actor: Actor, txId: string): Promise<Seal> 
     sealed_by: actor.id,
   }, { note: `${built.root} over ${built.leaves.length} facts` });
   await sealed(env, actor, txId, built.root);
-  return (await env.DB.prepare("SELECT * FROM dossier_seals WHERE id = ?")
+  const row = (await env.DB.prepare("SELECT * FROM dossier_seals WHERE id = ?")
     .bind(rowId).first<any>()) as Seal;
+  // ThePaymaster's signature over the seal, when the key is configured.
+  const ref = (await env.DB.prepare("SELECT ref FROM transactions WHERE id = ?").bind(txId).first<any>())?.ref;
+  if (ref) await attestationFor(env, row, ref);
+  return row;
 }
 
 export async function seals(env: Env, txId: string): Promise<Seal[]> {

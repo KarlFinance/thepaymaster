@@ -35,6 +35,7 @@ import { standing as standingAttestation } from "./attest.ts";
 import { legs as payoutLegs } from "./settlement.ts";
 import { zip } from "./bundle.ts";
 import { VERIFY_URL } from "./verify.ts";
+import { attestationFor, type Attestation } from "./attestation.ts";
 
 const MUTED = "0.353 0.420 0.502";
 const GOOD = "0.106 0.498 0.294";
@@ -74,6 +75,8 @@ export interface FolderData {
   currentRoot: string;
   /** The party's source-of-funds narrative, latest version. */
   narrative: any | null;
+  /** ThePaymaster's signature over the latest seal, when a key is configured. */
+  sealSignature: Attestation | null;
   /** What the certification can say about everyone on the transaction. */
   everyone: { parties: number; unverified: string[]; unscreened: string[]; flagged: string[] };
   documents: any[];
@@ -135,6 +138,7 @@ export async function folderData(env: Env, txId: string, partyId: string, audien
 
   const history = await seals(env, txId);
   const currentRoot = (await build(env, txId)).root;
+  const sealSignature = history[0] ? await attestationFor(env, history[0], tx.ref) : null;
   const narrative = await one(
     `SELECT * FROM narratives WHERE party_id = ? AND (transaction_id IS NULL OR transaction_id = ?)
       ORDER BY created_at DESC LIMIT 1`, partyId, txId);
@@ -171,7 +175,7 @@ export async function folderData(env: Env, txId: string, partyId: string, audien
 
   return { tx, party, role, participation, verification, attestation, screen, payment, fee, sender,
            senderWallets, recipients, latestSeal: history[0] ?? null, currentRoot, narrative, everyone,
-           documents, rail: railFor(tx) };
+           sealSignature, documents, rail: railFor(tx) };
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +333,10 @@ export function statementPdf(d: FolderData): Uint8Array {
       pdf.row("Published on Ethereum", s.anchor_tx_hash, { mono: true });
       pdf.row("Anchored", `${when(s.anchored_at)} — the root above appears in that transaction's data, fixing the date of the record`);
     }
+    if (d.sealSignature) {
+      pdf.row("Signed by ThePaymaster", `EIP-712 signature by ${d.sealSignature.attester} over the seal's reference, root, fact count, date and algorithm. Verifiable with any Ethereum library, or at ${VERIFY_URL}.`);
+      pdf.row("Signature", d.sealSignature.signature, { mono: true });
+    }
   } else {
     pdf.row("Record root", "The record has not yet been sealed.", { colour: WARN });
   }
@@ -359,6 +367,8 @@ export async function ownRecordPdf(env: Env, d: FolderData): Promise<{ pdf: Uint
   pdf.box([
     ["Record root", record.root, true],
     ["Sealed", record.sealedAt ? when(record.sealedAt) : "Not yet sealed — the transaction is still in progress"],
+    ...(d.sealSignature && d.latestSeal && d.latestSeal.root === record.root
+      ? [["Signed by ThePaymaster", d.sealSignature.attester] as [string, string], ["Signature", d.sealSignature.signature, true] as [string, string, boolean]] : []),
     ["Your entries", String(record.facts.length)],
     ["Other entries (count only)", String(record.others)],
   ], "The record");
@@ -398,6 +408,7 @@ export async function ownRecordPdf(env: Env, d: FolderData): Promise<{ pdf: Uint
     transaction: { id: d.tx.id, ref: d.tx.ref, name: d.tx.name },
     party: { id: d.party.id, name: d.party.legal_name || d.party.display_name },
     root: record.root, sealed_at: record.sealedAt, others: record.others,
+    attestation: d.sealSignature && d.latestSeal && d.latestSeal.root === record.root ? d.sealSignature : null,
     facts: record.facts,
   }, null, 2);
   return { pdf: pdf.bytes(), json };

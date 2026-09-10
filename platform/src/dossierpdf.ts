@@ -10,6 +10,7 @@
 import { Pdf } from "./pdf.ts";
 import { type Fact, type Seal, ALGORITHM } from "./dossier.ts";
 import { format } from "./money.ts";
+import { type Attestation } from "./attestation.ts";
 
 export interface DossierDoc { name: string; sha256: string; label: string }
 
@@ -21,6 +22,7 @@ export function dossierPdf(o: {
   seals: Seal[];
   documents: DossierDoc[];
   producedAt?: string;
+  attestation?: Attestation | null;
 }): Uint8Array {
   const latest = o.seals[0] as any | undefined;
   const decimals = o.tx.decimals_in ?? 2;
@@ -53,6 +55,10 @@ export function dossierPdf(o: {
     if (latest.anchor_tx_hash) {
       sealRows.push(["Published on Ethereum", `chain ${latest.anchor_chain_id}${latest.anchored_at ? `, block time ${latest.anchored_at} UTC` : ""}`]);
       sealRows.push(["Anchor transaction", latest.anchor_tx_hash, true]);
+    }
+    if (o.attestation) {
+      sealRows.push(["Signed by ThePaymaster", `EIP-712 signature by ${o.attestation.attester} over (ref, root, facts, sealed-at, algorithm); verify with any Ethereum library or at the public verifier.`]);
+      sealRows.push(["Signature", o.attestation.signature, true]);
     }
   } else {
     sealRows.push(["Sealed", "Not yet sealed. The root above is what a seal would commit to now."]);

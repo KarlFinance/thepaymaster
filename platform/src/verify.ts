@@ -17,6 +17,7 @@ import { type Env } from "./db.ts";
 import { esc } from "./views.ts";
 import { leafHash, verifyPath, type Step } from "./dossier.ts";
 import { railFor } from "./rail.ts";
+import { attestationFor, verify as verifySignature, type Attestation } from "./attestation.ts";
 
 export const VERIFY_URL = "https://client.thepaymaster.co.uk/verify-record";
 
@@ -29,7 +30,8 @@ interface Outcome {
 
 async function sealFor(env: Env, root: string) {
   return env.DB.prepare(
-    `SELECT s.root, s.sealed_at, s.leaf_count, s.anchor_chain_id, s.anchor_tx_hash, s.anchored_at, t.ref
+    `SELECT s.id, s.root, s.sealed_at, s.leaf_count, s.algorithm, s.anchor_chain_id, s.anchor_tx_hash, s.anchored_at,
+            s.attester, s.attestation, t.ref
        FROM dossier_seals s JOIN transactions t ON t.id = s.transaction_id
       WHERE lower(s.root) = lower(?) ORDER BY s.sealed_at DESC LIMIT 1`).bind(root).first<any>();
 }
@@ -75,6 +77,25 @@ export async function checkRecord(env: Env, text: string): Promise<Outcome> {
       lines: [...lines, "The entries agree with each other, but this root is not one we have sealed. Either the record was produced before its transaction was sealed (it will say provisional), or it did not come from us. Ask the party for the final version."] };
   }
   lines.push(`ThePaymaster sealed this root on ${String(seal.sealed_at).slice(0, 16)} UTC over ${seal.leaf_count} facts, as the record of transaction ${seal.ref}.`);
+  // The signature, if the file carries one: it must verify, and it must be by
+  // the key that signed the seal we hold — a valid signature by somebody else
+  // would be exactly the forgery this exists to catch.
+  const ours = await attestationFor(env, seal, seal.ref);
+  const theirs: Attestation | null = doc.attestation ?? null;
+  if (theirs) {
+    const valid = verifySignature(theirs);
+    const sameKey = ours ? theirs.attester.toLowerCase() === ours.attester.toLowerCase() : false;
+    const sameSeal = theirs.message?.root?.toLowerCase() === ("0x" + root).toLowerCase() || theirs.message?.root?.toLowerCase() === root.toLowerCase();
+    if (valid && sameKey && sameSeal) lines.push(`The file carries ThePaymaster's EIP-712 signature over the seal, by key ${theirs.attester}, and it verifies.`);
+    else {
+      return { ok: false, headline: "The record verifies but its signature does not.", entries,
+        lines: [...lines, !valid ? "The signature in the file is not a valid signature over its own seal message."
+          : !sameKey ? `The signature is by ${theirs.attester}, which is not ThePaymaster's attestation key${ours ? ` (${ours.attester})` : ""}.`
+          : "The signature is over a different root from the one in the file."] };
+    }
+  } else if (ours) {
+    lines.push(`ThePaymaster's signature over this seal is by key ${ours.attester}; the file predates signing or omitted it, and the root check above stands on its own.`);
+  }
   if (seal.anchor_tx_hash) {
     const explorer = railFor({ chain_id: seal.anchor_chain_id }).explorer.tx(seal.anchor_tx_hash);
     lines.push(`The root was published on Ethereum in transaction ${seal.anchor_tx_hash} (block time ${String(seal.anchored_at ?? "").slice(0, 16)} UTC) — ${explorer}`);
@@ -92,6 +113,8 @@ export async function checkReference(env: Env, ref: string): Promise<Outcome> {
     if (!seal) return { ok: false, headline: "Not a root ThePaymaster has sealed.", lines: ["No seal carries that root. Check the characters, or ask for the final record."] };
     const lines = [`Sealed ${String(seal.sealed_at).slice(0, 16)} UTC over ${seal.leaf_count} facts, as the record of transaction ${seal.ref}.`];
     if (seal.anchor_tx_hash) lines.push(`Published on Ethereum: ${railFor({ chain_id: seal.anchor_chain_id }).explorer.tx(seal.anchor_tx_hash)}`);
+    const att = await attestationFor(env, seal, seal.ref);
+    if (att) lines.push(`Signed by ThePaymaster's attestation key ${att.attester}: ${att.signature}`);
     return { ok: true, headline: "That root is a record ThePaymaster sealed.", lines };
   }
   const m = r.match(/^STM-(TPM-\d{4}-\d{4})-([A-Z0-9]{6})$/i);

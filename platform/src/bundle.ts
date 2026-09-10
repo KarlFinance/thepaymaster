@@ -22,6 +22,7 @@ import { build, seals, ALGORITHM, type Fact } from "./dossier.ts";
 import { format } from "./money.ts";
 import { dossierPdf } from "./dossierpdf.ts";
 import { folderData, folderEntries, folderName } from "./folder.ts";
+import { attestationFor } from "./attestation.ts";
 
 // ---------------------------------------------------------------------------
 // ZIP, stored method
@@ -230,9 +231,10 @@ export async function dossierBundle(env: Env, txId: string): Promise<{ name: str
 
   const enc = new TextEncoder();
   const producedAt = new Date().toISOString();
+  const attestation = sealRows[0] ? await attestationFor(env, sealRows[0], tx.ref) : null;
   entries.unshift(
     { name: "dossier.pdf", data: dossierPdf({ tx, facts: built.facts, leaves: built.leaves, root: built.root,
-        seals: sealRows, documents: listed, producedAt }) },
+        seals: sealRows, documents: listed, producedAt, attestation }) },
     { name: "dossier.html", data: enc.encode(html(tx, built.facts, built.leaves, built.root, sealRows, listed)) },
     { name: "dossier.json", data: enc.encode(JSON.stringify({
         transaction: { id: tx.id, ref: tx.ref, name: tx.name },
@@ -240,6 +242,7 @@ export async function dossierBundle(env: Env, txId: string): Promise<{ name: str
         root: built.root,
         facts: built.facts.map((f, i) => ({ kind: f.kind, id: f.id, title: f.title, leaf: built.leaves[i], data: f.data })),
         seals: sealRows,
+        attestation,
         documents: listed,
         produced_at: new Date().toISOString(),
       }, null, 2)) },
@@ -263,6 +266,7 @@ export async function dossierPdfFor(env: Env, txId: string): Promise<{ name: str
     name: `${a.id}-${(a.filename ?? a.kind ?? "document").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80)}`,
     sha256: a.sha256, label: a.label ?? a.kind ?? "Document",
   }));
+  const attestation = sealRows[0] ? await attestationFor(env, sealRows[0], tx.ref) : null;
   return { name: `${tx.ref}-dossier.pdf`, bytes: dossierPdf({
-    tx, facts: built.facts, leaves: built.leaves, root: built.root, seals: sealRows, documents }) };
+    tx, facts: built.facts, leaves: built.leaves, root: built.root, seals: sealRows, documents, attestation }) };
 }

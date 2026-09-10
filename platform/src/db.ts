@@ -18,6 +18,8 @@ export interface Env {
   CLIENT_BASE?: string;
   /** Document storage. Absent until R2 is switched on for the account. */
   DOCS?: R2Bucket;
+  /** The key that signs seals (EIP-712). Absent: seals are unsigned, and say so. */
+  ATTEST_KEY?: string;
   /** Sumsub is built but dark; it wakes up when both of these exist. */
   SUMSUB_TOKEN?: string;
   SUMSUB_SECRET?: string;
