@@ -20,6 +20,7 @@
 import { type Env } from "./db.ts";
 import { build, seals, ALGORITHM, type Fact } from "./dossier.ts";
 import { format } from "./money.ts";
+import { dossierPdf } from "./dossierpdf.ts";
 
 // ---------------------------------------------------------------------------
 // ZIP, stored method
@@ -214,7 +215,10 @@ export async function dossierBundle(env: Env, txId: string): Promise<{ name: str
   }
 
   const enc = new TextEncoder();
+  const producedAt = new Date().toISOString();
   entries.unshift(
+    { name: "dossier.pdf", data: dossierPdf({ tx, facts: built.facts, leaves: built.leaves, root: built.root,
+        seals: sealRows, documents: listed, producedAt }) },
     { name: "dossier.html", data: enc.encode(html(tx, built.facts, built.leaves, built.root, sealRows, listed)) },
     { name: "dossier.json", data: enc.encode(JSON.stringify({
         transaction: { id: tx.id, ref: tx.ref, name: tx.name },
@@ -228,4 +232,23 @@ export async function dossierBundle(env: Env, txId: string): Promise<{ name: str
   );
 
   return { name: `${tx.ref}-dossier.zip`, bytes: zip(entries) };
+}
+
+/** The PDF on its own, for the dossier page's link. */
+export async function dossierPdfFor(env: Env, txId: string): Promise<{ name: string; bytes: Uint8Array } | null> {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
+  if (!tx) return null;
+  const built = await build(env, txId);
+  const sealRows = await seals(env, txId);
+  const { results: arts } = await env.DB.prepare(
+    `SELECT id, kind, label, filename, sha256 FROM artefacts
+      WHERE transaction_id = ?
+         OR party_id IN (SELECT party_id FROM participations WHERE transaction_id = ?)
+      ORDER BY uploaded_at`).bind(txId, txId).all<any>();
+  const documents = (arts ?? []).map((a: any) => ({
+    name: `${a.id}-${(a.filename ?? a.kind ?? "document").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80)}`,
+    sha256: a.sha256, label: a.label ?? a.kind ?? "Document",
+  }));
+  return { name: `${tx.ref}-dossier.pdf`, bytes: dossierPdf({
+    tx, facts: built.facts, leaves: built.leaves, root: built.root, seals: sealRows, documents }) };
 }

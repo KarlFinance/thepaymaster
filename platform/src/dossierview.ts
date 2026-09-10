@@ -117,11 +117,14 @@ export async function dossierPage(env: Env, admin: { name: string }, txId: strin
           <form method="post" action="/t/${esc(txId)}/dossier/seal" style="margin:0">
             <button type="submit">Seal the record as it stands</button>
           </form>
+          <a href="/t/${esc(txId)}/dossier.pdf" target="_blank"
+             style="display:inline-block;padding:9px 14px;border:1.5px solid #1B2430;border-radius:8px;text-decoration:none;font-weight:600;color:#1B2430">
+            Open as PDF</a>
           <a href="/t/${esc(txId)}/dossier/download"
              style="display:inline-block;padding:9px 14px;border:1.5px solid #1B2430;border-radius:8px;text-decoration:none;font-weight:600;color:#1B2430">
-            Download the dossier</a>
-          <span class="muted" style="font-size:13px">A ZIP: this record as a self-contained
-            document, the same facts as JSON, and every uploaded file.${latest ? "" : " It will say it is unsealed."}</span>
+            Download the bundle</a>
+          <span class="muted" style="font-size:13px">The PDF is the record for the file. The bundle is a ZIP:
+            the PDF, the same record as HTML and JSON, and every uploaded file.${latest ? "" : " It will say it is unsealed."}</span>
         </div>
       </section>
 

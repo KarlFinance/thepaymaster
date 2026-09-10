@@ -38,7 +38,7 @@ import { request as requestMandate, revoke as revokeMandate,
          standing as standingMandate, history as mandateHistory,
          type Mandate as MandateRow } from "./mandate.ts";
 import { send, startLink, invite } from "./email.ts";
-import { dossierBundle } from "./bundle.ts";
+import { dossierBundle, dossierPdfFor } from "./bundle.ts";
 import { adminHelp, gateTip, tip, GATE_TIPS } from "./help.ts";
 const GATE_TIPS_PROVED = GATE_TIPS.proved;
 import { countryName } from "./countries.ts";
@@ -218,6 +218,15 @@ export default {
         const txId = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/dossier")) {
           return dossierPage(env, admin, txId);
+        }
+        if (url.pathname.endsWith("/dossier.pdf")) {
+          const pdf = await dossierPdfFor(env, txId);
+          if (!pdf) return new Response("Not found", { status: 404 });
+          return new Response(pdf.bytes, { headers: {
+            "content-type": "application/pdf",
+            "content-disposition": `inline; filename="${pdf.name}"`,
+            "cache-control": "no-store",
+          } });
         }
         if (url.pathname.endsWith("/dossier/download")) {
           const bundle = await dossierBundle(env, txId);
