@@ -22,6 +22,7 @@ import { folderData, statementPdf, statementStatus, ownRecordPdf, partyFolder } 
 import { verifyBody, checkRecord, checkReference, VERIFY_CSS, VERIFY_URL } from "./verify.ts";
 import { invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
 import { cloneTransaction, startOwn, counterparties } from "./loop.ts";
+import { principals, roleFor, atLeast, membersOf, inviteMember, revokeMember, teamPanel, type Role } from "./team.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -368,6 +369,34 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
   });
 }
 
+/** An organisation's own login manages who may act for it. */
+export async function clientTeam(env: Env, request: Request): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const party = await env.DB.prepare("SELECT id, display_name, kind FROM parties WHERE id = ?").bind(who.partyId).first<any>();
+  if (!party) return signOut(env, request);
+  if (party.kind !== "company") {
+    return shell("Your team", `<div class="card"><h1>Your team</h1><p>Teams belong to organisations. This account is an individual's.</p>
+      <p><a href="/">Back</a></p></div>`, party.display_name);
+  }
+  const actor: Actor = { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  let error: string | undefined;
+  if (request.method === "POST") {
+    const f = await request.formData();
+    if (f.get("revoke")) error = (await revokeMember(env, actor, String(f.get("revoke")), who.partyId)) ?? undefined;
+    else error = (await inviteMember(env, actor, {
+      partyId: who.partyId, email: String(f.get("email") ?? ""), name: String(f.get("name") ?? ""),
+      role: String(f.get("role") ?? "") as Role, base: new URL(request.url).origin, invitedByName: party.display_name,
+    })) ?? undefined;
+  }
+  return shell("Your team", `
+    <h1>Your team</h1>
+    <p class="sub">People who may act for ${esc(party.display_name)}. Each has their own login and identity check;
+      every action is recorded under their own name with ${esc(party.display_name)} named.</p>
+    <div class="card">${teamPanel(await membersOf(env, who.partyId), "/team", { error, canManage: true })}</div>
+    <p class="muted"><a href="/">Back to your transactions</a></p>`, party.display_name, "/team");
+}
+
 /** A verified party starts a distribution of their own: a draft, and the start form. */
 export async function clientStartOwn(env: Env, request: Request): Promise<Response> {
   const who = await whoIs(env, request);
@@ -468,17 +497,19 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
     .bind(who.partyId).first<any>();
   if (!party) return signOut(env, request);
 
+  const mine = await principals(env, who.partyId);
   const { results } = await env.DB.prepare(
     `SELECT t.id, t.ref, t.name, t.status, t.inbound, t.outbound, t.converts,
-            t.currency_out, t.decimals_out, p.role, p.amount_minor
-       FROM participations p JOIN transactions t ON t.id = p.transaction_id
-      WHERE p.party_id = ? ORDER BY t.updated_at DESC`).bind(who.partyId).all<any>();
+            t.currency_out, t.decimals_out, p.role, p.amount_minor, p.party_id,
+            y.display_name AS for_name
+       FROM participations p JOIN transactions t ON t.id = p.transaction_id JOIN parties y ON y.id = p.party_id
+      WHERE p.party_id IN (${mine.map(() => "?").join(",")}) ORDER BY t.updated_at DESC`).bind(...mine).all<any>();
 
   const deals = (results ?? []).map((t) => `
     <a class="deal" href="/d/${esc(t.id)}">
       <div class="ref">${esc(t.ref)}</div>
       <div class="nm">${esc(t.name)}</div>
-      <div class="muted">You are the ${esc(t.role)} · ${esc(typeName(t))}
+      <div class="muted">${t.party_id === who.partyId ? "You are" : `${esc(t.for_name)} is`} the ${esc(t.role)} · ${esc(typeName(t))}
         ${t.amount_minor ? ` · ${esc(t.currency_out)} ${format(t.amount_minor, t.decimals_out)}` : ""}</div>
     </a>`).join("");
 
@@ -500,6 +531,13 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
           <p><a href="/verify"><button>Start</button></a></p></div>`;
 
   const hasSent = (results ?? []).some((t) => t.role === "sender");
+  const orgRow = await env.DB.prepare("SELECT kind FROM parties WHERE id = ?").bind(who.partyId).first<any>();
+  const team = orgRow?.kind === "company" ? `
+    <div class="card">
+      <h2>Your team</h2>
+      <p>Colleagues can act for ${esc(party.display_name)} with their own logins — an approver who sends, a
+        preparer who enters details, a viewer who reads. <a href="/team">Manage the team</a>.</p>
+    </div>` : "";
   const loop = cleared ? `
     <div class="card">
       <h2>${hasSent ? "Send another distribution" : "Start a distribution of your own"}</h2>
@@ -515,6 +553,7 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
     <p class="sub">Everything you are part of, and what each one needs from you.</p>
     ${verify}
     <div class="card">${deals || `<p class="muted">Nothing here yet.</p>`}</div>
+    ${team}
     ${loop}`,
     party.display_name);
 }
@@ -697,12 +736,18 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
 
   // A party sees a transaction only if they are on it. Checked here rather
   // than assumed from the link they followed.
+  const mine = await principals(env, who.partyId);
   const part = await env.DB.prepare(
-    `SELECT p.id AS participation_id, p.role, p.amount_minor, t.*
+    `SELECT p.party_id AS principal_party_id, p.id AS participation_id, p.role, p.amount_minor, t.*
        FROM participations p JOIN transactions t ON t.id = p.transaction_id
-      WHERE p.transaction_id = ? AND p.party_id = ?`)
-    .bind(txId, who.partyId).first<any>();
+      WHERE p.transaction_id = ? AND p.party_id IN (${mine.map(() => "?").join(",")})
+      ORDER BY CASE WHEN p.party_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+    .bind(txId, ...mine, who.partyId).first<any>();
   if (!part) return new Response("Not found", { status: 404 });
+  const principalId = String(part.principal_party_id);
+  const memberRole: Role = (await roleFor(env, who.partyId, principalId)) ?? "viewer";
+  const actingFor = principalId === who.partyId ? null
+    : await env.DB.prepare("SELECT id, display_name, kind FROM parties WHERE id = ?").bind(principalId).first<any>();
 
   const actor: Actor = { kind: "party", id: who.partyId,
     ip: request.headers.get("CF-Connecting-IP") ?? undefined };
@@ -712,12 +757,16 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // against none — and none is what happened.
   let errorWallet = "";
   const isRoomPost = request.method === "POST" && new URL(request.url).pathname.endsWith("/room");
-  if (request.method === "POST" && !isRoomPost && part.role === "sender") {
+  const canPrepare = atLeast(memberRole, "preparer");
+  if (request.method === "POST" && !canPrepare) {
+    error = "Your role on this account is viewer: you can read everything here but not change it.";
+  }
+  if (request.method === "POST" && !isRoomPost && canPrepare && part.role === "sender") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
     if (action === "add_wallet") {
       error = await addSendingWallet(env, actor, {
-        transactionId: txId, partyId: who.partyId,
+        transactionId: txId, partyId: principalId,
         chain: String(f.get("chain") ?? part.chain ?? "ethereum"),
         address: String(f.get("address") ?? ""),
         label: String(f.get("label") ?? ""),
@@ -732,7 +781,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }
   }
 
-  if (request.method === "POST" && !isRoomPost && part.role === "recipient") {
+  if (request.method === "POST" && !isRoomPost && canPrepare && part.role === "recipient") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
     const kindNow: Kind = part.outbound === "fiat" ? "bank" : "wallet";
@@ -773,12 +822,12 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
 
   const party = await env.DB.prepare(
     "SELECT display_name, kyc_submitted_at FROM parties WHERE id = ?")
-    .bind(who.partyId).first<any>();
+    .bind(principalId).first<any>();
 
   const kind: Kind = part.outbound === "fiat" ? "bank" : "wallet";
   const dest = part.role === "recipient"
     ? await forParticipation(env, part.participation_id) : null;
-  const cleared = await standingCheck(env, who.partyId);
+  const cleared = await standingCheck(env, principalId);
   const sending = part.role === "sender" && part.inbound === "crypto"
     ? await sendingWallets(env, txId) : [];
   const rail = await railForTransaction(env, txId);
@@ -869,13 +918,15 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
 
   // A data-room invitation made from this page: create it, or revoke one.
   let roomLink: string | undefined, roomError: string | undefined;
-  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/room") && cleared) {
+  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/room") && cleared && !atLeast(memberRole, "approver")) {
+    roomError = "Only an approver or owner can share the dossier with a third party.";
+  } else if (request.method === "POST" && new URL(request.url).pathname.endsWith("/room") && cleared) {
     const f = await request.formData();
     if (f.get("revoke")) {
-      roomError = (await roomRevoke(env, actor, String(f.get("revoke")), who.partyId)) ?? undefined;
+      roomError = (await roomRevoke(env, actor, String(f.get("revoke")), principalId)) ?? undefined;
     } else {
       const made = await roomInvite(env, actor, {
-        transactionId: txId, partyId: who.partyId, viewerName: String(f.get("viewer_name") ?? ""),
+        transactionId: txId, partyId: principalId, viewerName: String(f.get("viewer_name") ?? ""),
         viewerEmail: String(f.get("viewer_email") ?? ""), days: Number(f.get("days") ?? 30),
         includeDocuments: f.get("include_documents") === "1",
       });
@@ -899,7 +950,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // says "provisional" until the money has moved and the record is sealed,
   // and is reissued as final by the same link.
   if (cleared) {
-    const fd = await folderData(env, txId, who.partyId, "party");
+    const fd = await folderData(env, txId, principalId, "party");
     const st = fd ? statementStatus(fd) : { final: false, why: "" };
     body.push(`<div class="card folder">
       <h2>Your Peaceful Enjoyment dossier</h2>
@@ -923,13 +974,15 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       <p>Rather than emailing PDFs, give your bank or accountant a private link to a <b>data room</b>: they see your
         certification and record (and your documents, if you choose), watermarked with their name, for a set time.
         You are told the first time it is opened, and you can revoke it whenever you like.</p>
-      ${invitePanel(await invitesFor(env, txId, who.partyId), `/d/${esc(txId)}/room`, { justMade: roomLink, error: roomError })}
+      ${invitePanel(await invitesFor(env, txId, principalId), `/d/${esc(txId)}/room`, { justMade: roomLink, error: roomError })}
     </div>`);
   }
 
   const stageOk = ["ready", "settled", "closed"].includes(part.status);
   return shell(part.ref, `
     <h1>${esc(part.ref)}</h1>
+    ${actingFor ? `<p class="muted" style="margin:-8px 0 10px">You are acting for <b>${esc(actingFor.display_name)}</b> as ${esc(memberRole)}.</p>` : ""}
+    ${error && !canPrepare ? `<div class="err">${esc(error)}</div>` : ""}
     <p class="sub">${esc(part.name)} &middot;
       <span class="stage${stageOk ? " ok" : ""}">${esc(STAGE[part.status] ?? part.status)}</span>
       &middot; You are the ${esc(part.role)}${part.amount_minor
@@ -956,14 +1009,20 @@ export async function clientRecord(env: Env, request: Request,
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
 
+  const mine = await principals(env, who.partyId);
   const part = await env.DB.prepare(
-    `SELECT t.ref, t.name FROM participations p
+    `SELECT p.party_id AS principal_party_id, t.ref, t.name FROM participations p
        JOIN transactions t ON t.id = p.transaction_id
-      WHERE p.transaction_id = ? AND p.party_id = ?`)
-    .bind(txId, who.partyId).first<any>();
+      WHERE p.transaction_id = ? AND p.party_id IN (${mine.map(() => "?").join(",")})
+      ORDER BY CASE WHEN p.party_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+    .bind(txId, ...mine, who.partyId).first<any>();
   if (!part) return new Response("Not found", { status: 404 });
+  const principalId = String(part.principal_party_id);
+  const memberRole: Role = (await roleFor(env, who.partyId, principalId)) ?? "viewer";
+  const actingFor = principalId === who.partyId ? null
+    : await env.DB.prepare("SELECT id, display_name, kind FROM parties WHERE id = ?").bind(principalId).first<any>();
 
-  const record = await ownRecord(env, txId, who.partyId);
+  const record = await ownRecord(env, txId, principalId);
 
   const entries = record.facts.map((f, n) => `<section class="fact">
     <h3>${n + 1}. ${esc(f.title)}</h3>
@@ -1009,13 +1068,33 @@ export async function clientSend(env: Env, request: Request,
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
 
+  const mine = await principals(env, who.partyId);
   const part = await env.DB.prepare(
-    `SELECT p.role, t.ref FROM participations p
+    `SELECT p.party_id AS principal_party_id, p.role, t.ref FROM participations p
        JOIN transactions t ON t.id = p.transaction_id
-      WHERE p.transaction_id = ? AND p.party_id = ?`)
-    .bind(txId, who.partyId).first<any>();
+      WHERE p.transaction_id = ? AND p.party_id IN (${mine.map(() => "?").join(",")})
+      ORDER BY CASE WHEN p.party_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+    .bind(txId, ...mine, who.partyId).first<any>();
   if (!part || part.role !== "sender") return new Response("Not found", { status: 404 });
+  const principalId = String(part.principal_party_id);
+  const memberRole: Role = (await roleFor(env, who.partyId, principalId)) ?? "viewer";
+  const actingFor = principalId === who.partyId ? null
+    : await env.DB.prepare("SELECT id, display_name, kind FROM parties WHERE id = ?").bind(principalId).first<any>();
 
+  if (actingFor) {
+    const okRole = atLeast(memberRole, "approver");
+    const meCleared = okRole ? await standingCheck(env, who.partyId) /* self */ : null;
+    if (!okRole || !meCleared) {
+      const why = !okRole
+        ? `Sending is an approver's act. Your role for ${esc(actingFor.display_name)} is ${esc(memberRole)}; ask an approver or the account owner to send.`
+        : "An approver has to be verified in person before sending. Verify yourself under Your details, and this page opens.";
+      if (new URL(request.url).pathname.endsWith("/prepare")) {
+        return new Response(JSON.stringify({ problem: why.replace(/<[^>]+>/g, "") }), { status: 403, headers: { "content-type": "application/json" } });
+      }
+      return shell(`Send — ${part.ref}`, `<div class="card"><h1>Not yours to send</h1><p>${why}</p>
+        <p><a href="/d/${esc(txId)}">Back to the transaction</a></p></div>`, who.name);
+    }
+  }
   if (request.method === "POST" && new URL(request.url).pathname.endsWith("/prepare")) {
     const f = await request.formData();
     return prepare(env, txId, String(f.get("leg") ?? ""), String(f.get("kind") ?? ""));
@@ -1043,7 +1122,14 @@ export async function clientFolder(env: Env, request: Request, txId: string,
                                    what: "statement" | "record" | "folder"): Promise<Response> {
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
-  const d = await folderData(env, txId, who.partyId, "party");
+  // The party the dossier is about: the person, or an organisation they act for.
+  const mine = await principals(env, who.partyId);
+  const onTx = await env.DB.prepare(
+    `SELECT party_id FROM participations WHERE transaction_id = ? AND party_id IN (${mine.map(() => "?").join(",")})
+      ORDER BY CASE WHEN party_id = ? THEN 0 ELSE 1 END LIMIT 1`).bind(txId, ...mine, who.partyId).first<any>();
+  if (!onTx) return new Response("Not found", { status: 404 });
+  const principalId = String(onTx.party_id);
+  const d = await folderData(env, txId, principalId, "party");
   if (!d) return new Response("Not found", { status: 404 });
   const name = (d.party.legal_name || d.party.display_name).replace(/[^A-Za-z0-9._ -]+/g, "_").trim().replace(/\s+/g, "_");
   const file = (bytes: Uint8Array, type: string, filename: string, inline: boolean) =>
@@ -1051,7 +1137,7 @@ export async function clientFolder(env: Env, request: Request, txId: string,
       "content-disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"` } });
   if (what === "statement") return file(statementPdf(d), "application/pdf", `${d.tx.ref}-certification-${name}.pdf`, true);
   if (what === "record") return file((await ownRecordPdf(env, d)).pdf, "application/pdf", `${d.tx.ref}-record-${name}.pdf`, true);
-  const folder = await partyFolder(env, txId, who.partyId, "party");
+  const folder = await partyFolder(env, txId, principalId, "party");
   if (!folder) return new Response("Not found", { status: 404 });
   await log(env.DB, { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined },
             "folder.downloaded", "participations", d.participation.id, { note: folder.final ? "final" : "provisional" });

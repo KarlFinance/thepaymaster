@@ -588,3 +588,43 @@ export async function staffStartedOwn(env: Env, actor: Actor, txId: string, who:
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Teams
+// ---------------------------------------------------------------------------
+
+/** Somebody has been invited to act for an organisation; the link is their login. */
+export async function teamInvited(env: Env, actor: Actor, memberRowId: string, url: string,
+                                  invitedByName: string): Promise<void> {
+  await quietly("team invited", async () => {
+    const row = await env.DB.prepare(
+      `SELECT m.role, y.email, y.display_name, o.display_name AS org
+         FROM party_members m JOIN parties y ON y.id = m.member_party_id JOIN parties o ON o.id = m.party_id
+        WHERE m.id = ?`).bind(memberRowId).first<any>();
+    if (!row) return;
+    const what: Record<string, string> = {
+      owner: "manage the team and do everything an approver can",
+      approver: "approve and send payments — once you have verified your own identity",
+      preparer: "enter recipients, details and wallets (sending is left to an approver)",
+      viewer: "read the transactions and download the records",
+    };
+    await send(env, actor, {
+      to: row.email,
+      subject: `${invitedByName} has added you to ${row.org} on ThePaymaster`,
+      text: [
+        `${first(row.display_name)},`,
+        ``,
+        `${invitedByName} has added you to ${row.org}'s account on ThePaymaster as`,
+        `${row.role}, which means you can ${what[row.role] ?? "take part"}.`,
+        ``,
+        `This link signs you in. It works once; afterwards, ask for a link back in`,
+        `from the sign-in page with this email address.`,
+        ``,
+        `${url}`,
+        ``,
+        `Everything you do is recorded under your own name, with ${row.org} named.`,
+      ].join("\n"),
+      about: { kind: "party_members", id: memberRowId },
+    });
+  });
+}

@@ -17,7 +17,8 @@ import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from 
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
-         clientStartOwn, clientAgain, clientCounterparties } from "./client.ts";
+         clientStartOwn, clientAgain, clientCounterparties, clientTeam } from "./client.ts";
+import { membersOf, revokeMember, teamPanel } from "./team.ts";
 import { cloneTransaction } from "./loop.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
 import { room, invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
@@ -129,6 +130,7 @@ export default {
         if (url.pathname === "/verify-record") return verifyRecordPage(env, request);
         if (url.pathname === "/start-own" && request.method === "POST") return clientStartOwn(env, request);
         if (url.pathname === "/counterparties") return clientCounterparties(env, request);
+        if (url.pathname === "/team") return clientTeam(env, request);
         if (url.pathname.startsWith("/room/")) {
           const [token, ...rest] = url.pathname.slice(6).split("/");
           return room(env, request, token, rest.length ? rest.join("/") : "room");
@@ -223,6 +225,11 @@ export default {
         }
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { partyId: pid }, `/p/${pid}`);
+        }
+        if (url.pathname.endsWith("/team") && request.method === "POST") {
+          const f = await request.formData();
+          const problem = await revokeMember(env, actor, String(f.get("revoke") ?? ""));
+          return partyView(env, admin, pid, problem ?? "");
         }
         if (url.pathname.endsWith("/narrative") && request.method === "POST") {
           const f = await request.formData();
@@ -1516,6 +1523,9 @@ async function partyView(env: Env, admin: { name: string }, partyId: string,
     : "";
 
   const decision = `
+    ${p.kind === "company" ? `<h2>Team${tip("People who may act for this organisation with their own logins: owner, approver (sends; must be verified in person), preparer (enters details), viewer (reads). The organisation's own login manages the team; staff can remove a member here.")}</h2>
+    <div class="panel" style="max-width:none">${teamPanel(await membersOf(env, partyId), `/p/${partyId}/team`, { canManage: true })}</div>` : ""}
+
     <h2>Source of funds and wealth${tip("The party's story in prose — where the money came from, referencing the documents on file. It goes into their Counterparty Certification and their record. Every version is kept: writing a new one does not erase the old, and the record shows both.")}</h2>
     <div class="panel">
       ${(narratives ?? []).length ? (narratives ?? []).map((n: any) => `<div class="fact" style="border-top:1px solid #E6EAF0;padding:10px 0">
