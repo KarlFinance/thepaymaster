@@ -20,6 +20,7 @@ import { proved as provedAddress, cannotSign } from "./attest.ts";
 import { railForTransaction, type Rail } from "./rail.ts";
 import { folderData, statementPdf, statementStatus, ownRecordPdf, partyFolder } from "./folder.ts";
 import { verifyBody, checkRecord, checkReference, VERIFY_CSS, VERIFY_URL } from "./verify.ts";
+import { invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -652,7 +653,8 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // page, an error shown against all of them is as unhelpful as one shown
   // against none — and none is what happened.
   let errorWallet = "";
-  if (request.method === "POST" && part.role === "sender") {
+  const isRoomPost = request.method === "POST" && new URL(request.url).pathname.endsWith("/room");
+  if (request.method === "POST" && !isRoomPost && part.role === "sender") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
     if (action === "add_wallet") {
@@ -672,7 +674,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }
   }
 
-  if (request.method === "POST" && part.role === "recipient") {
+  if (request.method === "POST" && !isRoomPost && part.role === "recipient") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
     const kindNow: Kind = part.outbound === "fiat" ? "bank" : "wallet";
@@ -807,6 +809,22 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }
   }
 
+  // A data-room invitation made from this page: create it, or revoke one.
+  let roomLink: string | undefined, roomError: string | undefined;
+  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/room") && cleared) {
+    const f = await request.formData();
+    if (f.get("revoke")) {
+      roomError = (await roomRevoke(env, actor, String(f.get("revoke")), who.partyId)) ?? undefined;
+    } else {
+      const made = await roomInvite(env, actor, {
+        transactionId: txId, partyId: who.partyId, viewerName: String(f.get("viewer_name") ?? ""),
+        viewerEmail: String(f.get("viewer_email") ?? ""), days: Number(f.get("days") ?? 30),
+        includeDocuments: f.get("include_documents") === "1",
+      });
+      if ("problem" in made) roomError = made.problem; else roomLink = made.url;
+    }
+  }
+
   // The folder is theirs from the moment they are verified: the statement
   // says "provisional" until the money has moved and the record is sealed,
   // and is reissued as final by the same link.
@@ -829,6 +847,13 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       </div>
       <p class="muted" style="margin:10px 0 0;font-size:13px">Anyone you give it to can check it without asking us:
         <a href="/verify-record">${VERIFY_URL.replace("https://", "")}</a> recomputes every entry against the sealed record.</p>
+    </div>
+    <div class="card">
+      <h2>Share it with your bank</h2>
+      <p>Rather than emailing PDFs, give your bank or accountant a private link to a <b>data room</b>: they see your
+        certification and record (and your documents, if you choose), watermarked with their name, for a set time.
+        You are told the first time it is opened, and you can revoke it whenever you like.</p>
+      ${invitePanel(await invitesFor(env, txId, who.partyId), `/d/${esc(txId)}/room`, { justMade: roomLink, error: roomError })}
     </div>`);
   }
 

@@ -109,9 +109,11 @@ export class Pdf {
   private y = 0;
   private readonly width = A4.w - MARGIN.left - MARGIN.right;
   private footer: (page: number, total: number) => string;
+  private watermark: string | null;
 
-  constructor(footer: (page: number, total: number) => string) {
+  constructor(footer: (page: number, total: number) => string, opts: { watermark?: string | null } = {}) {
     this.footer = footer;
+    this.watermark = opts.watermark ?? null;
     this.newPage();
   }
 
@@ -236,7 +238,23 @@ export class Pdf {
     const f2 = add(`<< /Type /Font /Subtype /Type1 /BaseFont /${FONT_NAME.bold} /Encoding /WinAnsiEncoding >>`);
     const f3 = add(`<< /Type /Font /Subtype /Type1 /BaseFont /${FONT_NAME.mono} /Encoding /WinAnsiEncoding >>`);
     const pageIds: number[] = [];
+    // The watermark goes under the content: pale, diagonal, on every page, so
+    // a copy that leaves the data room says whose copy it was.
+    const mark = this.watermark ? (() => {
+      // One rotation about the page centre; each line then sits on its own
+      // baseline within the rotated frame, centred, 34pt apart.
+      const size = 22, gap = 34;
+      const lines = wrap(this.watermark, "bold", size, 560);
+      const c = Math.cos(35 * Math.PI / 180), sn = Math.sin(35 * Math.PI / 180);
+      const inner = lines.map((l, k) => {
+        const w = widthOf(l, "bold", size);
+        const y = ((lines.length - 1) / 2 - k) * gap;
+        return `BT /F2 ${size} Tf 0.86 0.88 0.91 rg ${(-w / 2).toFixed(2)} ${y.toFixed(2)} Td (${esc(encode(l))}) Tj ET`;
+      }).join("\n");
+      return `q ${c.toFixed(4)} ${sn.toFixed(4)} ${(-sn).toFixed(4)} ${c.toFixed(4)} ${(A4.w / 2).toFixed(2)} ${(A4.h / 2).toFixed(2)} cm\n${inner}\nQ`;
+    })() : "";
     this.pages.forEach((ops, i) => {
+      if (mark) ops = [mark, ...ops];
       const foot = this.footer(i + 1, total);
       const footOps = `BT /F1 8 Tf ${MUTED} rg ${MARGIN.left} ${(MARGIN.bottom - 24).toFixed(2)} Td (${esc(encode(foot))}) Tj ET`;
       const stream = new TextEncoder().encode([...ops, footOps].join("\n"));

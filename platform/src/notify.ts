@@ -471,3 +471,68 @@ export async function addressAttested(env: Env, actor: Actor, attestationId: str
     });
   });
 }
+
+
+// ---------------------------------------------------------------------------
+// The data room
+// ---------------------------------------------------------------------------
+
+/** The viewer is sent their link. */
+export async function roomShared(env: Env, actor: Actor, inviteId: string, url: string): Promise<void> {
+  await quietly("room shared", async () => {
+    const row = await env.DB.prepare(
+      `SELECT i.viewer_name, i.viewer_email, i.expires_at, i.include_documents, i.created_by_kind,
+              y.legal_name, y.display_name, t.ref
+         FROM room_invites i JOIN parties y ON y.id = i.party_id JOIN transactions t ON t.id = i.transaction_id
+        WHERE i.id = ?`).bind(inviteId).first<any>();
+    if (!row?.viewer_email) return;
+    const who = row.legal_name || row.display_name;
+    await send(env, actor, {
+      to: row.viewer_email,
+      subject: `${who} has shared their ThePaymaster dossier with you`,
+      text: [
+        `${row.viewer_name.split(",")[0]},`,
+        ``,
+        `${row.created_by_kind === "party" ? who : `ThePaymaster, on behalf of ${who},`} has given you access to`,
+        `their Peaceful Enjoyment dossier for transaction ${row.ref}: ThePaymaster's`,
+        `Counterparty Certification, their record with cryptographic proofs${row.include_documents ? ", and" : ""}`,
+        row.include_documents ? `the documents on file.` : `.`,
+        ``,
+        `${url}`,
+        ``,
+        `The link is for you alone and works until ${String(row.expires_at).slice(0, 10)}. Each page you`,
+        `open is watermarked with your name and the time. To check any of it without`,
+        `relying on us, paste the record.json at https://client.thepaymaster.co.uk/verify-record.`,
+        ``,
+        `ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT`,
+        `info@thepaymaster.co.uk · +44 20 7088 8267`,
+      ].join("\n"),
+      about: { kind: "room_invites", id: inviteId },
+    });
+  });
+}
+
+/** The party is told the first time their room is opened. */
+export async function roomOpened(env: Env, actor: Actor, inviteId: string): Promise<void> {
+  await quietly("room opened", async () => {
+    const row = await env.DB.prepare(
+      `SELECT i.viewer_name, y.display_name, y.email, t.id AS tx_id, t.ref
+         FROM room_invites i JOIN parties y ON y.id = i.party_id JOIN transactions t ON t.id = i.transaction_id
+        WHERE i.id = ?`).bind(inviteId).first<any>();
+    if (!row) return;
+    await send(env, actor, {
+      to: row.email,
+      subject: `${row.ref}: ${row.viewer_name} has opened your dossier`,
+      text: [
+        `${first(row.display_name)},`,
+        ``,
+        `The data-room link you made for ${row.viewer_name} on ${row.ref} has just been`,
+        `opened for the first time. Every opening is recorded against the link, and`,
+        `you can revoke it from your page at any time.`,
+        ``,
+        `${CLIENT}/d/${row.tx_id}`,
+      ].join("\n"),
+      about: { kind: "room_invites", id: inviteId },
+    });
+  });
+}

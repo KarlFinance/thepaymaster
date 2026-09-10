@@ -18,6 +18,7 @@ import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage } from "./client.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
+import { room, invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
 import { fetchDocument, store, DocumentProblem } from "./documents.ts";
@@ -124,6 +125,10 @@ export default {
         if (url.pathname === "/") return clientHome(env, request);
         if (url.pathname === "/help") return clientHelpPage(env, request);
         if (url.pathname === "/verify-record") return verifyRecordPage(env, request);
+        if (url.pathname.startsWith("/room/")) {
+          const [token, ...rest] = url.pathname.slice(6).split("/");
+          return room(env, request, token, rest.length ? rest.join("/") : "room");
+        }
         // Published papers: public, read-only, viewed in the browser. Only
         // names from the list below are served, so the bucket is not browsable.
         if (url.pathname.startsWith("/papers/")) {
@@ -150,6 +155,9 @@ export default {
           if (url.pathname.endsWith("/folder.zip")) return clientFolder(env, request, dealId, "folder");
           if (url.pathname.endsWith("/mandate") && request.method === "POST") {
             return clientMandate(env, request, dealId);
+          }
+          if (url.pathname.endsWith("/room") && request.method === "POST") {
+            return clientDeal(env, request, dealId);
           }
           if (url.pathname.endsWith("/send") || url.pathname.endsWith("/send/prepare")) {
             return clientSend(env, request, dealId);
@@ -239,6 +247,8 @@ export default {
           return dossierPage(env, admin, txId);
         }
         // A party's folder, for staff to send on: /t/:id/party/:pid/folder.zip | statement.pdf
+        const roomPath = url.pathname.match(/\/party\/([^/]+)\/room$/);
+        if (roomPath) return staffRoom(env, admin, actor, request, txId, roomPath[1]);
         const partyPath = url.pathname.match(/\/party\/([^/]+)\/(folder\.zip|statement\.pdf|certification\.pdf)$/);
         if (partyPath) {
           const [, pid, what] = partyPath;
@@ -690,7 +700,8 @@ async function detail(env: Env, admin: { name: string }, txId: string,
         <td><span class="tag">${esc(p.role)}</span></td>
         <td class="muted">${esc(p.invited_at ?? "not yet")}</td>
         <td class="muted" style="white-space:nowrap"><a href="/t/${esc(txId)}/party/${esc(p.party_id)}/certification.pdf" target="_blank">Certification</a>
-          &middot; <a href="/t/${esc(txId)}/party/${esc(p.party_id)}/folder.zip">Folder</a></td></tr>`).join("") + `</table>`
+          &middot; <a href="/t/${esc(txId)}/party/${esc(p.party_id)}/folder.zip">Folder</a>
+          &middot; <a href="/t/${esc(txId)}/party/${esc(p.party_id)}/room">Data room</a></td></tr>`).join("") + `</table>`
     : `<p class="muted">Nobody yet. Send the sender a start link and they will
         tell us who is involved.</p>`;
 
@@ -2081,4 +2092,37 @@ function chainSettingsPanel(t: Record<string, any>): string {
       })();
       </script>` : ""}
     </details>`;
+}
+
+
+/** The staff side of a party's data room: the invitations, and a form for another. */
+async function staffRoom(env: Env, admin: { name: string }, actor: Actor, request: Request,
+                         txId: string, partyId: string): Promise<Response> {
+  const row = await env.DB.prepare(
+    `SELECT t.ref, y.display_name, y.legal_name FROM participations p
+       JOIN transactions t ON t.id = p.transaction_id JOIN parties y ON y.id = p.party_id
+      WHERE p.transaction_id = ? AND p.party_id = ? LIMIT 1`).bind(txId, partyId).first<any>();
+  if (!row) return new Response("Not found", { status: 404 });
+  let justMade: string | undefined, error: string | undefined;
+  if (request.method === "POST") {
+    const f = await request.formData();
+    if (f.get("revoke")) error = (await roomRevoke(env, actor, String(f.get("revoke")))) ?? undefined;
+    else {
+      const made = await roomInvite(env, actor, {
+        transactionId: txId, partyId, viewerName: String(f.get("viewer_name") ?? ""),
+        viewerEmail: String(f.get("viewer_email") ?? ""), days: Number(f.get("days") ?? 30),
+        includeDocuments: f.get("include_documents") === "1",
+      });
+      if ("problem" in made) error = made.problem; else justMade = made.url;
+    }
+  }
+  const who = row.legal_name || row.display_name;
+  return page(`Data room — ${who}`, `
+    <h1>Data room — ${esc(who)}</h1>
+    <p class="muted"><a href="/t/${esc(txId)}">${esc(row.ref)}</a> — a private, expiring, watermarked view of this party's
+      Peaceful Enjoyment dossier for somebody who is not a party: their bank, their accountant. The party can make
+      these from their own page too; every opening is logged against the link.</p>
+    <div class="panel" style="max-width:none">
+      ${invitePanel(await invitesFor(env, txId, partyId), `/t/${txId}/party/${partyId}/room`, { justMade, error })}
+    </div>`, { nav: nav("/", admin.name) });
 }

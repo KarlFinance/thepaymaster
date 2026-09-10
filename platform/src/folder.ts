@@ -192,7 +192,7 @@ export function statementStatus(d: FolderData): { final: boolean; why: string } 
   return { final: true, why: "" };
 }
 
-export function statementPdf(d: FolderData): Uint8Array {
+export function statementPdf(d: FolderData, opts: { watermark?: string | null } = {}): Uint8Array {
   const { tx, party, rail } = d;
   const sym = rail.symbol, dec = rail.decimals;
   const money = (minor: number | null | undefined) => minor === null || minor === undefined ? "—" : `${format(Number(minor), dec)} ${sym}`;
@@ -200,7 +200,7 @@ export function statementPdf(d: FolderData): Uint8Array {
   const who = party.legal_name || party.display_name;
   const ref = `STM-${tx.ref}-${String(party.id).slice(-6).toUpperCase()}`;
 
-  const pdf = new Pdf((p, n) => `ThePaymaster® — Counterparty Certification ${ref} — ${status.final ? "final" : "provisional"} — page ${p} of ${n}`);
+  const pdf = new Pdf((p, n) => `ThePaymaster® — Counterparty Certification ${ref} — ${status.final ? "final" : "provisional"} — page ${p} of ${n}`, opts);
 
   pdf.heading("Counterparty Certification", 22);
   pdf.para(`${d.role === "recipient" ? "Statement of transaction" : "Statement of distribution"} — ${tx.ref}${tx.name ? ` — ${tx.name}` : ""}`,
@@ -355,10 +355,10 @@ export function statementPdf(d: FolderData): Uint8Array {
 // The party's own record, as a PDF
 // ---------------------------------------------------------------------------
 
-export async function ownRecordPdf(env: Env, d: FolderData): Promise<{ pdf: Uint8Array; json: string }> {
+export async function ownRecordPdf(env: Env, d: FolderData, opts: { watermark?: string | null } = {}): Promise<{ pdf: Uint8Array; json: string }> {
   const record = await ownRecord(env, d.tx.id, d.party.id);
   const dec = d.rail.decimals, sym = d.rail.symbol;
-  const pdf = new Pdf((p, n) => `ThePaymaster — your record — ${d.tx.ref} — root ${record.root.slice(0, 16)}… — page ${p} of ${n}`);
+  const pdf = new Pdf((p, n) => `ThePaymaster — your record — ${d.tx.ref} — root ${record.root.slice(0, 16)}… — page ${p} of ${n}`, opts);
   pdf.heading("Your record", 22);
   pdf.para(`${d.tx.ref}${d.tx.name ? ` — ${d.tx.name}` : ""} — ${d.party.legal_name || d.party.display_name}`, { face: "bold", size: 12, after: 2 });
   pdf.para(`Your own entries in the record of this transaction, and for each one the hashes that prove it belongs to the ` +
