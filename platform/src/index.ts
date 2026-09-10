@@ -19,6 +19,7 @@ import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
          clientStartOwn, clientAgain, clientCounterparties, clientTeam, clientAnnual } from "./client.ts";
 import { annualData, annualPdf, annualJson, yearsFor } from "./annual.ts";
+import { attesterStatus, deployContract, mintCertificates, badgeMetadata, badgeSvg, BADGE_CHAINS } from "./badge.ts";
 import { membersOf, revokeMember, teamPanel } from "./team.ts";
 import { cloneTransaction } from "./loop.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
@@ -134,6 +135,13 @@ export default {
         if (url.pathname === "/team") return clientTeam(env, request);
         const annual = url.pathname.match(/^\/annual\/(\d{4})\.(pdf|json)$/);
         if (annual) return clientAnnual(env, request, Number(annual[1]), annual[2] as "pdf" | "json");
+        const badge = url.pathname.match(/^\/badge\/([0-9a-fA-F]{64})\.(json|svg)$/);
+        if (badge) {
+          const body = badge[2] === "json" ? await badgeMetadata(env, badge[1]) : await badgeSvg(env, badge[1]);
+          if (!body) return new Response("Not found", { status: 404 });
+          return new Response(body, { headers: { "content-type": badge[2] === "json" ? "application/json" : "image/svg+xml",
+            "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
+        }
         if (url.pathname.startsWith("/room/")) {
           const [token, ...rest] = url.pathname.slice(6).split("/");
           return room(env, request, token, rest.length ? rest.join("/") : "room");
@@ -221,6 +229,7 @@ export default {
       if (url.pathname === "/help") {
         return page("Help", adminHelp(), { nav: nav("/help", admin.name) });
       }
+      if (url.pathname === "/badges") return badgesPage(env, admin, actor, request);
       if (url.pathname.startsWith("/p/")) {
         const pid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/decide") && request.method === "POST") {
@@ -313,6 +322,14 @@ export default {
         }
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { transactionId: txId }, `/t/${txId}`);
+        }
+        if (url.pathname.endsWith("/badges/mint") && request.method === "POST") {
+          const f = await request.formData();
+          const chainId = Number(f.get("chain")) === BADGE_CHAINS.rehearsal ? BADGE_CHAINS.rehearsal : BADGE_CHAINS.live;
+          const r = await mintCertificates(env, actor, txId, chainId);
+          const note = [r.minted.length ? `Minted ${r.minted.length}: ${r.minted.join("; ")}.` : "",
+                        r.skipped.length ? `Skipped: ${r.skipped.join("; ")}.` : "", r.problem ?? ""].filter(Boolean).join(" ");
+          return dossierPage(env, admin, txId, note || "Nothing to mint.");
         }
         if (url.pathname.endsWith("/clone") && request.method === "POST") {
           const made = await cloneTransaction(env, actor, txId, { requestedBy: "admin" });
@@ -2167,4 +2184,34 @@ async function staffRoom(env: Env, admin: { name: string }, actor: Actor, reques
     <div class="panel" style="max-width:none">
       ${invitePanel(await invitesFor(env, txId, partyId), `/t/${txId}/party/${partyId}/room`, { justMade, error })}
     </div>`, { nav: nav("/", admin.name) });
+}
+
+
+/** The attestation key's standing on each chain, and the contract that mints certificates. */
+async function badgesPage(env: Env, admin: { name: string }, actor: Actor, request: Request): Promise<Response> {
+  let notice = "";
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const chainId = Number(f.get("chain"));
+    if (f.get("deploy")) notice = (await deployContract(env, actor, chainId)) ?? `Deployed on ${CHAINS[chainId]?.name}.`;
+  }
+  const st = await attesterStatus(env);
+  const eth = (wei: bigint | null) => wei === null ? "unknown" : (Number(wei) / 1e18).toLocaleString("en-GB", { minimumFractionDigits: 5, maximumFractionDigits: 5 }) + " ETH";
+  return page("Badges", `<h1>Certificates on chain</h1>
+    ${notice ? `<div class="err">${esc(notice)}</div>` : ""}
+    <div class="panel">
+      <h2>The signing key${tip("The same key that signs every seal and certification (ATTEST_KEY). On chain it is the account that deploys the certificate contract and mints each token, so it needs a little ETH for gas on each chain it is used on. Send ETH on Base to this address to fund minting; a few pounds' worth lasts a long time.")}</h2>
+      ${st.address ? `<p>Address <span class="mono big">${esc(st.address)}</span></p>` : `<p class="bad">No attestation key is configured (ATTEST_KEY).</p>`}
+      <table class="log"><tr><th>Chain</th><th>Balance for gas</th><th>Certificate contract</th><th></th></tr>
+      ${st.chains.map((c) => `<tr><td>${esc(c.name)} <span class="muted">${c.chainId}</span></td>
+        <td class="${c.balance !== null && c.balance > 0n ? "good" : "warn"}">${eth(c.balance)}</td>
+        <td>${c.contract ? `<a class="mono" href="${esc(CHAINS[c.chainId]?.explorer ?? "")}/address/${esc(c.contract.address)}" target="_blank" rel="noopener">${esc(c.contract.address)}</a>
+              <div class="muted">deployed ${esc(String(c.contract.deployed_at).slice(0, 16))}</div>` : `<span class="muted">not deployed</span>`}</td>
+        <td>${!c.contract && st.address ? `<form method="post" style="margin:0"><input type="hidden" name="chain" value="${c.chainId}">
+              <button class="plain" name="deploy" value="1"${c.balance && c.balance > 0n ? "" : " disabled"}>Deploy the contract</button></form>` : ""}</td></tr>`).join("")}
+      </table>
+      <p class="muted">Deploying costs about 0.0005 ETH on Base; each certificate about 0.00003. The contract is soulbound ERC-721
+        (ERC-5192): tokens cannot be transferred, only the key can mint, and the token id is derived from the sealed record root.
+        Mint from a transaction's dossier page once it is sealed.</p>
+    </div>`, { nav: nav("/badges", admin.name) });
 }

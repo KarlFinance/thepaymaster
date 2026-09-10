@@ -42,6 +42,17 @@ export const CHAINS: Record<number, { name: string; rpc: string; explorer: strin
     rpc: "https://ethereum-sepolia-rpc.publicnode.com",
     explorer: "https://sepolia.etherscan.io",
   },
+  // Base: where the certificates live. Cheap enough to mint one per party.
+  8453: {
+    name: "Base",
+    rpc: "https://mainnet.base.org",
+    explorer: "https://basescan.org",
+  },
+  84532: {
+    name: "Base Sepolia",
+    rpc: "https://sepolia.base.org",
+    explorer: "https://sepolia.basescan.org",
+  },
 };
 
 function pad(address: string): string {

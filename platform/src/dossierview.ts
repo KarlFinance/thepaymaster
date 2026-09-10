@@ -13,6 +13,7 @@ import { build, seals, seal, anchor, anchorData, ALGORITHM,
          type Fact, type Seal } from "./dossier.ts";
 import { format } from "./money.ts";
 import { explorerLink, CHAINS } from "./chain.ts";
+import { badgesFor, contractFor, explorerToken, BADGE_CHAINS } from "./badge.ts";
 
 /** Anchors go here and nowhere else. See anchorPanel for why. */
 export const ANCHOR_CHAIN = 1;
@@ -129,6 +130,7 @@ export async function dossierPage(env: Env, admin: { name: string }, txId: strin
       </section>
 
       ${latest ? anchorPanel(latest, tx) : ""}
+      ${latest ? await badgePanel(env, txId, latest) : ""}
 
       ${[...groups].map(([name, blocks]) => `<section class="group">
         <h2>${esc(name.charAt(0).toUpperCase() + name.slice(1))}</h2>
@@ -320,4 +322,39 @@ export async function sealNow(env: Env, actor: Actor, txId: string,
   await seal(env, actor, txId);
   return Response.redirect(
     new URL(`/t/${txId}/dossier`, request.url).toString(), 302);
+}
+
+
+/**
+ * Certificates on chain: what has been minted for this record, and the button
+ * that mints the rest. Costs gas from the attestation key, so it is a
+ * deliberate act by staff, after sealing, never automatic.
+ */
+async function badgePanel(env: Env, txId: string, latest: Seal): Promise<string> {
+  const badges = await badgesFor(env, txId);
+  // A rehearsal record (Sepolia) gets its certificates on Base Sepolia; a real one on Base.
+  const t = await env.DB.prepare("SELECT chain_id, rail FROM transactions WHERE id = ?").bind(txId).first<any>();
+  const rehearsal = t?.chain_id === 11155111 || /signet|sepolia/i.test(String(t?.rail ?? ""));
+  const chainId = rehearsal ? BADGE_CHAINS.rehearsal : BADGE_CHAINS.live;
+  const contract = await contractFor(env, chainId);
+  const rows = badges.map((b) => `<tr>
+    <td>${b.party_id ? `<a href="/p/${esc(b.party_id)}">party</a>` : "the transaction"}</td>
+    <td class="mono">${esc(b.to_address)}</td>
+    <td><a class="mono" href="${esc(explorerToken(b.chain_id, b.contract, b.token_id))}" target="_blank" rel="noopener">${esc(b.token_id.slice(0, 14))}…</a></td>
+    <td class="muted">${esc(String(b.minted_at).slice(0, 16))}</td>
+    <td><a class="mono" href="${esc(explorerLink(b.chain_id, b.tx_hash))}" target="_blank" rel="noopener">${esc(b.tx_hash.slice(0, 12))}…</a></td>
+  </tr>`).join("");
+  return `<section class="panel">
+    <h2>Certificates on chain</h2>
+    <p class="muted">A soulbound token per party, minted by our attestation key to the address they proved,
+      with an id derived from the sealed root. Nothing personal goes on chain. It costs a little gas on
+      ${esc(CHAINS[chainId]?.name ?? "Base")}; the key's balance and the contract are on the <a href="/badges">Badges</a> page.</p>
+    ${badges.length ? `<table class="log"><tr><th>For</th><th>Holder</th><th>Token</th><th>Minted</th><th>Transaction</th></tr>${rows}</table>` : `<p class="muted">None minted yet.</p>`}
+    ${contract ? `<form method="post" action="/t/${esc(txId)}/badges/mint" class="noprint" style="margin-top:10px">
+        <input type="hidden" name="chain" value="${chainId}">
+        <button type="submit">Mint the certificates${badges.length ? " still missing" : ""} on ${esc(CHAINS[chainId]?.name ?? "Base")}</button>
+        <span class="muted" style="font-size:13px"> — one per party with a proved address, plus one to our fee wallet. Parties already holding theirs are skipped.</span>
+      </form>`
+      : `<p class="warn noprint">The certificate contract is not deployed on ${esc(CHAINS[chainId]?.name ?? "Base")} yet — deploy it from the <a href="/badges">Badges</a> page first.</p>`}
+  </section>`;
 }

@@ -24,6 +24,7 @@ import { invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } f
 import { cloneTransaction, startOwn, counterparties } from "./loop.ts";
 import { principals, roleFor, atLeast, membersOf, inviteMember, revokeMember, teamPanel, type Role } from "./team.ts";
 import { annualData, annualPdf, annualJson, yearsFor } from "./annual.ts";
+import { badgesFor, explorerToken } from "./badge.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -1001,6 +1002,12 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         <a href="/d/${esc(txId)}/certification.pdf" target="_blank"><button type="button" class="plain">Open the certification</button></a>
         <a href="/d/${esc(txId)}/record.pdf" target="_blank"><button type="button" class="plain">Open my record</button></a>
       </div>
+      ${await (async () => {
+        const mine = (await badgesFor(env, txId)).filter((b) => b.party_id === principalId);
+        return mine.length ? `<p style="margin:10px 0 0"><b>Your certificate is on chain.</b> A soulbound token in your wallet
+          <span class="mono" style="font-size:12px">${esc(mine[0].to_address)}</span> carries the sealed record's root —
+          <a href="${esc(explorerToken(mine[0].chain_id, mine[0].contract, mine[0].token_id))}" target="_blank" rel="noopener">see it on the explorer</a>.</p>` : "";
+      })()}
       <p class="muted" style="margin:10px 0 0;font-size:13px">Anyone you give it to can check it without asking us:
         <a href="/verify-record">${VERIFY_URL.replace("https://", "")}</a> recomputes every entry against the sealed record.</p>
     </div>
