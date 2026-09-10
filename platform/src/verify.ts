@@ -17,7 +17,8 @@ import { type Env } from "./db.ts";
 import { esc } from "./views.ts";
 import { leafHash, verifyPath, type Step } from "./dossier.ts";
 import { railFor } from "./rail.ts";
-import { attestationFor, verify as verifySignature, type Attestation } from "./attestation.ts";
+import { attestationFor, verify as verifySignature, verifyAnnual, attester as ourAttester, type Attestation } from "./attestation.ts";
+import { canonical } from "./dossier.ts";
 
 export const VERIFY_URL = "https://client.thepaymaster.co.uk/verify-record";
 
@@ -42,6 +43,7 @@ export async function checkRecord(env: Env, text: string): Promise<Outcome> {
   try { doc = JSON.parse(text); } catch {
     return { ok: false, headline: "That is not a record.json file.", lines: ["The text could not be read as JSON. Paste the whole file, from the first { to the last }."] };
   }
+  if (doc?.statement === "annual") return checkAnnual(env, doc);
   const root = String(doc?.root ?? "");
   const facts: any[] = Array.isArray(doc?.facts) ? doc.facts : [];
   if (!/^[0-9a-f]{64}$/i.test(root) || !facts.length) {
@@ -105,6 +107,43 @@ export async function checkRecord(env: Env, text: string): Promise<Outcome> {
   return { ok: true, headline: "Verified. This record is genuine and unaltered.", lines, entries };
 }
 
+/** An annual statement's JSON: the digest is recomputed from its lines, the signature checked, each root looked up. */
+async function checkAnnual(env: Env, doc: any): Promise<Outcome> {
+  const lines: string[] = [];
+  const partyId = String(doc?.party?.id ?? "");
+  const year = Number(doc?.year);
+  const recomputed = await (async () => {
+    const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(
+      canonical({ party: partyId, year, lines: doc.lines, totals: doc.totals, transactions: doc.transactions })));
+    return Array.from(new Uint8Array(d), (x) => x.toString(16).padStart(2, "0")).join("");
+  })();
+  if (recomputed !== String(doc.digest ?? "").toLowerCase()) {
+    return { ok: false, headline: "This annual statement has been altered.", lines: ["The digest recomputed from its lines does not match the one it carries."] };
+  }
+  lines.push(`${(doc.lines ?? []).length} payment lines hash to the statement's digest ${recomputed.slice(0, 16)}….`);
+  const a = doc.attestation;
+  const ours = ourAttester(env);
+  if (a) {
+    const valid = verifyAnnual(a);
+    const sameKey = ours ? String(a.attester).toLowerCase() === ours.toLowerCase() : false;
+    const sameDigest = String(a.message?.digest ?? "").toLowerCase() === ("0x" + recomputed);
+    if (!(valid && sameKey && sameDigest)) {
+      return { ok: false, headline: "The statement's contents check out but its signature does not.", lines: [...lines,
+        !valid ? "The signature is not valid over its own message." : !sameKey ? `The signature is by ${a.attester}, not ThePaymaster's key.` : "The signature is over a different digest."] };
+    }
+    lines.push(`Signed by ThePaymaster's attestation key ${a.attester} for ${a.message.party}, ${a.message.year}, issued ${a.message.issuedAt}.`);
+  } else lines.push("The statement carries no signature.");
+  let sealed = 0, unsealed = 0;
+  for (const t of doc.transactions ?? []) {
+    if (!t.root) { unsealed++; continue; }
+    const s = await sealFor(env, String(t.root));
+    if (s && s.ref === t.ref) sealed++; else unsealed++;
+  }
+  lines.push(`${sealed} of ${(doc.transactions ?? []).length} transactions cited carry a root ThePaymaster sealed under that reference${unsealed ? `; ${unsealed} not (yet) sealed` : ""}.`);
+  return { ok: Boolean(a) && unsealed === 0, headline: Boolean(a) && unsealed === 0 ? "Verified. This annual statement is genuine and unaltered."
+    : "The statement is internally consistent" + (a ? "; some cited transactions are not yet sealed." : " but unsigned."), lines };
+}
+
 /** A certification reference such as STM-TPM-2026-0002-APMKEV, or a bare root. */
 export async function checkReference(env: Env, ref: string): Promise<Outcome> {
   const r = ref.trim();
@@ -163,7 +202,7 @@ export function verifyBody(outcome?: Outcome, was: { record?: string; ref?: stri
       <p class="sub">Check a Counterparty Certification or a party's record without taking our word for it.
         Nothing you paste here is stored, and nothing about the transaction is revealed beyond what you already hold.</p>
       <form method="post" action="/verify-record">
-        <label for="record">Paste the contents of <code>record.json</code> from the party's dossier</label>
+        <label for="record">Paste the contents of <code>record.json</code> from the party's dossier, or an annual statement's JSON</label>
         <textarea id="record" name="record" placeholder='{"transaction": …, "root": "…", "facts": [ … ]}'>${esc(was.record ?? "")}</textarea>
         <p class="muted" style="margin:4px 0 12px">Every entry is recomputed from its own contents and folded up its proof path to the root; the root is then matched against the seals ThePaymaster has made and any on-chain anchor.</p>
         <label for="ref">Or enter a certification reference, or a record root</label>

@@ -23,6 +23,7 @@ import { verifyBody, checkRecord, checkReference, VERIFY_CSS, VERIFY_URL } from 
 import { invite as roomInvite, revoke as roomRevoke, invitesFor, invitePanel } from "./room.ts";
 import { cloneTransaction, startOwn, counterparties } from "./loop.ts";
 import { principals, roleFor, atLeast, membersOf, inviteMember, revokeMember, teamPanel, type Role } from "./team.ts";
+import { annualData, annualPdf, annualJson, yearsFor } from "./annual.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -369,6 +370,25 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
   });
 }
 
+/** The annual statement — one's own, or an organisation's one acts for (any role may read). */
+export async function clientAnnual(env: Env, request: Request, year: number, what: "pdf" | "json"): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const forId = new URL(request.url).searchParams.get("for") || who.partyId;
+  const mine = await principals(env, who.partyId);
+  if (!mine.includes(forId)) return new Response("Not found", { status: 404 });
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) return new Response("Not found", { status: 404 });
+  const d = await annualData(env, forId, year);
+  if (!d) return new Response("Not found", { status: 404 });
+  const name = (d.party.legal_name || d.party.display_name).replace(/[^A-Za-z0-9._ -]+/g, "_").trim().replace(/\s+/g, "_");
+  await log(env.DB, { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined },
+            "annual.downloaded", "parties", forId, { note: `${year} ${what}` });
+  if (what === "json") return new Response(annualJson(d), { headers: { "content-type": "application/json", "cache-control": "no-store",
+    "content-disposition": `attachment; filename="${name}-${year}-statement.json"` } });
+  return new Response(annualPdf(d), { headers: { "content-type": "application/pdf", "cache-control": "no-store",
+    "content-disposition": `inline; filename="${name}-${year}-statement.pdf"` } });
+}
+
 /** An organisation's own login manages who may act for it. */
 export async function clientTeam(env: Env, request: Request): Promise<Response> {
   const who = await whoIs(env, request);
@@ -531,6 +551,20 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
           <p><a href="/verify"><button>Start</button></a></p></div>`;
 
   const hasSent = (results ?? []).some((t) => t.role === "sender");
+  const statementLinks: string[] = [];
+  for (const pid of mine) {
+    const ys = await yearsFor(env, pid);
+    if (!ys.length) continue;
+    const label = pid === who.partyId ? "" : ` for ${esc((results ?? []).find((t) => t.party_id === pid)?.for_name ?? "the organisation")}`;
+    statementLinks.push(...ys.map((y) => `<a href="/annual/${y}.pdf${pid === who.partyId ? "" : `?for=${esc(pid)}`}" target="_blank"><button type="button" class="plain">${y}${label}</button></a>`));
+  }
+  const statements = statementLinks.length ? `
+    <div class="card">
+      <h2>Annual statements</h2>
+      <p>Every payment you sent or received through ThePaymaster in a year, with the chain transaction and the sealed
+        record each belongs to, totals per asset, and our signature. For your accountant, your bank, or your files.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap">${statementLinks.join("")}</div>
+    </div>` : "";
   const orgRow = await env.DB.prepare("SELECT kind FROM parties WHERE id = ?").bind(who.partyId).first<any>();
   const team = orgRow?.kind === "company" ? `
     <div class="card">
@@ -553,6 +587,7 @@ export async function clientHome(env: Env, request: Request): Promise<Response> 
     <p class="sub">Everything you are part of, and what each one needs from you.</p>
     ${verify}
     <div class="card">${deals || `<p class="muted">Nothing here yet.</p>`}</div>
+    ${statements}
     ${team}
     ${loop}`,
     party.display_name);

@@ -17,7 +17,8 @@ import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from 
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
-         clientStartOwn, clientAgain, clientCounterparties, clientTeam } from "./client.ts";
+         clientStartOwn, clientAgain, clientCounterparties, clientTeam, clientAnnual } from "./client.ts";
+import { annualData, annualPdf, annualJson, yearsFor } from "./annual.ts";
 import { membersOf, revokeMember, teamPanel } from "./team.ts";
 import { cloneTransaction } from "./loop.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
@@ -131,6 +132,8 @@ export default {
         if (url.pathname === "/start-own" && request.method === "POST") return clientStartOwn(env, request);
         if (url.pathname === "/counterparties") return clientCounterparties(env, request);
         if (url.pathname === "/team") return clientTeam(env, request);
+        const annual = url.pathname.match(/^\/annual\/(\d{4})\.(pdf|json)$/);
+        if (annual) return clientAnnual(env, request, Number(annual[1]), annual[2] as "pdf" | "json");
         if (url.pathname.startsWith("/room/")) {
           const [token, ...rest] = url.pathname.slice(6).split("/");
           return room(env, request, token, rest.length ? rest.join("/") : "room");
@@ -225,6 +228,16 @@ export default {
         }
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { partyId: pid }, `/p/${pid}`);
+        }
+        const annualP = url.pathname.match(/\/annual\/(\d{4})\.(pdf|json)$/);
+        if (annualP) {
+          const d = await annualData(env, pid, Number(annualP[1]));
+          if (!d) return new Response("Not found", { status: 404 });
+          await log(env.DB, actor, "annual.downloaded", "parties", pid, { note: `${annualP[1]} ${annualP[2]}, by staff` });
+          return annualP[2] === "json"
+            ? new Response(annualJson(d), { headers: { "content-type": "application/json", "cache-control": "no-store" } })
+            : new Response(annualPdf(d), { headers: { "content-type": "application/pdf", "cache-control": "no-store",
+                "content-disposition": `inline; filename="${d.party.display_name}-${annualP[1]}-statement.pdf"` } });
         }
         if (url.pathname.endsWith("/team") && request.method === "POST") {
           const f = await request.formData();
@@ -1525,6 +1538,11 @@ async function partyView(env: Env, admin: { name: string }, partyId: string,
   const decision = `
     ${p.kind === "company" ? `<h2>Team${tip("People who may act for this organisation with their own logins: owner, approver (sends; must be verified in person), preparer (enters details), viewer (reads). The organisation's own login manages the team; staff can remove a member here.")}</h2>
     <div class="panel" style="max-width:none">${teamPanel(await membersOf(env, partyId), `/p/${partyId}/team`, { canManage: true })}</div>` : ""}
+
+    ${(await yearsFor(env, partyId)).length ? `<h2>Annual statements${tip("Every payment this party sent or received through us in a year, with chain transactions, sealed roots, totals and our signature. The same document the party downloads from their account.")}</h2>
+    <div class="panel"><div class="row" style="gap:8px;flex-wrap:wrap">${(await yearsFor(env, partyId)).map((y) =>
+      `<a href="/p/${esc(partyId)}/annual/${y}.pdf" target="_blank"><button class="plain" type="button">${y} PDF</button></a>
+       <a href="/p/${esc(partyId)}/annual/${y}.json"><button class="plain" type="button">${y} JSON</button></a>`).join("")}</div></div>` : ""}
 
     <h2>Source of funds and wealth${tip("The party's story in prose — where the money came from, referencing the documents on file. It goes into their Counterparty Certification and their record. Every version is kept: writing a new one does not erase the old, and the record shows both.")}</h2>
     <div class="panel">

@@ -145,3 +145,55 @@ export async function attestationFor(env: Env, seal: any, ref: string): Promise<
   }
   return { attester: who!, domain: DOMAIN, primaryType: "DossierSeal", types: TYPES, message, signature: signature! };
 }
+
+
+// --- the annual statement --------------------------------------------------------
+
+const ANNUAL_TYPE = "AnnualStatement(string party,uint16 year,bytes32 digest,string issuedAt)";
+export const ANNUAL_TYPES = {
+  AnnualStatement: [
+    { name: "party", type: "string" }, { name: "year", type: "uint16" },
+    { name: "digest", type: "bytes32" }, { name: "issuedAt", type: "string" },
+  ],
+};
+export interface AnnualMessage { party: string; year: number; digest: string; issuedAt: string }
+export interface AnnualAttestation {
+  attester: string; domain: typeof DOMAIN; primaryType: "AnnualStatement";
+  types: typeof ANNUAL_TYPES; message: AnnualMessage; signature: string;
+}
+
+export function annualStructHash(m: AnnualMessage): Uint8Array {
+  return keccak_256(concat(
+    keccak_256(enc.encode(ANNUAL_TYPE)),
+    keccak_256(enc.encode(m.party)),
+    uintWord(m.year),
+    word(unhex(m.digest)),
+    keccak_256(enc.encode(m.issuedAt)),
+  ));
+}
+export function annualDigest(m: AnnualMessage): Uint8Array {
+  return keccak_256(concat(new Uint8Array([0x19, 0x01]), domainSeparator(), annualStructHash(m)));
+}
+export function signAnnual(priv: Uint8Array, m: AnnualMessage): string {
+  const sig = secp256k1.sign(annualDigest(m), priv);
+  return hex(concat(sig.toCompactRawBytes(), new Uint8Array([27 + sig.recovery!])));
+}
+export function recoverAnnual(m: AnnualMessage, signature: string): string | null {
+  try {
+    const raw = unhex(signature);
+    if (raw.length !== 65) return null;
+    const v = raw[64] >= 27 ? raw[64] - 27 : raw[64];
+    const point = secp256k1.Signature.fromCompact(raw.slice(0, 64)).addRecoveryBit(v).recoverPublicKey(annualDigest(m));
+    return toChecksum(hex(keccak_256(point.toRawBytes(false).slice(1)).slice(-20)));
+  } catch { return null; }
+}
+export function verifyAnnual(a: AnnualAttestation): boolean {
+  const who = recoverAnnual(a.message, a.signature);
+  return who !== null && who === toChecksum(a.attester);
+}
+/** Signed fresh each time it is issued; the digest is what ties it to its contents. */
+export async function attestAnnual(env: Env, m: AnnualMessage): Promise<AnnualAttestation | null> {
+  const k = keyOf(env);
+  if (!k) return null;
+  return { attester: addressOf(k), domain: DOMAIN, primaryType: "AnnualStatement", types: ANNUAL_TYPES, message: m, signature: signAnnual(k, m) };
+}

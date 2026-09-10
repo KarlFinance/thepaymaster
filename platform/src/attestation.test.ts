@@ -5,7 +5,8 @@
  *   node --experimental-strip-types src/attestation.test.ts
  */
 import { keccak_256 } from "@noble/hashes/sha3";
-import { domainSeparator, structHash, digest, sign, recover, verify, addressOf, DOMAIN, TYPES, type SealMessage } from "./attestation.ts";
+import { domainSeparator, structHash, digest, sign, recover, verify, addressOf, DOMAIN, TYPES, type SealMessage,
+         signAnnual, recoverAnnual, verifyAnnual, ANNUAL_TYPES } from "./attestation.ts";
 
 let bad = 0;
 const check = (n: string, got: unknown, want: unknown) => {
@@ -41,6 +42,13 @@ check("does not recover to the signer for a changed message", recover({ ...m, re
 check("verify() accepts", verify({ attester: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", domain: DOMAIN, primaryType: "DossierSeal", types: TYPES, message: m, signature: sig }), true);
 check("verify() rejects a different attester", verify({ attester: "0x000000000000000000000000000000000000dEaD", domain: DOMAIN, primaryType: "DossierSeal", types: TYPES, message: m, signature: sig }), false);
 check("malformed signature → null", recover(m, "0x1234"), null);
+
+const am = { party: "pty_abc", year: 2026, digest: "0x" + "ef".repeat(32), issuedAt: "2027-01-05 09:00:00" };
+const asig = signAnnual(priv, am);
+check("annual: recovers to the signer", recoverAnnual(am, asig), "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+check("annual: a changed year does not recover", recoverAnnual({ ...am, year: 2025 }, asig) === "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", false);
+check("annual: a seal signature is not an annual signature", recoverAnnual(am, sig) === "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", false);
+check("annual: verify()", verifyAnnual({ attester: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", domain: DOMAIN, primaryType: "AnnualStatement", types: ANNUAL_TYPES, message: am, signature: asig }), true);
 
 console.log(bad ? `\n${bad} FAILED` : "\nall passed");
 process.exit(bad ? 1 : 0);
