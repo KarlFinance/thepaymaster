@@ -21,6 +21,7 @@ import { type Env } from "./db.ts";
 import { build, seals, ALGORITHM, type Fact } from "./dossier.ts";
 import { format } from "./money.ts";
 import { dossierPdf } from "./dossierpdf.ts";
+import { folderData, folderEntries, folderName } from "./folder.ts";
 
 // ---------------------------------------------------------------------------
 // ZIP, stored method
@@ -212,6 +213,19 @@ export async function dossierBundle(env: Env, txId: string): Promise<{ name: str
       entries.push({ name: `documents/${name}`, data });
       listed.push({ name, sha256: a.sha256, label: a.label ?? a.kind ?? "Document" });
     } catch { /* a missing object is noted by its absence from the list */ }
+  }
+
+  // One folder per party: their statement, their own record with proofs, and
+  // their documents — the thing to send them, ready-made.
+  const { results: partyRows } = await env.DB.prepare(
+    `SELECT DISTINCT y.id, y.legal_name, y.display_name FROM participations p
+       JOIN parties y ON y.id = p.party_id WHERE p.transaction_id = ? ORDER BY y.display_name`)
+    .bind(txId).all<any>();
+  for (const y of partyRows ?? []) {
+    const d = await folderData(env, txId, y.id, "staff");
+    if (!d) continue;
+    const folder = folderName(y.legal_name || y.display_name);
+    for (const e of await folderEntries(env, d)) entries.push({ name: `parties/${folder}/${e.name}`, data: e.data });
   }
 
   const enc = new TextEncoder();

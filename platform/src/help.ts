@@ -170,7 +170,7 @@ export function clientHelp(): string {
   ${q("What is the record, and why would I want it?",
       "A sealed statement of the transaction: who was involved, that each was checked, what was agreed and what was paid, each fact fingerprinted and the whole thing rolled into one hash that can be verified without trusting us. Recipients see their own details and the sender's; not other recipients'. Banks and accountants ask for exactly this.")}
   ${q("Where is my copy?",
-      "Once the record is sealed, Your record on your page opens it and you can print or save it as a PDF.")}
+      "Your folder, on your page, from the moment you are verified: Download my folder gives you a ZIP with a statement of the transaction from ThePaymaster (who you are and that we verified you, what was paid to which address by whom, the chain transaction, the record's root and seal), your own record with the proofs that tie each entry to the sealed whole, and your documents. It is marked provisional until the payment has landed and the record is sealed; the same buttons then give you the final version. Keep it — it is how you show, years from now, where the funds came from or went.")}
 
   <h2 id="trouble">When something goes wrong</h2>
   ${q("My link says it no longer works.",
@@ -276,6 +276,8 @@ export function adminHelp(): string {
   <h2 id="dossier">The dossier</h2>
   ${q("What is in it?",
       "Every fact about the transaction — parties, verifications, destinations, proofs, screenings, payments, mandates, documents and the audit log — each hashed, the hashes rolled up into one Merkle root. The page explains how anyone can verify it without us.")}
+  ${q("What does each party get?",
+      "Their own folder: statement.pdf (the transaction as it concerns them, drawn from the record — the source-of-funds letter a bank asks for), record.pdf and record.json (their entries with Merkle proofs; nothing about anyone else), and documents (their uploads, plus anything you ticked 'Share with the party' when uploading). They download it from their account; you can download it from the roster to send on; and the main dossier bundle carries a parties/ folder with one for each. A Themis report goes into their folder only if you ticked the box — it stays in the main dossier regardless.")}
   ${q("Seal or download first?",
       "Upload anything still to go in, then Seal, then Download. The download is a ZIP: the dossier as a self-contained HTML document, the same facts as JSON, and every uploaded document. Keep it with the compliance file. Downloading before sealing is allowed but the bundle will say it is unsealed.")}
   ${q("The record changed after sealing.",

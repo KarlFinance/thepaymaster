@@ -58,6 +58,8 @@ export async function store(env: Env, actor: Actor, file: File, about: {
   label?: string;
   partyId?: string;
   transactionId?: string;
+  /** Staff uploads only: the party may take this away in their own folder. */
+  shared?: boolean;
 }): Promise<Stored> {
   if (!file || typeof file.arrayBuffer !== "function" || file.size === 0) {
     throw new DocumentProblem("No file arrived. Try choosing it again.");
@@ -108,7 +110,8 @@ export async function store(env: Env, actor: Actor, file: File, about: {
     r2_key: key,
     sha256: digest,
     uploaded_by: actor.id,
-  }, { note: `${about.kind}, ${(file.size / 1024).toFixed(0)}KB` });
+    shared_with_party: about.shared ? 1 : 0,
+  }, { note: `${about.kind}, ${(file.size / 1024).toFixed(0)}KB${about.shared ? ", shared with the party" : ""}` });
 
   return { artefactId, sha256: digest, bytes: file.size, contentType: match.type };
 }

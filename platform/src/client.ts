@@ -18,6 +18,7 @@ import { ownRecord } from "./dossier.ts";
 import { clientHelp, HELP_CSS } from "./help.ts";
 import { proved as provedAddress, cannotSign } from "./attest.ts";
 import { railForTransaction, type Rail } from "./rail.ts";
+import { folderData, statementPdf, statementStatus, ownRecordPdf, partyFolder } from "./folder.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -788,6 +789,29 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }
   }
 
+  // The folder is theirs from the moment they are verified: the statement
+  // says "provisional" until the money has moved and the record is sealed,
+  // and is reissued as final by the same link.
+  if (cleared) {
+    const fd = await folderData(env, txId, who.partyId, "party");
+    const st = fd ? statementStatus(fd) : { final: false, why: "" };
+    body.push(`<div class="card folder">
+      <h2>Your folder</h2>
+      <p>Everything you may need later to show where ${part.role === "recipient" ? "these funds came from" : "these funds went"}:
+        a <b>statement of the transaction</b> from us, <b>your own record</b> with the proofs that tie it to the
+        sealed whole, and ${fd?.documents.length ? `the ${fd.documents.length} document${fd.documents.length === 1 ? "" : "s"} on your file` : "your documents"}.
+        Keep it with your records; banks and accountants ask for exactly this.</p>
+      <p class="${st.final ? "good" : "muted"}" style="margin:6px 0 10px">${st.final
+        ? "Final — the transaction is complete and the record is sealed."
+        : `Provisional for now — ${esc(st.why)}. The same links give you the final version when it is.`}</p>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <a href="/d/${esc(txId)}/folder.zip"><button type="button" class="go">Download my folder</button></a>
+        <a href="/d/${esc(txId)}/statement.pdf" target="_blank"><button type="button" class="plain">Open the statement</button></a>
+        <a href="/d/${esc(txId)}/record.pdf" target="_blank"><button type="button" class="plain">Open my record</button></a>
+      </div>
+    </div>`);
+  }
+
   const stageOk = ["ready", "settled", "closed"].includes(part.status);
   return shell(part.ref, `
     <h1>${esc(part.ref)}</h1>
@@ -897,6 +921,26 @@ export async function clientSend(env: Env, request: Request,
 
   const p = await plan(env, txId);
   return shell(`Send — ${part.ref}`, executeBody(p, txId, notice), who.name);
+}
+
+/** The party's statement, record or whole folder — theirs to download, any time. */
+export async function clientFolder(env: Env, request: Request, txId: string,
+                                   what: "statement" | "record" | "folder"): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const d = await folderData(env, txId, who.partyId, "party");
+  if (!d) return new Response("Not found", { status: 404 });
+  const name = (d.party.legal_name || d.party.display_name).replace(/[^A-Za-z0-9._ -]+/g, "_").trim().replace(/\s+/g, "_");
+  const file = (bytes: Uint8Array, type: string, filename: string, inline: boolean) =>
+    new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store",
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"` } });
+  if (what === "statement") return file(statementPdf(d), "application/pdf", `${d.tx.ref}-statement-${name}.pdf`, true);
+  if (what === "record") return file((await ownRecordPdf(env, d)).pdf, "application/pdf", `${d.tx.ref}-record-${name}.pdf`, true);
+  const folder = await partyFolder(env, txId, who.partyId, "party");
+  if (!folder) return new Response("Not found", { status: 404 });
+  await log(env.DB, { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined },
+            "folder.downloaded", "participations", d.participation.id, { note: folder.final ? "final" : "provisional" });
+  return file(folder.bytes, "application/zip", folder.name, false);
 }
 
 /**

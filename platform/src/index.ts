@@ -16,7 +16,8 @@ import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
-         clientVerify, clientHelpPage } from "./client.ts";
+         clientVerify, clientHelpPage, clientFolder } from "./client.ts";
+import { partyFolder, folderData, statementPdf } from "./folder.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
 import { fetchDocument, store, DocumentProblem } from "./documents.ts";
@@ -141,6 +142,9 @@ export default {
           if (url.pathname.endsWith("/record")) {
             return clientRecord(env, request, dealId);
           }
+          if (url.pathname.endsWith("/statement.pdf")) return clientFolder(env, request, dealId, "statement");
+          if (url.pathname.endsWith("/record.pdf")) return clientFolder(env, request, dealId, "record");
+          if (url.pathname.endsWith("/folder.zip")) return clientFolder(env, request, dealId, "folder");
           if (url.pathname.endsWith("/mandate") && request.method === "POST") {
             return clientMandate(env, request, dealId);
           }
@@ -218,6 +222,22 @@ export default {
         const txId = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/dossier")) {
           return dossierPage(env, admin, txId);
+        }
+        // A party's folder, for staff to send on: /t/:id/party/:pid/folder.zip | statement.pdf
+        const partyPath = url.pathname.match(/\/party\/([^/]+)\/(folder\.zip|statement\.pdf)$/);
+        if (partyPath) {
+          const [, pid, what] = partyPath;
+          if (what === "statement.pdf") {
+            const d = await folderData(env, txId, pid, "staff");
+            if (!d) return new Response("Not found", { status: 404 });
+            return new Response(statementPdf(d), { headers: { "content-type": "application/pdf",
+              "content-disposition": `inline; filename="${d.tx.ref}-statement.pdf"`, "cache-control": "no-store" } });
+          }
+          const folder = await partyFolder(env, txId, pid, "staff");
+          if (!folder) return new Response("Not found", { status: 404 });
+          await log(env.DB, actor, "folder.downloaded", "transactions", txId, { note: `party ${pid}, by staff` });
+          return new Response(folder.bytes, { headers: { "content-type": "application/zip",
+            "content-disposition": `attachment; filename="${folder.name}"`, "cache-control": "no-store" } });
         }
         if (url.pathname.endsWith("/dossier.pdf")) {
           const pdf = await dossierPdfFor(env, txId);
@@ -431,8 +451,9 @@ async function upload(request: Request, env: Env, actor: Actor,
   const f = await request.formData();
   const kind = String(f.get("kind") ?? "").trim().replace(/[^a-z0-9_]/gi, "_").toLowerCase() || "other";
   const label = String(f.get("label") ?? "").trim().slice(0, 160) || undefined;
+  const shared = f.get("shared") === "1";
   try {
-    await store(env, actor, f.get("file") as File, { kind, label, ...about });
+    await store(env, actor, f.get("file") as File, { kind, label, shared, ...about });
     return Response.redirect(new URL(back, request.url).toString(), 303);
   } catch (err) {
     if (err instanceof DocumentProblem) {
@@ -457,6 +478,8 @@ function uploadForm(action: string, kinds: [string, string][]): string {
         <input id="uf" name="file" type="file" accept="${ACCEPTED}" required></div>
       <button class="go">Upload</button>
     </div>
+    ${action.startsWith("/p/") ? `<label class="check" style="margin-top:8px"><input type="checkbox" name="shared" value="1" style="width:auto">
+      Share with the party — include it in the folder they download${tip("Their own uploads are always theirs. A report we add about them goes into their folder only if you tick this — some reports carry third-party information they have no right to.")}</label>` : ""}
     <p class="muted" style="margin:8px 0 0">PDF or a photograph, up to 15MB. Fingerprinted as it
       arrives and added to the dossier; it cannot be removed afterwards.</p>
   </form>`;
@@ -638,11 +661,13 @@ async function detail(env: Env, admin: { name: string }, txId: string,
         y.display_name`).bind(txId).all<any>();
 
   const roster = (people ?? []).length
-    ? `<table><tr><th>Who</th><th>Role</th><th>Invited</th></tr>` +
+    ? `<table><tr><th>Who</th><th>Role</th><th>Invited</th><th>Their folder${tip("Each party's own bundle: a statement of the transaction as it concerns them, their record with proofs, and their documents. The same thing they can download from their account; download it here to send on.")}</th></tr>` +
       people!.map((p) => `<tr><td><a href="/p/${esc(p.party_id)}">${esc(p.display_name)}</a>
         <div class="muted">${esc(p.email)}</div></td>
         <td><span class="tag">${esc(p.role)}</span></td>
-        <td class="muted">${esc(p.invited_at ?? "not yet")}</td></tr>`).join("") + `</table>`
+        <td class="muted">${esc(p.invited_at ?? "not yet")}</td>
+        <td class="muted" style="white-space:nowrap"><a href="/t/${esc(txId)}/party/${esc(p.party_id)}/statement.pdf" target="_blank">Statement</a>
+          &middot; <a href="/t/${esc(txId)}/party/${esc(p.party_id)}/folder.zip">Folder</a></td></tr>`).join("") + `</table>`
     : `<p class="muted">Nobody yet. Send the sender a start link and they will
         tell us who is involved.</p>`;
 

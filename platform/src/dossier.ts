@@ -255,11 +255,19 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
     txId, txId)) {
     add("09-document", a.id, a.label ?? a.filename ?? "Document", drop(a, ["r2_key"]));
   }
+  // Reads and notifications are not facts. Somebody downloading the dossier,
+  // or an email telling a party what has happened, is worth an audit line,
+  // but it did not happen *to* the transaction — and if either counted, the
+  // seal's own "record sealed" emails would change the root the moment it was
+  // sealed, and every download after that. They stay in the audit log; they
+  // stay out of the record.
   for (const l of await q(
     `SELECT * FROM audit_log
-      WHERE entity_id = ?
+      WHERE (entity_id = ?
          OR entity_id IN (SELECT id FROM participations WHERE transaction_id = ?)
-         OR entity_id IN (SELECT id FROM custody_events WHERE transaction_id = ?)
+         OR entity_id IN (SELECT id FROM custody_events WHERE transaction_id = ?))
+        AND action NOT LIKE '%.downloaded' AND action NOT LIKE '%.viewed'
+        AND action NOT LIKE 'email.%'
       ORDER BY id`, txId, txId, txId)) {
     add("10-audit", String(l.id).padStart(12, "0"), l.action, l);
   }
@@ -292,6 +300,15 @@ export interface Seal {
 
 /** Commit to the record as it stands. Never replaces an earlier seal. */
 export async function seal(env: Env, actor: Actor, txId: string): Promise<Seal> {
+  // A sealed, settled transaction is closed — and the closing is a fact, so it
+  // goes on the record *before* the root is taken. Taken afterwards, the seal
+  // would be out of date the instant it was made.
+  const st = await env.DB.prepare("SELECT status FROM transactions WHERE id = ?")
+    .bind(txId).first<any>();
+  if (st?.status === "settled") {
+    await update(env.DB, actor, "transaction.closed", "transactions", txId,
+      { status: "closed" }, { status: "settled" }, { note: "record sealed" });
+  }
   const built = await build(env, txId);
   const rowId = id("seal");
   await insert(env.DB, actor, "dossier.sealed", "dossier_seals", rowId, {
@@ -301,14 +318,6 @@ export async function seal(env: Env, actor: Actor, txId: string): Promise<Seal> 
     algorithm: ALGORITHM,
     sealed_by: actor.id,
   }, { note: `${built.root} over ${built.leaves.length} facts` });
-  // A sealed, settled transaction is closed. Anything still open after a seal
-  // is not finished, and the stage should not pretend otherwise.
-  const st = await env.DB.prepare("SELECT status FROM transactions WHERE id = ?")
-    .bind(txId).first<any>();
-  if (st?.status === "settled") {
-    await update(env.DB, actor, "transaction.closed", "transactions", txId,
-      { status: "closed" }, { status: "settled" }, { note: "record sealed" });
-  }
   await sealed(env, actor, txId, built.root);
   return (await env.DB.prepare("SELECT * FROM dossier_seals WHERE id = ?")
     .bind(rowId).first<any>()) as Seal;
