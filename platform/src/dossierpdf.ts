@@ -14,7 +14,7 @@ import { format } from "./money.ts";
 export interface DossierDoc { name: string; sha256: string; label: string }
 
 export function dossierPdf(o: {
-  tx: { ref: string; name?: string | null; decimals_in?: number | null };
+  tx: { ref: string; name?: string | null; decimals_in?: number | null; summary?: string | null };
   facts: Fact[];
   leaves: string[];
   root: string;
@@ -34,6 +34,11 @@ export function dossierPdf(o: {
     "Every fact below was recorded at the time it happened and cannot be edited afterwards. " +
     `Produced ${(o.producedAt ?? new Date().toISOString()).replace("T", " ").slice(0, 16)} UTC.`,
     { size: 9, colour: "0.353 0.420 0.502", after: 10 });
+
+  if (o.tx.summary) {
+    pdf.heading("Executive summary", 13);
+    pdf.para(String(o.tx.summary), { size: 10.5, after: 8 });
+  }
 
   // --- seal -----------------------------------------------------------------
   const sealRows: [string, string, boolean?][] = [

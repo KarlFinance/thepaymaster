@@ -120,6 +120,8 @@ def edits(text: str) -> str:
     text = TWITTER_ITEM.sub("", text)
     text = CLOUDWAYS.sub("", text)
     text = SOFIE_ITEM.sub("", text)
+    # A stray "n" before a bullet in the Peaceful Enjoyment summary line.
+    text = text.replace("interview n\u2022", "interview \u2022")
     return text
 
 

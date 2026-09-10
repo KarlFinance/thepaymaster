@@ -796,17 +796,17 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     const fd = await folderData(env, txId, who.partyId, "party");
     const st = fd ? statementStatus(fd) : { final: false, why: "" };
     body.push(`<div class="card folder">
-      <h2>Your folder</h2>
+      <h2>Your Peaceful Enjoyment dossier</h2>
       <p>Everything you may need later to show where ${part.role === "recipient" ? "these funds came from" : "these funds went"}:
-        a <b>statement of the transaction</b> from us, <b>your own record</b> with the proofs that tie it to the
+        our <b>Counterparty Certification</b>, <b>your own record</b> with the proofs that tie it to the
         sealed whole, and ${fd?.documents.length ? `the ${fd.documents.length} document${fd.documents.length === 1 ? "" : "s"} on your file` : "your documents"}.
         Keep it with your records; banks and accountants ask for exactly this.</p>
       <p class="${st.final ? "good" : "muted"}" style="margin:6px 0 10px">${st.final
         ? "Final — the transaction is complete and the record is sealed."
         : `Provisional for now — ${esc(st.why)}. The same links give you the final version when it is.`}</p>
       <div class="row" style="gap:10px;flex-wrap:wrap">
-        <a href="/d/${esc(txId)}/folder.zip"><button type="button" class="go">Download my folder</button></a>
-        <a href="/d/${esc(txId)}/statement.pdf" target="_blank"><button type="button" class="plain">Open the statement</button></a>
+        <a href="/d/${esc(txId)}/folder.zip"><button type="button" class="go">Download my dossier</button></a>
+        <a href="/d/${esc(txId)}/certification.pdf" target="_blank"><button type="button" class="plain">Open the certification</button></a>
         <a href="/d/${esc(txId)}/record.pdf" target="_blank"><button type="button" class="plain">Open my record</button></a>
       </div>
     </div>`);
@@ -934,7 +934,7 @@ export async function clientFolder(env: Env, request: Request, txId: string,
   const file = (bytes: Uint8Array, type: string, filename: string, inline: boolean) =>
     new Response(bytes, { headers: { "content-type": type, "cache-control": "no-store",
       "content-disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"` } });
-  if (what === "statement") return file(statementPdf(d), "application/pdf", `${d.tx.ref}-statement-${name}.pdf`, true);
+  if (what === "statement") return file(statementPdf(d), "application/pdf", `${d.tx.ref}-certification-${name}.pdf`, true);
   if (what === "record") return file((await ownRecordPdf(env, d)).pdf, "application/pdf", `${d.tx.ref}-record-${name}.pdf`, true);
   const folder = await partyFolder(env, txId, who.partyId, "party");
   if (!folder) return new Response("Not found", { status: 404 });

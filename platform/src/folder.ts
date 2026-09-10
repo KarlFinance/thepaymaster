@@ -71,6 +71,10 @@ export interface FolderData {
   latestSeal: Seal | null;
   /** The root as the record stands now; equal to the seal's root only if nothing has been added since. */
   currentRoot: string;
+  /** The party's source-of-funds narrative, latest version. */
+  narrative: any | null;
+  /** What the certification can say about everyone on the transaction. */
+  everyone: { parties: number; unverified: string[]; unscreened: string[]; flagged: string[] };
   documents: any[];
   rail: ReturnType<typeof railFor>;
 }
@@ -130,6 +134,34 @@ export async function folderData(env: Env, txId: string, partyId: string, audien
 
   const history = await seals(env, txId);
   const currentRoot = (await build(env, txId)).root;
+  const narrative = await one(
+    `SELECT * FROM narratives WHERE party_id = ? AND (transaction_id IS NULL OR transaction_id = ?)
+      ORDER BY created_at DESC LIMIT 1`, partyId, txId);
+
+  // The certification speaks for every named party, so it has to know about
+  // every named party — not just this one.
+  const everyoneRows = await q(
+    `SELECT y.id, y.display_name, p.role,
+            EXISTS (SELECT 1 FROM verifications v WHERE v.party_id = y.id AND v.status = 'passed'
+                      AND (v.expires_at IS NULL OR v.expires_at > datetime('now'))) AS verified,
+            (SELECT d.address FROM destinations d WHERE d.participation_id = p.id) AS address
+       FROM participations p JOIN parties y ON y.id = p.party_id
+      WHERE p.transaction_id = ?`, txId);
+  const addresses: { who: string; address: string }[] = [];
+  for (const r of everyoneRows) if (r.address) addresses.push({ who: r.display_name, address: r.address });
+  for (const w of senderWallets) addresses.push({ who: sender?.display_name ?? "sender", address: w.address });
+  const unscreened: string[] = [], flagged: string[] = [];
+  for (const a of addresses) {
+    const s = await one(`SELECT verdict FROM wallet_screens WHERE transaction_id = ? AND lower(address) = lower(?)
+                          ORDER BY screened_at DESC LIMIT 1`, txId, a.address);
+    if (!s) unscreened.push(a.who);
+    else if (s.verdict !== "clear") flagged.push(`${a.who} (${s.verdict})`);
+  }
+  const everyone = {
+    parties: everyoneRows.length,
+    unverified: everyoneRows.filter((r: any) => !r.verified).map((r: any) => r.display_name),
+    unscreened: [...new Set(unscreened)], flagged,
+  };
   const docs = await q(
     `SELECT id, kind, label, filename, content_type, bytes, sha256, r2_key, uploaded_at, uploaded_by, shared_with_party
        FROM artefacts WHERE party_id = ? ORDER BY uploaded_at`, partyId);
@@ -137,7 +169,8 @@ export async function folderData(env: Env, txId: string, partyId: string, audien
     : docs.filter((a: any) => a.uploaded_by === partyId || Number(a.shared_with_party) === 1);
 
   return { tx, party, role, participation, verification, attestation, screen, payment, fee, sender,
-           senderWallets, recipients, latestSeal: history[0] ?? null, currentRoot, documents, rail: railFor(tx) };
+           senderWallets, recipients, latestSeal: history[0] ?? null, currentRoot, narrative, everyone,
+           documents, rail: railFor(tx) };
 }
 
 // ---------------------------------------------------------------------------
@@ -162,16 +195,38 @@ export function statementPdf(d: FolderData): Uint8Array {
   const who = party.legal_name || party.display_name;
   const ref = `STM-${tx.ref}-${String(party.id).slice(-6).toUpperCase()}`;
 
-  const pdf = new Pdf((p, n) => `ThePaymaster — statement ${ref} — ${status.final ? "final" : "provisional"} — page ${p} of ${n}`);
+  const pdf = new Pdf((p, n) => `ThePaymaster® — Counterparty Certification ${ref} — ${status.final ? "final" : "provisional"} — page ${p} of ${n}`);
 
-  pdf.heading(d.role === "recipient" ? "Statement of transaction" : "Statement of distribution", 22);
-  pdf.para(`${tx.ref}${tx.name ? ` — ${tx.name}` : ""}`, { face: "bold", size: 13, after: 2 });
+  pdf.heading("Counterparty Certification", 22);
+  pdf.para(`${d.role === "recipient" ? "Statement of transaction" : "Statement of distribution"} — ${tx.ref}${tx.name ? ` — ${tx.name}` : ""}`,
+    { face: "bold", size: 13, after: 2 });
   pdf.para(`Issued to ${who} by ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT. ` +
     `Reference ${ref}. Every statement below is drawn from a record made at the time it happened; the record's ` +
     `root hash is printed at the end so that this document can be checked against it.`, { size: 9, colour: MUTED, after: 8 });
   if (status.final) pdf.status("FINAL — the transaction is complete and the record is sealed.", true);
-  else pdf.para(`PROVISIONAL — ${status.why}. This statement will be reissued as final when the transaction is complete.`,
+  else pdf.para(`PROVISIONAL — ${status.why}. This certification will be reissued as final when the transaction is complete.`,
     { face: "bold", size: 10, colour: WARN, after: 8 });
+
+  // --- what is certified -------------------------------------------------------
+  const e = d.everyone;
+  const clean = !e.unverified.length && !e.unscreened.length && !e.flagged.length;
+  pdf.box([
+    ["Certification", clean
+      ? `ThePaymaster® certifies that all ${e.parties} named parties to ${tx.ref} have passed identity verification ` +
+        `(KYC/KYB) and AML screening, and that every address involved has been screened, with no unresolved red flags ` +
+        `as at the date of this document. Final acceptance remains at the receiving institution's discretion.`
+      : `ThePaymaster® confirms the position as at the date of this document. Still outstanding: ` +
+        [e.unverified.length ? `identity verification for ${e.unverified.join(", ")}` : "",
+         e.unscreened.length ? `address screening for ${e.unscreened.join(", ")}` : "",
+         e.flagged.length ? `screening not clear for ${e.flagged.join(", ")}` : ""].filter(Boolean).join("; ") +
+        `. A certification is issued only when nothing is outstanding.`],
+    ["Basis", `ThePaymaster® acted exclusively as the sender's agent under a distinct agency appointment for this ` +
+      `transaction (Commercial Agent Exemption, paragraph 2(b), Schedule 1, Payment Services Regulations 2017). ` +
+      (tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts
+        ? "The payments were executed by the sender from the sender's own wallet directly to each recipient; at no point were the funds held by ThePaymaster Ltd."
+        : "The funds were received into and paid from a client mandated account, segregated from ThePaymaster Ltd's own funds and used exclusively for this authorised distribution.")],
+    ...(tx.summary ? [["Executive summary", String(tx.summary)] as [string, string]] : []),
+  ], "What this certifies");
 
   // --- the party ------------------------------------------------------------
   pdf.heading(d.role === "recipient" ? "The recipient" : "The sender", 13);
@@ -194,6 +249,12 @@ export function statementPdf(d: FolderData): Uint8Array {
   d.documents.forEach((a: any, i: number) => {
     pdf.row(i === 0 ? "Documents held" : "", `${labelFor(a)} — received ${when(a.uploaded_at)} — sha256 ${String(a.sha256).slice(0, 24)}…`);
   });
+  if (d.narrative) {
+    pdf.space(4);
+    pdf.para("Source of funds and wealth", { face: "bold", size: 10.5, after: 2 });
+    pdf.para(String(d.narrative.text), { size: 9.5, after: 2 });
+    pdf.para(`Recorded ${when(d.narrative.created_at)} by ThePaymaster; version ${String(d.narrative.id).slice(-6)}.`, { size: 8.5, colour: MUTED, after: 6 });
+  }
 
   // --- the payment ----------------------------------------------------------
   if (d.role === "recipient") {
@@ -350,7 +411,7 @@ export async function folderEntries(env: Env, d: FolderData): Promise<FolderEntr
   const enc = new TextEncoder();
   const own = await ownRecordPdf(env, d);
   const entries: FolderEntry[] = [
-    { name: "statement.pdf", data: statementPdf(d) },
+    { name: "certification.pdf", data: statementPdf(d) },
     { name: "record.pdf", data: own.pdf },
     { name: "record.json", data: enc.encode(own.json) },
   ];

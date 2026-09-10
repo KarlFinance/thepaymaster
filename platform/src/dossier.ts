@@ -200,6 +200,14 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
     "SELECT * FROM participations WHERE transaction_id = ?", txId)) {
     add("03-participation", r.id, `Role — ${r.role}`, r);
   }
+  // The words: a party's source-of-funds narrative, every version of it. It
+  // carries party_id, so it reaches the party's own record and nobody else's.
+  for (const n of await q(
+    `SELECT * FROM narratives
+      WHERE party_id IN (SELECT party_id FROM participations WHERE transaction_id = ?)
+        AND (transaction_id IS NULL OR transaction_id = ?)`, txId, txId)) {
+    add("02b-narrative", n.id, `Narrative — ${String(n.kind).replace(/_/g, " ")}`, n);
+  }
   for (const v of await q(
     `SELECT v.* FROM verifications v
       WHERE v.party_id IN (SELECT party_id FROM participations WHERE transaction_id = ?)`,

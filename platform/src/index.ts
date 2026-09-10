@@ -142,7 +142,9 @@ export default {
           if (url.pathname.endsWith("/record")) {
             return clientRecord(env, request, dealId);
           }
-          if (url.pathname.endsWith("/statement.pdf")) return clientFolder(env, request, dealId, "statement");
+          if (url.pathname.endsWith("/statement.pdf") || url.pathname.endsWith("/certification.pdf")) {
+            return clientFolder(env, request, dealId, "statement");
+          }
           if (url.pathname.endsWith("/record.pdf")) return clientFolder(env, request, dealId, "record");
           if (url.pathname.endsWith("/folder.zip")) return clientFolder(env, request, dealId, "folder");
           if (url.pathname.endsWith("/mandate") && request.method === "POST") {
@@ -206,6 +208,18 @@ export default {
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { partyId: pid }, `/p/${pid}`);
         }
+        if (url.pathname.endsWith("/narrative") && request.method === "POST") {
+          const f = await request.formData();
+          const text = String(f.get("text") ?? "").trim().slice(0, 8000);
+          const txFor = String(f.get("transaction_id") ?? "").trim() || null;
+          if (text.length < 20) {
+            return partyView(env, admin, pid, "A narrative needs at least a sentence.");
+          }
+          await insert(env.DB, actor, "narrative.written", "narratives", id("nar"), {
+            party_id: pid, transaction_id: txFor, kind: "source_of_funds", text, written_by: actor.id,
+          }, { note: `${text.length} characters${txFor ? `, for ${txFor}` : ""}` });
+          return Response.redirect(new URL(`/p/${pid}`, url).toString(), 303);
+        }
         return partyView(env, admin, pid, url.searchParams.get("err") ?? "");
       }
       if (url.pathname.startsWith("/doc/")) {
@@ -224,14 +238,14 @@ export default {
           return dossierPage(env, admin, txId);
         }
         // A party's folder, for staff to send on: /t/:id/party/:pid/folder.zip | statement.pdf
-        const partyPath = url.pathname.match(/\/party\/([^/]+)\/(folder\.zip|statement\.pdf)$/);
+        const partyPath = url.pathname.match(/\/party\/([^/]+)\/(folder\.zip|statement\.pdf|certification\.pdf)$/);
         if (partyPath) {
           const [, pid, what] = partyPath;
-          if (what === "statement.pdf") {
+          if (what !== "folder.zip") {
             const d = await folderData(env, txId, pid, "staff");
             if (!d) return new Response("Not found", { status: 404 });
             return new Response(statementPdf(d), { headers: { "content-type": "application/pdf",
-              "content-disposition": `inline; filename="${d.tx.ref}-statement.pdf"`, "cache-control": "no-store" } });
+              "content-disposition": `inline; filename="${d.tx.ref}-certification.pdf"`, "cache-control": "no-store" } });
           }
           const folder = await partyFolder(env, txId, pid, "staff");
           if (!folder) return new Response("Not found", { status: 404 });
@@ -261,6 +275,14 @@ export default {
         }
         if (url.pathname.endsWith("/upload") && request.method === "POST") {
           return upload(request, env, actor, { transactionId: txId }, `/t/${txId}`);
+        }
+        if (url.pathname.endsWith("/summary") && request.method === "POST") {
+          const f = await request.formData();
+          const text = String(f.get("summary") ?? "").trim().slice(0, 4000);
+          const before = await env.DB.prepare("SELECT summary FROM transactions WHERE id = ?").bind(txId).first<any>();
+          await update(env.DB, actor, "transaction.summary", "transactions", txId,
+            { summary: text || null }, { summary: before?.summary ?? null }, { note: `${text.length} characters` });
+          return Response.redirect(new URL(`/t/${txId}`, url).toString(), 303);
         }
         if (url.pathname.endsWith("/dossier/anchor") && request.method === "POST") {
           return anchorNow(env, actor, txId, request);
@@ -661,12 +683,12 @@ async function detail(env: Env, admin: { name: string }, txId: string,
         y.display_name`).bind(txId).all<any>();
 
   const roster = (people ?? []).length
-    ? `<table><tr><th>Who</th><th>Role</th><th>Invited</th><th>Their folder${tip("Each party's own bundle: a statement of the transaction as it concerns them, their record with proofs, and their documents. The same thing they can download from their account; download it here to send on.")}</th></tr>` +
+    ? `<table><tr><th>Who</th><th>Role</th><th>Invited</th><th>Their dossier${tip("Each party's Peaceful Enjoyment dossier: the Counterparty Certification for their part of the transaction, their record with proofs, and their documents. The same thing they download from their account; download it here to send on.")}</th></tr>` +
       people!.map((p) => `<tr><td><a href="/p/${esc(p.party_id)}">${esc(p.display_name)}</a>
         <div class="muted">${esc(p.email)}</div></td>
         <td><span class="tag">${esc(p.role)}</span></td>
         <td class="muted">${esc(p.invited_at ?? "not yet")}</td>
-        <td class="muted" style="white-space:nowrap"><a href="/t/${esc(txId)}/party/${esc(p.party_id)}/statement.pdf" target="_blank">Statement</a>
+        <td class="muted" style="white-space:nowrap"><a href="/t/${esc(txId)}/party/${esc(p.party_id)}/certification.pdf" target="_blank">Certification</a>
           &middot; <a href="/t/${esc(txId)}/party/${esc(p.party_id)}/folder.zip">Folder</a></td></tr>`).join("") + `</table>`
     : `<p class="muted">Nobody yet. Send the sender a start link and they will
         tell us who is involved.</p>`;
@@ -871,6 +893,13 @@ async function detail(env: Env, admin: { name: string }, txId: string,
        the whole record, and the hash that proves it —
        <a href="/t/${esc(t.id)}/dossier/download">download it</a></p>
     ${await txDocuments(env, t.id)}
+    <details class="panel"${t.summary ? "" : " open"}>
+      <summary><strong>Executive summary</strong>${t.summary ? "" : ' — <span class="muted">not written yet</span>'}${tip("A paragraph a bank's compliance officer can read first: what this transaction is, who is paying whom and why. It opens the dossier PDF and appears in every party's Counterparty Certification. It is a fact in the record; each save is logged.")}</summary>
+      <form method="post" action="/t/${esc(t.id)}/summary">
+        <textarea name="summary" rows="5" maxlength="4000" placeholder="Distribution of the proceeds of … by … to … recipients, agreed on …">${esc(t.summary ?? "")}</textarea>
+        <div class="row"><button class="plain">Save the summary</button></div>
+      </form>
+    </details>
     ${mandatePanel(t.id, liveMandate, pastMandates)}
     ${isOnChain(t as any) ? chainSettingsPanel(t) : ""}
     <div class="panel"><table>
@@ -1415,6 +1444,12 @@ async function partyView(env: Env, admin: { name: string }, partyId: string,
   if (!p) return new Response("Not found", { status: 404 });
 
   const docs = await documentsFor(env, partyId);
+  const { results: narratives } = await env.DB.prepare(
+    `SELECT n.*, t.ref FROM narratives n LEFT JOIN transactions t ON t.id = n.transaction_id
+      WHERE n.party_id = ? ORDER BY n.created_at DESC`).bind(partyId).all<any>();
+  const { results: onTx } = await env.DB.prepare(
+    `SELECT t.id, t.ref FROM participations p JOIN transactions t ON t.id = p.transaction_id
+      WHERE p.party_id = ? ORDER BY t.created_at DESC`).bind(partyId).all<any>();
   const people = p.kind === "company" ? await peopleOf(env, partyId) : [];
   const past = await history(env, partyId);
   const cleared = await standingCheck(env, partyId);
@@ -1455,6 +1490,23 @@ async function partyView(env: Env, admin: { name: string }, partyId: string,
     : "";
 
   const decision = `
+    <h2>Source of funds and wealth${tip("The party's story in prose — where the money came from, referencing the documents on file. It goes into their Counterparty Certification and their record. Every version is kept: writing a new one does not erase the old, and the record shows both.")}</h2>
+    <div class="panel">
+      ${(narratives ?? []).length ? (narratives ?? []).map((n: any) => `<div class="fact" style="border-top:1px solid #E6EAF0;padding:10px 0">
+          <div class="muted" style="font-size:12.5px">${esc(String(n.created_at).slice(0, 16))} — ${n.ref ? `for ${esc(n.ref)}` : "general"} — ${esc(n.written_by ?? "")}</div>
+          <div style="white-space:pre-wrap">${esc(n.text)}</div></div>`).join("")
+        : `<p class="muted">Nothing written yet.</p>`}
+      <form method="post" action="/p/${esc(partyId)}/narrative" style="margin-top:10px">
+        <label for="nt">${(narratives ?? []).length ? "A new version" : "The narrative"}</label>
+        <textarea id="nt" name="text" rows="6" maxlength="8000" required
+          placeholder="Funds derive from the sale of … completed on …, evidenced by the completion statement and bank statement on file. …"></textarea>
+        <label for="ntx">About</label>
+        <select id="ntx" name="transaction_id"><option value="">This party generally</option>
+          ${(onTx ?? []).map((t: any) => `<option value="${esc(t.id)}">${esc(t.ref)} only</option>`).join("")}</select>
+        <div class="row"><button class="plain">Record this narrative</button></div>
+      </form>
+    </div>
+
     <h2>Decide</h2>
     <div class="panel">
       ${missing.length
