@@ -19,6 +19,7 @@ import { clientHelp, HELP_CSS } from "./help.ts";
 import { proved as provedAddress, cannotSign } from "./attest.ts";
 import { railForTransaction, type Rail } from "./rail.ts";
 import { folderData, statementPdf, statementStatus, ownRecordPdf, partyFolder } from "./folder.ts";
+import { verifyBody, checkRecord, checkReference, VERIFY_CSS, VERIFY_URL } from "./verify.ts";
 import { recipientJourney, senderJourney, recipientProgress, outcome, strip, line,
          progressTable, STAGE, JOURNEY_CSS } from "./journey.ts";
 import { staffAddressConfirmed } from "./notify.ts";
@@ -128,7 +129,7 @@ function shell(title: string, body: string, who?: string,
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
 ${FAVICON}
-<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}${JOURNEY_CSS}${HELP_CSS}
+<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}${JOURNEY_CSS}${HELP_CSS}${VERIFY_CSS}
 .card.now{border-color:var(--accent);box-shadow:0 0 0 3px #FFF3ED}</style></head>
 <body>${bar}<div class="sheet"><main>${body}</main>
 <div class="panelfoot">&copy; ThePaymaster Ltd &reg; ${thisYear()} All Rights Reserved</div>
@@ -363,6 +364,23 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
   return new Response(null, {
     status: 302, headers: { Location: "/", "Set-Cookie": clearSession },
   });
+}
+
+/** The public verifier: no login, nothing stored, nothing revealed. */
+export async function verifyRecordPage(env: Env, request: Request): Promise<Response> {
+  const who = await whoIs(env, request);
+  const party = who ? await env.DB.prepare("SELECT display_name FROM parties WHERE id = ?")
+    .bind(who.partyId).first<any>() : null;
+  let outcome; const was: { record?: string; ref?: string } = {};
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const record = String(f.get("record") ?? "").trim();
+    const ref = String(f.get("ref") ?? "").trim();
+    if (record) { was.record = record.length > 200_000 ? "" : record; outcome = await checkRecord(env, record); }
+    else if (ref) { was.ref = ref; outcome = await checkReference(env, ref); }
+    else outcome = { ok: false, headline: "Nothing to check.", lines: ["Paste a record.json, or enter a reference or root."] };
+  }
+  return shell("Verify a record", verifyBody(outcome, was), party?.display_name, "/verify-record");
 }
 
 /** Help is readable signed in or not — a person with a dead link needs it most. */
@@ -809,6 +827,8 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         <a href="/d/${esc(txId)}/certification.pdf" target="_blank"><button type="button" class="plain">Open the certification</button></a>
         <a href="/d/${esc(txId)}/record.pdf" target="_blank"><button type="button" class="plain">Open my record</button></a>
       </div>
+      <p class="muted" style="margin:10px 0 0;font-size:13px">Anyone you give it to can check it without asking us:
+        <a href="/verify-record">${VERIFY_URL.replace("https://", "")}</a> recomputes every entry against the sealed record.</p>
     </div>`);
   }
 

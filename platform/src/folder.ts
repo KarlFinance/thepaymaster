@@ -34,6 +34,7 @@ import { railFor } from "./rail.ts";
 import { standing as standingAttestation } from "./attest.ts";
 import { legs as payoutLegs } from "./settlement.ts";
 import { zip } from "./bundle.ts";
+import { VERIFY_URL } from "./verify.ts";
 
 const MUTED = "0.353 0.420 0.502";
 const GOOD = "0.106 0.498 0.294";
@@ -336,7 +337,8 @@ export function statementPdf(d: FolderData): Uint8Array {
     `record, without access to ThePaymaster or to anyone else's details. The full record is retained by ThePaymaster Ltd.`,
     { size: 9.5, after: 8 });
   pdf.para(`Issued by ThePaymaster Ltd. This document is generated from the record; a copy that has been altered will not ` +
-    `agree with the root. Enquiries: info@thepaymaster.co.uk, +44 20 7088 8267, quoting ${ref}.`, { size: 9, colour: MUTED });
+    `agree with the root. Anyone may check this reference, the root, or the holder's record.json at ${VERIFY_URL} ` +
+    `without contacting us. Enquiries: info@thepaymaster.co.uk, +44 20 7088 8267, quoting ${ref}.`, { size: 9, colour: MUTED });
 
   return pdf.bytes();
 }
@@ -389,6 +391,7 @@ export async function ownRecordPdf(env: Env, d: FolderData): Promise<{ pdf: Uint
     "Fold in each hash of its proof path in order: where it says left, put it before yours; where it says right, after. Take the SHA-256 of the two 32-byte values joined together, and continue with the result.",
     "When the path is exhausted, the result must equal the record root above.",
     "The leaf itself is the SHA-256 of the entry serialised as JSON with keys sorted, no whitespace, and empty values omitted — so the entry's contents are what the root commits to.",
+    `Or paste record.json at ${VERIFY_URL}: it does all of this for you and tells you when ThePaymaster sealed the root and where it is anchored.`,
   ]);
 
   const json = JSON.stringify({

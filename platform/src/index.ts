@@ -16,7 +16,7 @@ import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
-         clientVerify, clientHelpPage, clientFolder } from "./client.ts";
+         clientVerify, clientHelpPage, clientFolder, verifyRecordPage } from "./client.ts";
 import { partyFolder, folderData, statementPdf } from "./folder.ts";
 import { reviewQueue, decide, whatIsMissing, peopleOf, standingCheck,
          history, documentsFor } from "./kyc.ts";
@@ -123,6 +123,7 @@ export default {
         }
         if (url.pathname === "/") return clientHome(env, request);
         if (url.pathname === "/help") return clientHelpPage(env, request);
+        if (url.pathname === "/verify-record") return verifyRecordPage(env, request);
         // Published papers: public, read-only, viewed in the browser. Only
         // names from the list below are served, so the bucket is not browsable.
         if (url.pathname.startsWith("/papers/")) {

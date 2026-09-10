@@ -343,6 +343,9 @@ export async function seals(env: Env, txId: string): Promise<Seal[]> {
 // ---------------------------------------------------------------------------
 
 export interface OwnFact {
+  /** Kind and id are hashed into the leaf, so a verifier needs them too. */
+  kind: string;
+  id: string;
   title: string;
   data: Record<string, unknown>;
   leaf: string;
@@ -390,6 +393,8 @@ export async function ownRecord(env: Env, txId: string,
       (f.kind.endsWith("transaction"));      // the deal terms are shared ground
     if (!belongs) continue;
     facts.push({
+      kind: f.kind,
+      id: f.id,
       title: f.title,
       data: f.data,
       leaf: built.leaves[i],

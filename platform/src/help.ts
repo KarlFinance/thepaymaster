@@ -169,6 +169,8 @@ export function clientHelp(): string {
   <h2 id="record">Your record</h2>
   ${q("What is the record, and why would I want it?",
       "A sealed statement of the transaction: who was involved, that each was checked, what was agreed and what was paid, each fact fingerprinted and the whole thing rolled into one hash that can be verified without trusting us. Recipients see their own details and the sender's; not other recipients'. Banks and accountants ask for exactly this.")}
+  ${q("How does a bank check my dossier is genuine?",
+      "Without asking us. Anyone can go to client.thepaymaster.co.uk/verify-record and paste the record.json from your dossier, or type the reference printed on your Counterparty Certification. Every entry is recomputed from its own contents and matched to the sealed root, and the page says when ThePaymaster sealed that root and where it is published on Ethereum. Nothing pasted is stored, and nothing is revealed beyond what they already hold.")}
   ${q("Where is my copy?",
       "Your Peaceful Enjoyment dossier, on your page, from the moment you are verified: Download my dossier gives you a ZIP with our Counterparty Certification (who you are and that we verified you, what was paid to which address by whom, the chain transaction, the record's root and seal, and what ThePaymaster certifies about every party), your own record with the proofs that tie each entry to the sealed whole, and your documents. It is marked provisional until the payment has landed and the record is sealed; the same buttons then give you the final version. Keep it — it is how you show, years from now, where the funds came from or went.")}
 
