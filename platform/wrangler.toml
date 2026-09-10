@@ -23,3 +23,10 @@ database_id = "d6439bf3-f101-4169-b21a-49e7dc6ea0cf"
 [[r2_buckets]]
 binding = "DOCS"
 bucket_name = "thepaymaster"
+
+# Bank accounts shown to senders, as "Name|sort code|account number|IBAN|BIC|bank".
+# Not secrets — they go on payment files — but real details belong here only
+# when Ray puts them in. Unset, the page says the details will follow by hand.
+# [vars]
+# FEE_BANK_ACCOUNT = "ThePaymaster Ltd|400515|12345678||HSBC"
+# MANDATED_ACCOUNT = "ThePaymaster Ltd Client Account|400515|87654321||HSBC"

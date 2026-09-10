@@ -14,7 +14,7 @@ import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
-import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal,
+import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
          clientStartOwn, clientAgain, clientCounterparties, clientTeam, clientAnnual } from "./client.ts";
@@ -54,7 +54,7 @@ import { ACCEPTED } from "./documents.ts";
 import { grant as grantAttestation, revoke as revokeAttestation,
          forTransaction as attestationsFor } from "./attest.ts";
 import { sendPenny, pennyReference, importStatement, reconcile as reconcileBank,
-         expected as bankExpected, paymentsCsv, linesFor as bankLines } from "./bank.ts";
+         expected as bankExpected, paymentsCsv, linesFor as bankLines, paysDirect, accountFromVar } from "./bank.ts";
 
 /** The PDFs we hand to clients, by the name they are served under. */
 const PAPERS = new Set([
@@ -180,6 +180,10 @@ export default {
           }
           if (url.pathname.endsWith("/again") && request.method === "POST") {
             return clientAgain(env, request, dealId);
+          }
+          if (url.pathname.endsWith("/payments.csv")) return clientPayments(env, request, dealId);
+          if (url.pathname.endsWith("/bank") && request.method === "POST") {
+            return clientDeal(env, request, dealId);
           }
           if (url.pathname.endsWith("/send") || url.pathname.endsWith("/send/prepare")) {
             return clientSend(env, request, dealId);
@@ -1931,13 +1935,27 @@ async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
   const { items } = await bankExpected(env, t.id);
   const { matched, pool } = await bankLines(env, t.id);
   const outstanding = items.filter((i) => !i.paid && i.direction === "out" && i.amountMinor > 0).length;
+  const direct = paysDirect(t);
   const acct = (i: any) => i.account
     ? esc(i.account.iban ? i.account.iban : `${i.account.sortCode ?? ""} ${i.account.accountNumber ?? ""}`)
-    : i.what === "fee" ? "our fee account" : i.what === "receipt" ? "client mandated account" : '<span class="bad">no account yet</span>';
+    : i.what === "fee" ? (direct ? '<span class="bad">FEE_BANK_ACCOUNT not set</span>' : "our fee account")
+    : i.what === "receipt" ? "client mandated account" : '<span class="bad">no account yet</span>';
+  const anyPaid = items.some((i) => i.paid);
+  const bothFiat = t.inbound === "fiat" && t.outbound === "fiat";
+  const payerForm = bothFiat ? `<form method="post" action="/t/${esc(t.id)}/bank" class="row" style="gap:14px;align-items:center;margin:6px 0 10px">
+      <input type="hidden" name="action" value="payer">
+      <strong>Who makes the payments${tip("Mandated account: the sender pays us, we pay everyone from the client mandated account. Sender pays directly: the sender uploads our payment file to their own bank and pays every recipient and our fee themselves; nothing passes through an account we operate, and the certification says so. Fixed once any payment is on the record.")}</strong>
+      <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="payer" value="mandated"${direct ? "" : " checked"}${anyPaid ? " disabled" : ""}> Client mandated account</label>
+      <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="payer" value="sender"${direct ? " checked" : ""}${anyPaid ? " disabled" : ""}> The sender pays directly</label>
+      ${anyPaid ? '<span class="muted">fixed — a payment is already recorded</span>' : '<button class="plain small">Save</button>'}
+    </form>` : "";
   return `<details class="panel" open>
-    <summary><strong>Bank operations</strong> — ${items.filter((i) => i.paid).length} of ${items.length} payments on the statement${
-      tip("Fiat moves through the client mandated account at HSBC, so the record is built from the statement. Every payment carries a reference we chose; import the statement and Reconcile turns each line with a matching reference and amount into a custody event. Anything that nearly matches is shown for a person to decide.")}</summary>
+    <summary><strong>Bank operations</strong> — ${direct ? "sender pays directly — " : ""}${items.filter((i) => i.paid).length} of ${items.length} payments on the statement${
+      tip(direct
+        ? "The sender pays every recipient and our fee from their own bank, using the payment file and references from their page, and uploads their statement there. Reconcile (theirs or ours) turns each line with a matching reference and amount into a custody event held by the client. Nothing passes through an account we operate."
+        : "Fiat moves through the client mandated account at HSBC, so the record is built from the statement. Every payment carries a reference we chose; import the statement and Reconcile turns each line with a matching reference and amount into a custody event. Anything that nearly matches is shown for a person to decide.")}</summary>
     ${note ? `<div class="good" style="white-space:pre-line">${esc(note)}</div>` : ""}
+    ${payerForm}
     <h3 style="margin:8px 0 4px">What we expect to see${tip("The reference is the whole matching rule: a statement line must carry it and the exact amount. Give the sender theirs to put on their payment; ours go on the bulk payment file.")}</h3>
     <table>
       <tr><th>Who</th><th>Direction</th><th>Reference</th><th>Account</th><th style="text-align:right">Amount</th><th></th></tr>
@@ -1949,7 +1967,7 @@ async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
     </table>
     ${outstanding ? `<p><a href="/t/${esc(t.id)}/bank/payments.csv"><button class="plain">Download the payment file (${outstanding} payment${outstanding === 1 ? "" : "s"})</button></a>${
       tip("A CSV with one row per outgoing payment still to make — beneficiary, account, amount, reference — for the bank's bulk payment upload. Recipients without a locked, proved account are still listed so you can see the gap; do not pay a row with no account.")}</p>` : ""}
-    <h3 style="margin:14px 0 4px">The statement</h3>
+    <h3 style="margin:14px 0 4px">The statement${direct ? ' <span class="muted" style="font-weight:400">— the sender\'s; they can upload it from their page, or you can here</span>' : ""}</h3>
     <form method="post" action="/t/${esc(t.id)}/bank" enctype="multipart/form-data">
       <input type="hidden" name="action" value="import">
       <label for="stmt">Paste the export, or upload the CSV${tip("Any bank CSV: the date, description and amount (or paid-in / paid-out) columns are found by their headings. A line imported twice is kept once. Lines are held across transactions, so one import covers every distribution on the account.")}</label>
@@ -1978,6 +1996,20 @@ async function bankAction(request: Request, env: Env, admin: { name: string }, a
   if (!t) return new Response("Not found", { status: 404 });
   const f = await request.formData();
   const action = String(f.get("action") ?? "");
+  if (action === "payer") {
+    const want = String(f.get("payer")) === "sender" ? "sender" : "mandated";
+    if (t.inbound !== "fiat" || t.outbound !== "fiat") return detail(env, admin, txId, "Only a fiat-to-fiat transaction has a choice of payer.");
+    const paid = await env.DB.prepare("SELECT 1 FROM custody_events WHERE transaction_id = ? LIMIT 1").bind(txId).first();
+    if (paid) return detail(env, admin, txId, "A payment is already on the record; who pays cannot change now.");
+    if (want !== t.fiat_payer) {
+      await update(env.DB, actor, "transaction.fiat_payer", "transactions", txId,
+        { fiat_payer: want }, { fiat_payer: t.fiat_payer },
+        { note: want === "sender" ? "the sender pays every recipient and the fee from their own bank" : "payments through the client mandated account" });
+    }
+    return detail(env, admin, txId, "", want === "sender"
+      ? "The sender pays directly. Their page now carries the payment file and a place for their statement."
+      : "Payments go through the client mandated account.");
+  }
   if (action === "penny") {
     const r = await sendPenny(env, actor, String(f.get("destination") ?? ""));
     return "problem" in r ? detail(env, admin, txId, r.problem)

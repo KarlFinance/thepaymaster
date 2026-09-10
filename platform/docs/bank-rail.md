@@ -54,3 +54,25 @@ in the dossier (`08c-bank-line`).
 
 Only the import. Lines arriving from the bank go into the same table with the
 same fingerprint; the references, the matching and the record stay as they are.
+
+## The sender pays directly
+
+`transactions.fiat_payer` (migration 0030): `mandated` (default) or `sender`.
+Staff choose on the Bank operations panel of a fiat-to-fiat transaction; the
+choice is fixed once any custody event exists.
+
+In `sender` mode `holderFor()` is `client` throughout and nothing is expected
+to arrive with us: `expected()` has no receipt row, the fee row carries our own
+account from the `FEE_BANK_ACCOUNT` var, and `settlementChecks` drops "the
+funds arrived" and asks instead that the fee has been paid to us. The sender's
+page shows the payment file (`/d/:tx/payments.csv`, every recipient plus the
+fee, with references) and a statement box (`POST /d/:tx/bank`) that imports
+and reconciles in one step with the sender as actor. "Pay" is done only when
+every leg *and* the fee are on the statement. A matched statement line counts
+as the payment's evidence. The Counterparty Certification's basis line says
+the funds were never held by ThePaymaster or in any account it operates.
+
+Vars, set in `wrangler.toml [vars]` as `Name|sort code|account number|IBAN|BIC|bank`:
+`FEE_BANK_ACCOUNT` (our account for the fee row) and `MANDATED_ACCOUNT` (what
+a sender in mandated mode is told to pay into). Unset, the page says the
+details will follow separately.

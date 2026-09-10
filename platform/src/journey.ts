@@ -119,7 +119,8 @@ export function recipientJourney(o: {
     summary: "We are screening the address. Nothing needed from you." });
 
   // 5. paid
-  if (o.paidHash) steps.push({ key: "paid", label: "Paid", state: "done", summary: "Confirmed on the chain" });
+  if (o.paidHash) steps.push({ key: "paid", label: "Paid", state: "done",
+    summary: o.paidHash === "bank" ? "On the bank statement" : "Confirmed on the chain" });
   else if (o.dest?.status === "locked") steps.push({ key: "paid", label: "Paid", state: "wait",
     summary: "Waiting for the sender. A test payment of one unit will arrive first." });
   else steps.push({ key: "paid", label: "Paid", state: "todo" });
@@ -181,6 +182,8 @@ export function senderJourney(o: {
   allPaid: boolean;
   sealed: boolean;
   onChain: boolean;
+  /** Fiat the sender pays from their own bank: the step is "Pay", not "Send". */
+  paysDirect?: boolean;
 }): Step[] {
   const steps: Step[] = [];
 
@@ -214,12 +217,13 @@ export function senderJourney(o: {
     summary: `${done} of ${n} ready — waiting on them, not on you` });
 
   const canSend = o.status === "ready" || o.status === "settling";
-  if (o.allPaid) steps.push({ key: "send", label: "Send", state: "done",
-    summary: "Every payment confirmed on the chain" });
-  else if (canSend && verified && walletsDone) steps.push({ key: "send", label: "Send", state: "now" });
-  else if (ready && verified && walletsDone) steps.push({ key: "send", label: "Send", state: "wait",
+  const sendLabel = o.paysDirect ? "Pay" : "Send";
+  if (o.allPaid) steps.push({ key: "send", label: sendLabel, state: "done",
+    summary: o.onChain ? "Every payment confirmed on the chain" : "Every payment on the statement" });
+  else if (canSend && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "now" });
+  else if (ready && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: "We are checking the gate. You will get an email when you can send." });
-  else steps.push({ key: "send", label: "Send", state: "todo" });
+  else steps.push({ key: "send", label: sendLabel, state: "todo" });
 
   if (o.sealed) steps.push({ key: "record", label: "Complete", state: "done",
     summary: "Record sealed. Everyone has their copy." });
@@ -270,9 +274,13 @@ export function progressTable(rows: RecipientProgress[], onChain: boolean): stri
 export async function outcome(env: Env, txId: string) {
   const [legRows, sealRows] = await Promise.all([payoutLegs(env, txId), seals(env, txId)]);
   return {
-    paidFor: (participationId: string) =>
-      legRows.find((l) => l.participationId === participationId)?.txHash ?? null,
-    allPaid: legRows.length > 0 && legRows.every((l) => l.txHash),
+    // A leg is paid when a hash was verified (chain) or a payment was recorded
+    // against it (bank). The recipient's step reads either as done.
+    paidFor: (participationId: string) => {
+      const l = legRows.find((x) => x.participationId === participationId);
+      return l?.txHash ?? (l && l.sentMinor !== null ? "bank" : null);
+    },
+    allPaid: legRows.length > 0 && legRows.every((l) => l.txHash || l.sentMinor !== null),
     sealed: sealRows.length > 0,
   };
 }

@@ -30,6 +30,12 @@ export interface Env {
   ETH_RPC_URL_2?: string;
   /** Nominis wallet screening. Absent means a person records the verdict. */
   NOMINIS_API_KEY?: string;
+  /** Our own bank account for fees when the sender pays directly, as
+   *  "Name|sort code|account number|IBAN|BIC|bank". Absent: the fee row has no
+   *  account and the page says we will send the details. Set in wrangler [vars]. */
+  FEE_BANK_ACCOUNT?: string;
+  /** The client mandated account senders pay into, same shape. */
+  MANDATED_ACCOUNT?: string;
 }
 
 export interface Actor {

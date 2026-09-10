@@ -18,7 +18,7 @@
  */
 
 import { type Env, type Actor, id, update, log } from "./db.ts";
-import { record as recordCustody, legs as payoutLegs } from "./settlement.ts";
+import { record as recordCustody, legs as payoutLegs, holderFor } from "./settlement.ts";
 import { assess } from "./readiness.ts";
 import { parse as parseMoney, format } from "./money.ts";
 import { pennySent } from "./notify.ts";
@@ -77,6 +77,21 @@ export async function claimPenny(env: Env, actor: Actor, destinationId: string, 
 
 // --- the payments we expect, and the file to make them with ----------------------------
 
+export type BankAccount = { name: string; sortCode?: string; accountNumber?: string; iban?: string; bic?: string; bank?: string };
+
+/** "Name|sort|account|IBAN|BIC|bank" from a Worker var; null when unset or malformed. */
+export function accountFromVar(v: string | undefined): BankAccount | null {
+  if (!v) return null;
+  const [name, sortCode, accountNumber, iban, bic, bank] = v.split("|").map((x) => x.trim());
+  if (!name || !(iban || (sortCode && accountNumber))) return null;
+  return { name, sortCode: sortCode || undefined, accountNumber: accountNumber || undefined,
+    iban: iban || undefined, bic: bic || undefined, bank: bank || undefined };
+}
+
+/** Does the sender pay everyone from their own bank on this transaction? */
+export const paysDirect = (t: { inbound: string; outbound: string; converts: number; fiat_payer?: string | null }) =>
+  holderFor(t) === "client";
+
 export interface Expected {
   what: string;                     // receipt | leg:<participation> | fee
   who: string;
@@ -85,7 +100,7 @@ export interface Expected {
   direction: "in" | "out";
   currency: string;
   decimals: number;
-  account: { name: string; sortCode?: string; accountNumber?: string; iban?: string; bic?: string; bank?: string } | null;
+  account: BankAccount | null;
   paid: boolean;
 }
 
@@ -97,7 +112,8 @@ export async function expected(env: Env, txId: string): Promise<{ tx: any; items
 
   const received = await env.DB.prepare(
     "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'received' LIMIT 1").bind(txId).first();
-  if (tx.inbound === "fiat") {
+  const direct = paysDirect(tx);
+  if (tx.inbound === "fiat" && !direct) {
     items.push({ what: "receipt", who: "the sender", reference: inboundReference(tx.ref),
       amountMinor: state.settlement?.grossMinor ?? tx.gross_expected_minor ?? 0, direction: "in",
       currency: tx.currency_in, decimals: tx.decimals_in, account: null, paid: Boolean(received) });
@@ -121,7 +137,7 @@ export async function expected(env: Env, txId: string): Promise<{ tx: any; items
   if (tx.inbound === "fiat") {
     items.push({ what: "fee", who: "ThePaymaster", reference: feeReference(tx.ref),
       amountMinor: state.settlement?.feeMinor ?? 0, direction: "out", currency: tx.currency_in, decimals: tx.decimals_in,
-      account: null, paid: Boolean(fee) });
+      account: direct ? accountFromVar(env.FEE_BANK_ACCOUNT) : null, paid: Boolean(fee) });
   }
   return { tx, items };
 }
@@ -264,7 +280,7 @@ export async function reconcile(env: Env, actor: Actor, txId: string):
       continue;
     }
     const res = await recordCustody(env, actor, txId, {
-      holder: "thepaymaster_hsbc",
+      holder: holderFor(tx),
       event: it.what === "receipt" ? "received" : it.what === "fee" ? "fee_taken" : "sent",
       amountMinor: it.amountMinor, currency: it.currency, decimals: dec,
       occurredAt: `${exact.booked_on} 00:00:00`,

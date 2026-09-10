@@ -37,7 +37,8 @@ import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
 import { documentsFor } from "./documents.ts";
 import { forParticipation, save as saveDestination, confirm as confirmDestination,
          problemWith, describe, type Kind } from "./destinations.ts";
-import { claimPenny } from "./bank.ts";
+import { claimPenny, paysDirect, expected as bankExpected, paymentsCsv, importStatement, reconcile as reconcileBank,
+         accountFromVar } from "./bank.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
          removeSendingWallet,
          sendingWallets, addSendingWallet, proveSendingWallet,
@@ -431,6 +432,74 @@ export async function clientStartOwn(env: Env, request: Request): Promise<Respon
 }
 
 /** The sender asks to run a finished distribution again. */
+/**
+ * What a fiat sender sees when it is time to pay.
+ *
+ * Through the mandated account: one payment to us, with the reference. Paying
+ * directly: the payment file for their bank, every recipient and our fee with
+ * its reference, and a place to put their statement so the record can be made.
+ */
+async function senderPayCard(env: Env, part: any, txId: string, error: string, note: string): Promise<string> {
+  const { items } = await bankExpected(env, txId);
+  const acct = (a: ReturnType<typeof accountFromVar>) => a
+    ? `<b>${esc(a.name)}</b>${a.bank ? `, ${esc(a.bank)}` : ""}<br>${a.iban ? `IBAN ${esc(a.iban)}${a.bic ? `, BIC ${esc(a.bic)}` : ""}`
+        : `Sort code ${esc(a.sortCode ?? "")}, account ${esc(a.accountNumber ?? "")}`}`
+    : `<span class="muted">We will send you the account details separately.</span>`;
+  const err = error ? `<div class="err">${esc(error)}</div>` : "";
+  const good = note ? `<div class="good">${esc(note)}</div>` : "";
+  if (!paysDirect(part)) {
+    const receipt = items.find((i) => i.what === "receipt");
+    return `<div class="card now"><h2>Make your payment</h2>${err}${good}
+      <p>Send <b>${esc(part.currency_in)} ${format(receipt?.amountMinor ?? 0, part.decimals_in)}</b> to the client mandated account,
+         with the reference <b>${esc(receipt?.reference ?? part.ref)}</b>. The reference is how your money is matched
+         to this distribution, so please put it exactly.</p>
+      <p>${acct(accountFromVar(env.MANDATED_ACCOUNT))}</p>
+      <p class="muted">${receipt?.paid ? "Received — thank you. We are paying your recipients." : "We will confirm here when it arrives, and pay every recipient from the mandated account."}</p></div>`;
+  }
+  const out = items.filter((i) => i.direction === "out" && i.amountMinor > 0);
+  const todo = out.filter((i) => !i.paid);
+  const noAccount = out.filter((i) => !i.account && !i.paid);
+  return `<div class="card now"><h2>Pay everyone from your own bank</h2>${err}${good}
+    <p>You make the payments yourself; nothing passes through an account of ours. Each payment carries a
+       reference, and the record is made from your statement, line by line.</p>
+    <table class="progress">
+      <tr><th>To</th><th>Account</th><th style="text-align:right">Amount</th><th>Reference</th><th></th></tr>
+      ${out.map((i) => `<tr>
+        <td>${esc(i.who)}</td>
+        <td class="mono" style="font-size:12px">${i.account ? esc(i.account.iban ?? `${i.account.sortCode ?? ""} ${i.account.accountNumber ?? ""}`) : '<span class="muted">to follow</span>'}</td>
+        <td style="text-align:right">${esc(i.currency)} ${format(i.amountMinor, i.decimals)}</td>
+        <td class="mono" style="font-size:12px">${esc(i.reference)}</td>
+        <td>${i.paid ? '<span class="good">&#10003; on your statement</span>' : '<span class="muted">to pay</span>'}</td></tr>`).join("")}
+    </table>
+    ${noAccount.length ? `<p class="muted">${noAccount.length === 1 ? "One row has" : `${noAccount.length} rows have`} no account yet; the file will fill in when it is there.</p>` : ""}
+    ${todo.length ? `<p><a href="/d/${esc(txId)}/payments.csv"><button>Download the payment file (${todo.length})</button></a>
+      <span class="muted">A CSV for your bank's bulk payment upload: name, account, amount, reference.</span></p>` : `<p class="good">Every payment is on your statement.</p>`}
+    <h3 style="margin-top:18px">Then send us your statement</h3>
+    <p class="muted">Export the statement from your bank as CSV and paste or upload it here. We match each line
+       by its reference and amount; lines that are not ours are ignored, and nothing is recorded on a partial match.</p>
+    <form method="post" action="/d/${esc(txId)}/bank" enctype="multipart/form-data">
+      <textarea name="text" rows="4" placeholder="Date,Description,Paid out,Paid in,Balance&#10;..."></textarea>
+      <div class="row"><input type="file" name="file" accept=".csv,text/csv,text/plain"><button class="go">Match my payments</button></div>
+    </form></div>`;
+}
+
+/** The bulk payment file for a sender paying directly. */
+export async function clientPayments(env: Env, request: Request, txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const mine = await principals(env, who.partyId);
+  const part = await env.DB.prepare(
+    `SELECT t.* FROM participations p JOIN transactions t ON t.id = p.transaction_id
+      WHERE p.transaction_id = ? AND p.role = 'sender' AND p.party_id IN (${mine.map(() => "?").join(",")}) LIMIT 1`)
+    .bind(txId, ...mine).first<any>();
+  if (!part || !paysDirect(part)) return new Response("Not found", { status: 404 });
+  const actor: Actor = { kind: "party", id: who.partyId, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  const csv = await paymentsCsv(env, txId);
+  await log(env.DB, actor, "bank.payments_downloaded", "transactions", txId, { note: "by the sender" });
+  return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${part.ref}-payments.csv"`, "cache-control": "no-store" } });
+}
+
 export async function clientAgain(env: Env, request: Request, txId: string): Promise<Response> {
   const who = await whoIs(env, request);
   if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
@@ -793,10 +862,33 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // page, an error shown against all of them is as unhelpful as one shown
   // against none — and none is what happened.
   let errorWallet = "";
-  const isRoomPost = request.method === "POST" && new URL(request.url).pathname.endsWith("/room");
+  const isRoomPost = request.method === "POST" && /\/(room|bank)$/.test(new URL(request.url).pathname);
   const canPrepare = atLeast(memberRole, "preparer");
   if (request.method === "POST" && !canPrepare) {
     error = "Your role on this account is viewer: you can read everything here but not change it.";
+  }
+
+  // The sender's own statement, when they pay everyone directly: import it and
+  // reconcile in one step. The sender is the actor on every event it records.
+  let bankNote = "";
+  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/bank") && canPrepare
+      && part.role === "sender" && paysDirect(part)) {
+    const f = await request.formData();
+    const file = f.get("file");
+    const text = (file instanceof File && file.size > 0) ? await file.text() : String(f.get("text") ?? "");
+    if (!text.trim()) error = "Paste your statement or choose the file first.";
+    else {
+      const r = await importStatement(env, actor, text, part.currency_in, part.decimals_in);
+      if (!r.added && !r.duplicates) error = "We could not read that as a statement. It needs a date column, a description or reference column, and an amount (or paid-in / paid-out) column, named in the first row.";
+      else {
+        const rec = await reconcileBank(env, actor, txId);
+        bankNote = [
+          `${r.added} new line${r.added === 1 ? "" : "s"} read${r.duplicates ? `, ${r.duplicates} seen before` : ""}.`,
+          rec.recorded.length ? `Matched ${rec.recorded.length}: ${rec.recorded.join("; ")}.` : "No payment on it matched a reference and amount yet.",
+          rec.near.length ? `Look at: ${rec.near.join("; ")}` : "",
+        ].filter(Boolean).join(" ");
+      }
+    }
   }
   if (request.method === "POST" && !isRoomPost && canPrepare && part.role === "sender") {
     const f = await request.formData();
@@ -891,8 +983,11 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         paidHash: out.paidFor(part.participation_id), sealed: out.sealed })
     : senderJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
-        recipients: progress, status: part.status, allPaid: out.allPaid,
-        sealed: out.sealed, onChain: part.inbound === "crypto" });
+        recipients: progress, status: part.status,
+        // Paying directly, the sender's job includes our fee: "Pay" is not done until it is on the statement.
+        allPaid: out.allPaid && (!paysDirect(part) || Boolean(await env.DB.prepare(
+          "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'fee_taken' LIMIT 1").bind(txId).first())),
+        sealed: out.sealed, onChain: part.inbound === "crypto", paysDirect: paysDirect(part) });
 
   // The one card that is open: whatever the current step needs. Everything
   // else is a line, so a finished thing reads as finished and a waiting thing
@@ -942,6 +1037,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       case "wallets":
         return await senderWallets(env, part, sending, error, errorWallet, rail);
       case "send":
+        if (part.inbound === "fiat") return await senderPayCard(env, part, txId, error, bankNote);
         return `<div class="card now"><h2>Ready to send</h2>
           <p>Everyone is verified, every address is proved, screened and locked,
              and the amounts add up. You will see every recipient, their full
@@ -953,6 +1049,9 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   };
 
   const body: string[] = [];
+  if (bankNote && !steps.some((s) => s.key === "send" && s.state === "now")) {
+    body.push(`<div class="card"><div class="good">${esc(bankNote)}</div></div>`);
+  }
   for (const step of steps) {
     if (step.state === "now") body.push(await open(step.key));
     else if (editing && step.key === "details") body.push(destinationCard(part, dest, kind, error, true));

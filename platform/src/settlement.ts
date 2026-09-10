@@ -39,11 +39,18 @@ export interface Leg {
   sentAt: string | null;
   evidenceId: string | null;
   txHash: string | null;
+  /** The custody event that paid it, when one has. */
+  eventId: string | null;
+  /** Paid by bank: the statement line that proves it is the evidence. */
+  bankLineId: string | null;
 }
 
 /** Where funds sit for each type, so the record says which was actually used. */
-export function holderFor(t: { inbound: string; outbound: string; converts: number }): Holder {
+export function holderFor(t: { inbound: string; outbound: string; converts: number; fiat_payer?: string | null }): Holder {
   if (t.inbound === "crypto" && t.outbound === "crypto" && !t.converts) return "none";
+  // Fiat the sender pays out themselves never leaves their own bank until it
+  // reaches each recipient: the holder throughout is the client.
+  if (t.inbound === "fiat" && t.outbound === "fiat" && t.fiat_payer === "sender") return "client";
   if (t.inbound === "fiat") return "thepaymaster_hsbc";
   return "otc_desk";
 }
@@ -201,6 +208,8 @@ export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
           AND c.id IN (SELECT event_id FROM payout_legs WHERE participation_id = ?)
         ORDER BY c.occurred_at DESC LIMIT 1`)
       .bind(transactionId, r.participation_id).first<any>();
+    const line = sent ? await env.DB.prepare(
+      "SELECT id FROM bank_lines WHERE matched_event_id = ? LIMIT 1").bind(sent.id).first<any>() : null;
     out.push({
       participationId: r.participation_id,
       partyId: r.party_id,
@@ -210,6 +219,8 @@ export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
       sentAt: sent?.occurred_at ?? null,
       evidenceId: sent?.evidence_id ?? null,
       txHash: sent?.tx_hash ?? null,
+      eventId: sent?.id ?? null,
+      bankLineId: line?.id ?? null,
     });
   }
   return out;
@@ -234,9 +245,12 @@ export async function settlementChecks(env: Env, transactionId: string): Promise
   // been dealt with would mean a legitimately resolved discrepancy could never
   // be closed, which is a good rule turned into an obstruction.
   const varianceSettled = Boolean(t.variance_note);
+  const direct = holderFor(t) === "client";
 
   const checks = [
-    {
+    // When the sender pays directly nothing arrives with us, so there is no
+    // arrival to check; the legs and the fee are the whole story.
+    ...(direct ? [] : [{
       label: "The funds arrived",
       met: Boolean(got && got.receivedMinor > 0 && (got.ok || varianceSettled)),
       detail: !got || got.receivedMinor === 0
@@ -253,9 +267,9 @@ export async function settlementChecks(env: Env, transactionId: string): Promise
               `${got.varianceMinor > 0 ? "over" : "short"} by ` +
               `${format(Math.abs(got.varianceMinor), t.decimals_in)}, and nobody has ` +
               `said what we are doing about it`,
-    },
+    }]),
     {
-      label: "Our fee is recorded",
+      label: direct ? "Our fee has been paid to us" : "Our fee is recorded",
       met: (feeRow?.total ?? 0) > 0,
       detail: (feeRow?.total ?? 0) > 0
         ? `${t.currency_in} ${format(feeRow.total, t.decimals_in)}`
@@ -272,10 +286,12 @@ export async function settlementChecks(env: Env, transactionId: string): Promise
           : `Outstanding: ${all.filter((l) => l.sentMinor === null).map((l) => l.name).join(", ")}`,
     },
     {
+      // A file, a verified hash, or a statement line: each is the payment's
+      // own evidence in the terms of its rail.
       label: "Every payment has evidence",
-      met: all.length > 0 && all.every((l) => l.sentMinor === null || l.evidenceId || l.txHash),
-      detail: all.some((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash)
-        ? `Nothing against: ${all.filter((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash)
+      met: all.length > 0 && all.every((l) => l.sentMinor === null || l.evidenceId || l.txHash || l.bankLineId),
+      detail: all.some((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash && !l.bankLineId)
+        ? `Nothing against: ${all.filter((l) => l.sentMinor !== null && !l.evidenceId && !l.txHash && !l.bankLineId)
             .map((l) => l.name).join(", ")}`
         : "All accounted for",
     },
