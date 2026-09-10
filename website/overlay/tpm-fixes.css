@@ -48,3 +48,9 @@ ol.ekit-breadcrumb > li.brd_sep .separate_icon {
   display: inline-flex;
   align-items: center;
 }
+
+/* The social links sat in the footer's own grey (#4A5567) while every other
+   link there is white, so they read as disabled text on the dark band.
+   Measured from the live page rather than guessed. */
+.ekit_social_media a { color: #fff; }
+.ekit_social_media a:hover { color: #FF8159; }

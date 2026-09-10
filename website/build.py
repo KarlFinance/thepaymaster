@@ -80,6 +80,41 @@ ORIGIN_IP = "157.245.37.150"
 PAGES_API = "/wp-json/wp/v2/pages?per_page=100&_fields=link,modified,status"
 
 
+# ---------------------------------------------------------------------------
+# Corrections applied to every captured page
+#
+# These are done here rather than by hand in dist/ so that a recapture does not
+# quietly undo them. Each one is a fact about the site being wrong, not a
+# preference.
+# ---------------------------------------------------------------------------
+
+# The call to action now goes to the platform's own enquiry form rather than
+# the old WordPress page. Matched on the button's text so that other links to
+# /briefing-evaluation/ are left alone.
+START_BUTTON = re.compile(
+    r'(<a\b[^>]*?href=")([^"]*)("[^>]*>(?:(?!</a>).){0,600}?Start A Transaction)',
+    re.S | re.I)
+
+# Twitter, which they do not use. The whole list item goes, not just the link,
+# so no empty bullet is left behind.
+TWITTER_ITEM = re.compile(
+    r'<li[^>]*>\s*<a\b[^>]*(?:x\.com|twitter\.com)[^>]*>.*?</a>\s*</li>',
+    re.S | re.I)
+
+# A Cloudways referral badge: the image is broken (it answers with HTML, not a
+# picture) and the link is a referral code for the host this site has just
+# moved off. On all forty-six pages.
+CLOUDWAYS = re.compile(
+    r'<a\b[^>]*vrlps\.co[^>]*>.*?</a>', re.S | re.I)
+
+
+def edits(text: str) -> str:
+    text = START_BUTTON.sub(r"\1/enquiry\3", text)
+    text = TWITTER_ITEM.sub("", text)
+    text = CLOUDWAYS.sub("", text)
+    return text
+
+
 def page_list() -> list[tuple[str, str]]:
     """(url, lastmod) for every published page, straight from the origin."""
     out = subprocess.run(
@@ -100,6 +135,7 @@ def main() -> None:
     for f in DIST.rglob("*.html"):
         text = f.read_text("utf-8", "replace")
         new = DEAD_HEAD_EXTRA.sub("", DEAD_HEAD.sub("", text))
+        new = edits(new)
         if new != text:
             f.write_text(new)
             stripped += 1
