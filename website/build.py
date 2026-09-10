@@ -108,15 +108,11 @@ CLOUDWAYS = re.compile(
     r'<a\b[^>]*vrlps\.co[^>]*>.*?</a>', re.S | re.I)
 
 
-# SOFie, the recorded interview, is not a working service yet and is out of
-# the process for now. Every mention goes: the deliverable, its place in the
-# Verify step, the FAQ sentence, and the summary line (which also carried a
-# stray "n"). The sofie-interview page itself is left alone; it is not linked.
-SOFIE = "SOFie(?:\u2122|&trade;|\u00ae)?"
-SOFIE_ITEM = re.compile(r'<li[^>]*>\s*' + SOFIE + r'[^<]*recorded interview[^<]*</li>', re.S | re.I)
-SOFIE_VERIFY = re.compile(SOFIE + r'\s+interview;\s*', re.I)
-SOFIE_FAQ = re.compile(r'\s*' + SOFIE + r'\s+captures your SoF/SoW narrative\.', re.I)
-SOFIE_SUMMARY = re.compile(r'\s*' + SOFIE + r'\s+interview\s*n?\s*(?:\u2022|&bull;)\s*', re.I)
+# The "SOFie recorded interview (transcript + artefacts)" deliverable is not part
+# of the process: SOFie is a concept for later, not a service today. Only that
+# one list item goes; the page's other mentions of SOFie stay as written.
+SOFIE_ITEM = re.compile(
+    r'<li[^>]*>\s*SOFie(?:\u2122|&trade;)?[^<]*recorded interview[^<]*</li>', re.S | re.I)
 
 
 def edits(text: str) -> str:
@@ -124,9 +120,6 @@ def edits(text: str) -> str:
     text = TWITTER_ITEM.sub("", text)
     text = CLOUDWAYS.sub("", text)
     text = SOFIE_ITEM.sub("", text)
-    text = SOFIE_VERIFY.sub("", text)
-    text = SOFIE_FAQ.sub("", text)
-    text = SOFIE_SUMMARY.sub(" ", text)
     return text
 
 
