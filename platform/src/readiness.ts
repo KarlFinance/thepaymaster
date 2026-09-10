@@ -14,7 +14,8 @@
 import { type Env } from "./db.ts";
 import { settle, format, type FeeMode } from "./money.ts";
 import { standingCheck } from "./screening.ts";
-import { inspect, USDT_MAINNET, CHAINS } from "./chain.ts";
+import { CHAINS } from "./chain.ts";
+import { railFor } from "./rail.ts";
 import { standing as standingScreen } from "./walletscreen.ts";
 import { proved as provedAddress } from "./attest.ts";
 
@@ -215,7 +216,7 @@ export async function assess(env: Env, transactionId: string,
   // Only when asked for, because it is several network calls and the pipeline
   // renders this on every page. The transaction page asks; the board does not.
   if (opts.onChain && t.inbound === "crypto" && t.chain_id) {
-    const token = t.token_address || USDT_MAINNET;
+    const rail = railFor(t);
     const chainId = t.chain_id as number;
 
     const addresses: { address: string; role: string }[] = [];
@@ -245,13 +246,14 @@ export async function assess(env: Env, transactionId: string,
 
     if (addresses.length) {
       const reports = await Promise.all(
-        addresses.map((a) => inspect(env, chainId, token, a.address, a.role)));
+        addresses.map((a) => rail.inspect(env, a.address, a.role)));
 
       // Tether can freeze an address, and a frozen recipient cannot receive.
-      // Sending to one loses the funds in every sense that matters.
-      const frozen = reports.filter((r) => r.blacklisted === true);
-      const unknown = reports.filter((r) => r.blacklisted === null);
-      checks.push({
+      // Sending to one loses the funds in every sense that matters. A rail
+      // whose asset has no issuer (Bitcoin) has no such line.
+      const frozen = reports.filter((r) => r.frozen === true);
+      const unknown = reports.filter((r) => r.frozen === null);
+      if (rail.canFreeze) checks.push({
         key: "not_frozen",
         label: "No address is frozen by Tether",
         met: frozen.length === 0 && unknown.length === 0,

@@ -9,9 +9,9 @@
 import { type Env, type Actor, id, update, canMove } from "./db.ts";
 import { esc } from "./views.ts";
 import { format } from "./money.ts";
-import { plan, transferData, gasNeeded, DUST_MINOR,
+import { plan, transferData, gasNeeded,
          type Plan, type Line } from "./execute.ts";
-import { explorerLink, addressLink, transferHappened, txHashProblem } from "./chain.ts";
+import { explorerLink, addressLink } from "./chain.ts";
 import { record } from "./settlement.ts";
 import { paymentLanded } from "./notify.ts";
 
@@ -278,7 +278,7 @@ export async function prepare(env: Env, txId: string, legId: string,
     return json({ problem: "A test payment has already reached that address." });
   }
 
-  const amount = testing ? DUST_MINOR : line.amountMinor;
+  const amount = testing ? p.rail.dustMinor() : line.amountMinor;
   if (amount <= 0) return json({ problem: "There is no amount to send." });
 
   return json({
@@ -304,11 +304,11 @@ export async function recordTest(env: Env, actor: Actor, txId: string,
   if (!line || !line.address) return "That payment is not part of this transaction.";
   if (line.testedHash) return "A test payment has already reached that address.";
 
-  const shape = txHashProblem(txHash);
+  const shape = p.rail.hashProblem(txHash);
   if (shape) return shape;
 
-  const moved = await transferHappened(env, p.chainId, txHash.trim(), {
-    token: p.token, to: line.address, amountMinor: DUST_MINOR,
+  const moved = await p.rail.verify(env, txHash.trim(), {
+    to: line.address, amountMinor: p.rail.dustMinor(),
   });
   if (!moved) return "Could not reach the chain to check that hash. Try again.";
   if (!moved.agreed) {
@@ -335,7 +335,7 @@ export async function recordTest(env: Env, actor: Actor, txId: string,
        chain_id, token, amount_minor, tx_hash, tx_block, verified_at, sent_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id("tst"), txId, line.participationId, line.address, p.chainId, p.token,
-          DUST_MINOR, txHash.trim(), moved.block,
+          p.rail.dustMinor(), txHash.trim(), moved.block,
           new Date().toISOString().replace("T", " ").slice(0, 19), actor.id)
     .run();
   return "";
@@ -351,7 +351,7 @@ export async function recordLeg(env: Env, actor: Actor, txId: string,
   if (line.paid) return "That payment is already recorded.";
   if (!line.address) return "That payment has no address.";
 
-  const shape = txHashProblem(txHash);
+  const shape = p.rail.hashProblem(txHash);
   if (shape) return shape;
 
   // A hash that exists and succeeded is not evidence that *this* payment was
@@ -359,8 +359,8 @@ export async function recordLeg(env: Env, actor: Actor, txId: string,
   // The token's own Transfer event is the test, rather than the transaction's
   // calldata, so a payment routed through a Safe or a batch tool is recognised
   // exactly as one sent straight from a wallet.
-  const moved = await transferHappened(env, p.chainId, txHash.trim(), {
-    token: p.token, to: line.address, amountMinor: line.amountMinor,
+  const moved = await p.rail.verify(env, txHash.trim(), {
+    to: line.address, amountMinor: line.amountMinor,
   });
   if (!moved) return "Could not reach the chain to check that hash. Try again.";
   if (!moved.agreed) {

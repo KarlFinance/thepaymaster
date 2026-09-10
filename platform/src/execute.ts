@@ -26,8 +26,8 @@ import { type Env } from "./db.ts";
 import { legs as payoutLegs, holderFor, type Leg } from "./settlement.ts";
 import { assess } from "./readiness.ts";
 import { proved as provedAddress } from "./attest.ts";
-import { tokenBalance, isBlacklisted, isContract, endpoints,
-         USDT_MAINNET } from "./chain.ts";
+import { railFor, type Rail } from "./rail.ts";
+import { USDT_MAINNET } from "./chain.ts";
 import { standing } from "./walletscreen.ts";
 
 /**
@@ -41,6 +41,7 @@ import { standing } from "./walletscreen.ts";
 export const SCREEN_FRESH_DAYS = 7;
 
 /** One unit of the token: the smallest transfer the chain can express. */
+/** Kept for callers that still import it; the rail is the authority. */
 export const DUST_MINOR = 1;
 
 export interface Line {
@@ -68,6 +69,7 @@ export interface Funder {
 
 export interface Plan {
   ready: boolean;
+  rail: Rail;
   chainId: number;
   token: string;
   decimals: number;
@@ -94,10 +96,11 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
     .bind(txId).first<any>();
   if (!t) throw new Error("no such transaction");
 
+  const rail = railFor(t);
   const chainId = (t.chain_id as number) ?? 1;
   const token = (t.token_address as string) || USDT_MAINNET;
-  const decimals = (t.decimals_out ?? t.decimals_in ?? 6) as number;
-  const currency = (t.currency_out ?? t.currency_in ?? "USDT") as string;
+  const decimals = rail.decimals;
+  const currency = rail.symbol;
 
   const state = await assess(env, txId);
   const raw: Leg[] = await payoutLegs(env, txId);
@@ -173,12 +176,13 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
   // --- what the chain says about each address, in one pass -----------------
   await Promise.all(lines.map(async (line) => {
     if (!line.address) return;
-    const [frozen, contract, screen] = await Promise.all([
-      isBlacklisted(env, chainId, token, line.address),
-      isContract(env, chainId, line.address),
+    const [report, screen] = await Promise.all([
+      rail.inspect(env, line.address, line.name),
       standing(env, line.address, chainId),
     ]);
-    if (frozen === true) line.problems.push("Frozen by Tether — cannot receive");
+    const frozen = rail.canFreeze ? report.frozen : false;
+    const contract = report.contract;
+    if (frozen === true) line.problems.push("Frozen by the issuer — cannot receive");
     if (frozen === null) line.problems.push("Could not check the freeze list");
     if (contract === true) {
       line.notes.push("A contract, not an ordinary wallet — confirm it can hold tokens");
@@ -213,8 +217,8 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
 
   const funders: Funder[] = await Promise.all((sw ?? []).map(async (w: any) => {
     const [bal, gas] = await Promise.all([
-      tokenBalance(env, chainId, token, w.address).catch(() => null),
-      nativeBalance(env, chainId, w.address),
+      rail.balance(env, w.address).catch(() => null),
+      rail.nativeBalance(env, w.address),
     ]);
     return {
       address: w.address, label: w.label,
@@ -246,6 +250,7 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
   }
 
   return {
+    rail,
     ready: blocking.length === 0 && outstanding.every((l) => l.problems.length === 0),
     chainId, token, decimals, currency,
     lines, totalMinor, funders, blocking,
@@ -258,24 +263,6 @@ function stale(screenedAt: string | null | undefined): boolean {
   const when = Date.parse(screenedAt.replace(" ", "T") + "Z");
   if (Number.isNaN(when)) return true;
   return Date.now() - when > SCREEN_FRESH_DAYS * 86_400_000;
-}
-
-/** Native currency, for gas. The first endpoint that answers is good enough:
- *  this informs a warning, not a confirmation that money moved. */
-async function nativeBalance(env: Env, chainId: number,
-                             address: string): Promise<bigint | null> {
-  for (const ep of endpoints(env, chainId)) {
-    try {
-      const res = await fetch(ep.url, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1,
-          method: "eth_getBalance", params: [address, "latest"] }),
-      });
-      const body = await res.json<any>();
-      if (body?.result) return BigInt(body.result);
-    } catch { /* try the next one */ }
-  }
-  return null;
 }
 
 /** Enough native currency to pay for the legs still outstanding. */

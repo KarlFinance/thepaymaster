@@ -11,7 +11,8 @@
 
 import { type Env, type Actor, id, log, insert, update } from "./db.ts";
 import { esc } from "./views.ts";
-import { challenge, proves, provesControl, addressProblem, toChecksum } from "./wallets.ts";
+import { challenge, proves } from "./wallets.ts";
+import { railForTransaction, railForParticipation } from "./rail.ts";
 
 function nonce(): string {
   return [...crypto.getRandomValues(new Uint8Array(8))]
@@ -220,9 +221,8 @@ export async function proveDestination(env: Env, actor: Actor, destinationId: st
   });
   // A contract wallet has no key to recover, so the chain is asked instead.
   // Which kind of wallet it is does not need to be known here.
-  const chainId = await chainOf(env, d.participation_id);
-  if (!await provesControl(env, chainId, {
-        address: d.address, message, signature })) {
+  const rail = await railForParticipation(env, d.participation_id);
+  if (!await rail.provesControl(env, { address: d.address, message, signature })) {
     return "That signature does not come from that wallet. Check you signed with " +
            "the right account, and that the whole signature was copied. " +
            "If this is a Safe or another contract wallet, the signature has to " +
@@ -252,9 +252,10 @@ export async function sendingWallets(env: Env, transactionId: string) {
 export async function addSendingWallet(env: Env, actor: Actor, opts: {
   transactionId: string; partyId: string; chain: string; address: string; label?: string;
 }): Promise<string | null> {
-  const problem = addressProblem(opts.address);
-  if (problem) return problem;
-  const address = toChecksum(opts.address.trim());
+  const rail = await railForTransaction(env, opts.transactionId);
+  const shape = rail.normalise(opts.address);
+  if (!shape.ok) return shape.why;
+  const address = shape.address;
 
   // The token's own contract address is not a wallet. Pasting it here is an
   // easy mistake — both are 0x addresses on the same screen — and it would
@@ -321,9 +322,8 @@ export async function proveSendingWallet(env: Env, actor: Actor, walletId: strin
   const message = challenge({
     ref, address: w.address, role: "sender", nonce: w.proof_nonce,
   });
-  const chainId = await chainForTransaction(env, w.transaction_id);
-  if (!await provesControl(env, chainId, {
-        address: w.address, message, signature })) {
+  const rail = await railForTransaction(env, w.transaction_id);
+  if (!await rail.provesControl(env, { address: w.address, message, signature })) {
     return "That signature does not come from that wallet. Check you signed with " +
            "the right account, and that the whole signature was copied. " +
            "If this is a Safe or another contract wallet, the signature has to " +
@@ -358,20 +358,6 @@ export async function challengeForSendingWallet(env: Env, w: any,
 }
 
 /** The chain a transaction runs on, defaulting to Ethereum. */
-async function chainForTransaction(env: Env, transactionId: string): Promise<number> {
-  const t = await env.DB.prepare("SELECT chain_id FROM transactions WHERE id = ?")
-    .bind(transactionId).first<any>();
-  return (t?.chain_id as number) ?? 1;
-}
-
-/** The same, reached through a participation. */
-async function chainOf(env: Env, participationId: string): Promise<number> {
-  const t = await env.DB.prepare(
-    `SELECT t.chain_id FROM transactions t
-       JOIN participations p ON p.transaction_id = t.id
-      WHERE p.id = ?`).bind(participationId).first<any>();
-  return (t?.chain_id as number) ?? 1;
-}
 
 /**
  * Take a sending wallet back off a transaction.

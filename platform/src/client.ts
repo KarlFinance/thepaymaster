@@ -366,7 +366,9 @@ export async function signOut(env: Env, request: Request): Promise<Response> {
 /** Help is readable signed in or not — a person with a dead link needs it most. */
 export async function clientHelpPage(env: Env, request: Request): Promise<Response> {
   const who = await whoIs(env, request);
-  return shell("Help", `<div class="card">${clientHelp()}</div>`, who?.display_name, "/help");
+  const party = who ? await env.DB.prepare("SELECT display_name FROM parties WHERE id = ?")
+    .bind(who.partyId).first<any>() : null;
+  return shell("Help", `<div class="card">${clientHelp()}</div>`, party?.display_name, "/help");
 }
 
 export async function clientHome(env: Env, request: Request): Promise<Response> {
