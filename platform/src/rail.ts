@@ -18,6 +18,7 @@ import { type Env } from "./db.ts";
 import { ethereumRail } from "./rails/ethereum.ts";
 import { bitcoinRail } from "./rails/bitcoin.ts";
 import { BTC_CHAIN_ID } from "./btc.ts";
+import { bankRail } from "./rails/bank.ts";
 
 /** What the chain knows about one address, in one pass. */
 export interface AddressReport {
@@ -161,6 +162,8 @@ export interface RailRow {
   decimals_in?: number | null;
   currency_out?: string | null;
   currency_in?: string | null;
+  inbound?: string | null;
+  outbound?: string | null;
 }
 
 /**
@@ -170,6 +173,8 @@ export interface RailRow {
  * chain id and nothing else; those are Ethereum, and are read as such.
  */
 export function railFor(t: RailRow): Rail {
+  // No chain anywhere: the money goes bank to bank through the mandated account.
+  if (t.inbound === "fiat" && t.outbound === "fiat") return bankRail(t.currency_out ?? "GBP", t.decimals_out ?? 2);
   const key = t.rail ?? (t.chain_id ? `eth:${t.chain_id}:usdt` : null);
   const b = key?.match(/^btc:(mainnet|signet|testnet)$/);
   if (b) return bitcoinRail(b[1] as "mainnet" | "signet" | "testnet");
@@ -182,7 +187,7 @@ export function railFor(t: RailRow): Rail {
   });
 }
 
-const COLS = ["rail", "chain_id", "token_address", "decimals_out", "decimals_in", "currency_out", "currency_in"];
+const COLS = ["rail", "chain_id", "token_address", "decimals_out", "decimals_in", "currency_out", "currency_in", "inbound", "outbound"];
 
 export async function railForTransaction(env: Env, transactionId: string): Promise<Rail> {
   const t = await env.DB.prepare(`SELECT ${COLS.join(", ")} FROM transactions WHERE id = ?`)

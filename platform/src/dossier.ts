@@ -246,6 +246,10 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
     "SELECT * FROM custody_events WHERE transaction_id = ?", txId)) {
     add("08-custody", c.id, `${c.event} — ${c.currency}`, c);
   }
+  for (const b of await q(
+    "SELECT * FROM bank_lines WHERE transaction_id = ?", txId)) {
+    add("08c-bank-line", b.id, `Statement line — ${b.direction === "in" ? "in" : "out"} ${b.currency} — ${b.matched_what ?? "unmatched"}`, b);
+  }
   for (const m of await q(
     "SELECT * FROM mandates WHERE transaction_id = ?", txId)) {
     // The wording is part of the fact. A mandate recording only that somebody

@@ -317,6 +317,24 @@ export async function assess(env: Env, transactionId: string,
     }
   }
 
+  // --- and, for a bank account, that the penny came back ---------------------
+  if (t.outbound === "fiat") {
+    const unproved: string[] = [];
+    for (const r of recipients) {
+      const d = await env.DB.prepare(
+        "SELECT proved_at FROM destinations WHERE participation_id = ?")
+        .bind(r.participation_id).first<any>();
+      if (!d?.proved_at) unproved.push(r.display_name);
+    }
+    checks.push({
+      key: "accounts_proved",
+      label: "Every recipient has passed the penny test",
+      met: recipients.length > 0 && unproved.length === 0,
+      detail: unproved.length ? `Waiting on ${unproved.join(", ")}`
+        : `${recipients.length} account${recipients.length === 1 ? "" : "s"} proved by penny`,
+    });
+  }
+
   // --- the paperwork -------------------------------------------------------
   if (t.inbound === "fiat" || t.outbound === "fiat") {
     checks.push({

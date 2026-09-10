@@ -99,7 +99,17 @@ export function recipientJourney(o: {
       state: "wait", summary: "You told us you cannot sign from this address. We are reviewing it — nothing needed from you unless we write." });
     else steps.push({ key: "prove", label: "Prove it is yours", state: "now" });
   }
-  const proved = o.kind !== "wallet" || Boolean(o.dest?.proved_at || o.dest?.attested);
+  // For a bank account the proof is the penny test: we send 0.01 with a code
+  // in the reference and the recipient reads it back.
+  if (o.kind === "bank") {
+    if (!confirmed) steps.push({ key: "prove", label: "Prove it is yours", state: "todo" });
+    else if (o.dest.proved_at) steps.push({ key: "prove", label: "Prove it is yours",
+      state: "done", summary: `Penny test passed ${o.dest.proved_at.slice(0, 16)}` });
+    else if (o.dest.penny_code) steps.push({ key: "prove", label: "Prove it is yours", state: "now" });
+    else steps.push({ key: "prove", label: "Prove it is yours", state: "wait",
+      summary: "We are sending a penny to this account. When it lands, type the code from its reference here." });
+  }
+  const proved = Boolean(o.dest?.proved_at || o.dest?.attested);
 
   // 4. we lock it
   if (!(confirmed && proved)) steps.push({ key: "locked", label: "Checked and locked by us", state: "todo" });

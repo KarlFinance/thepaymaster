@@ -437,6 +437,38 @@ export async function staffCannotSign(env: Env, actor: Actor, destinationId: str
   });
 }
 
+/** The penny has gone; the recipient is told what to look for. */
+export async function pennySent(env: Env, actor: Actor, destinationId: string): Promise<void> {
+  await quietly("penny sent", async () => {
+    const row = await env.DB.prepare(
+      `SELECT d.penny_code, y.display_name, y.email, t.id AS tx_id, t.ref
+         FROM destinations d
+         JOIN participations p ON p.id = d.participation_id
+         JOIN parties y ON y.id = p.party_id
+         JOIN transactions t ON t.id = p.transaction_id
+        WHERE d.id = ?`).bind(destinationId).first<any>();
+    if (!row?.email) return;
+    await send(env, actor, {
+      to: [row.email],
+      subject: `${row.ref}: we have sent a penny to your account`,
+      text: [
+        `Hello ${row.display_name},`,
+        ``,
+        `To prove the bank account you gave us is yours, we have sent it 0.01 from`,
+        `ThePaymaster's client account. It usually lands within two hours.`,
+        ``,
+        `On your statement the payment carries a reference beginning "TPM PENNY"`,
+        `followed by six characters. Type those six characters into your account:`,
+        ``,
+        `  ${CLIENT}/d/${row.tx_id}`,
+        ``,
+        `The code is never in this email — it is on your statement, which is the point.`,
+      ].join("\n"),
+      about: { kind: "destinations", id: destinationId },
+    });
+  });
+}
+
 /** Staff accepted the address on evidence. The recipient hears the step is done. */
 export async function addressAttested(env: Env, actor: Actor, attestationId: string): Promise<void> {
   await quietly("address attested", async () => {

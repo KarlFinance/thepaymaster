@@ -53,6 +53,8 @@ import { railFor, railByKey, railChoice, RAILS } from "./rail.ts";
 import { ACCEPTED } from "./documents.ts";
 import { grant as grantAttestation, revoke as revokeAttestation,
          forTransaction as attestationsFor } from "./attest.ts";
+import { sendPenny, pennyReference, importStatement, reconcile as reconcileBank,
+         expected as bankExpected, paymentsCsv, linesFor as bankLines } from "./bank.ts";
 
 /** The PDFs we hand to clients, by the name they are served under. */
 const PAPERS = new Set([
@@ -349,6 +351,16 @@ export default {
         }
         if (url.pathname.endsWith("/dossier/seal") && request.method === "POST") {
           return sealNow(env, actor, txId, request);
+        }
+        if (url.pathname.endsWith("/bank/payments.csv")) {
+          const csv = await paymentsCsv(env, txId);
+          const row = await env.DB.prepare("SELECT ref FROM transactions WHERE id = ?").bind(txId).first<any>();
+          await log(env.DB, actor, "bank.payments_downloaded", "transactions", txId);
+          return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="${row?.ref ?? txId}-payments.csv"`, "cache-control": "no-store" } });
+        }
+        if (url.pathname.endsWith("/bank") && request.method === "POST") {
+          return bankAction(request, env, admin, actor, txId);
         }
         if (url.pathname.endsWith("/settle")) {
           return request.method === "POST"
@@ -714,7 +726,7 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
 // ---------------------------------------------------------------------------
 
 async function detail(env: Env, admin: { name: string }, txId: string,
-                      error = ""): Promise<Response> {
+                      error = "", bankNote = ""): Promise<Response> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
     .bind(txId).first<Record<string, any>>();
   if (!t) return new Response("Not found", { status: 404 });
@@ -866,6 +878,18 @@ async function detail(env: Env, admin: { name: string }, txId: string,
   const dests = await forTransaction(env, txId);
   const attestations = await attestationsFor(env, txId);
   const proofCell = (d: any): string => {
+    if (d.id && d.kind === "bank" && (d.iban || d.account_number)) {
+      if (d.proved_at) return `<div class="good" style="font-size:13px">Proved by penny test</div>`;
+      if (d.status === "draft") return `<div class="muted" style="font-size:13px">Not confirmed by the recipient yet</div>`;
+      return `<div class="muted" style="font-size:13px">${d.penny_code
+          ? `Penny sent ${esc(String(d.penny_sent_at).slice(0, 16))} — reference <code>${esc(pennyReference(d.penny_code))}</code>${
+              d.penny_attempts >= 3 ? ' <span class="bad">— three wrong codes</span>' : ""}`
+          : "Not yet proved"}</div>
+        <form method="post" action="/t/${esc(txId)}/bank" style="margin-top:6px">
+          <input type="hidden" name="action" value="penny"><input type="hidden" name="destination" value="${esc(d.id)}">
+          <button class="plain small">${d.penny_code ? "Send a fresh penny" : "Send the penny"}</button>${tip("Generates a six-character code and shows the reference to put on a 0.01 payment from the client mandated account to this account. Press it after you have made the payment — the recipient is emailed to watch for it and types the code from their statement to prove the account is theirs.")}
+        </form>`;
+    }
     if (!d.id || d.kind !== "wallet" || !d.address) return "";
     if (d.proved_at) return `<div class="good" style="font-size:13px">Proved by signature</div>`;
     const live = attestations.find((a) => a.destination_id === d.id && !a.revoked_at
@@ -956,6 +980,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
          ? ` — <form method="post" action="/t/${esc(t.id)}/clone" style="display:inline"><button class="plain small" type="submit">Run it again</button></form>${tip("Clone this distribution: same recipients and shares, addresses and proofs carried over as confirmed (you screen and lock again), chain settings kept, amount blank. It arrives submitted and ready to release.")}`
          : ""}</p>
     ${await txDocuments(env, t.id)}
+    ${await bankPanel(env, t, bankNote)}
     <details class="panel"${t.summary ? "" : " open"}>
       <summary><strong>Executive summary</strong>${t.summary ? "" : ' — <span class="muted">not written yet</span>'}${tip("A paragraph a bank's compliance officer can read first: what this transaction is, who is paying whom and why. It opens the dossier PDF and appears in every party's Counterparty Certification. It is a fact in the record; each save is logged.")}</summary>
       <form method="post" action="/t/${esc(t.id)}/summary">
@@ -1891,6 +1916,94 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
     ${error ? `<div class="err">${esc(error)}</div>` : ""}
     ${arrived}${fee}${payouts}${ledger}${closing}`,
     { nav: nav("", admin.name) });
+}
+
+/**
+ * Bank operations, on a transaction with a fiat leg.
+ *
+ * The references every payment must carry, the bulk file to make them with,
+ * and the statement: paste it in, reconcile, and the matching lines become
+ * custody events. The manual settlement page still exists for anything a
+ * statement cannot say.
+ */
+async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
+  if (t.inbound !== "fiat" && t.outbound !== "fiat") return "";
+  const { items } = await bankExpected(env, t.id);
+  const { matched, pool } = await bankLines(env, t.id);
+  const outstanding = items.filter((i) => !i.paid && i.direction === "out" && i.amountMinor > 0).length;
+  const acct = (i: any) => i.account
+    ? esc(i.account.iban ? i.account.iban : `${i.account.sortCode ?? ""} ${i.account.accountNumber ?? ""}`)
+    : i.what === "fee" ? "our fee account" : i.what === "receipt" ? "client mandated account" : '<span class="bad">no account yet</span>';
+  return `<details class="panel" open>
+    <summary><strong>Bank operations</strong> — ${items.filter((i) => i.paid).length} of ${items.length} payments on the statement${
+      tip("Fiat moves through the client mandated account at HSBC, so the record is built from the statement. Every payment carries a reference we chose; import the statement and Reconcile turns each line with a matching reference and amount into a custody event. Anything that nearly matches is shown for a person to decide.")}</summary>
+    ${note ? `<div class="good" style="white-space:pre-line">${esc(note)}</div>` : ""}
+    <h3 style="margin:8px 0 4px">What we expect to see${tip("The reference is the whole matching rule: a statement line must carry it and the exact amount. Give the sender theirs to put on their payment; ours go on the bulk payment file.")}</h3>
+    <table>
+      <tr><th>Who</th><th>Direction</th><th>Reference</th><th>Account</th><th style="text-align:right">Amount</th><th></th></tr>
+      ${items.map((i) => `<tr>
+        <td>${esc(i.who)}</td><td>${i.direction === "in" ? "in" : "out"}</td>
+        <td><code>${esc(i.reference)}</code></td><td class="muted">${acct(i)}</td>
+        <td style="text-align:right">${format(i.amountMinor, i.decimals)} ${esc(i.currency)}</td>
+        <td>${i.paid ? '<span class="good">on the statement</span>' : '<span class="muted">waiting</span>'}</td></tr>`).join("")}
+    </table>
+    ${outstanding ? `<p><a href="/t/${esc(t.id)}/bank/payments.csv"><button class="plain">Download the payment file (${outstanding} payment${outstanding === 1 ? "" : "s"})</button></a>${
+      tip("A CSV with one row per outgoing payment still to make — beneficiary, account, amount, reference — for the bank's bulk payment upload. Recipients without a locked, proved account are still listed so you can see the gap; do not pay a row with no account.")}</p>` : ""}
+    <h3 style="margin:14px 0 4px">The statement</h3>
+    <form method="post" action="/t/${esc(t.id)}/bank" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="import">
+      <label for="stmt">Paste the export, or upload the CSV${tip("Any bank CSV: the date, description and amount (or paid-in / paid-out) columns are found by their headings. A line imported twice is kept once. Lines are held across transactions, so one import covers every distribution on the account.")}</label>
+      <textarea id="stmt" name="text" rows="4" placeholder="Date,Description,Paid in,Paid out,Balance&#10;10/09/2026,TPM-2026-0002 J SMITH,1010.11,,..."></textarea>
+      <div class="row"><input type="file" name="file" accept=".csv,text/csv,text/plain">
+        <button class="plain">Import the lines</button>
+        <button class="go" name="action" value="reconcile" formnovalidate>Reconcile</button></div>
+    </form>
+    ${matched.length ? `<h3 style="margin:14px 0 4px">Matched to this transaction</h3><table>
+      <tr><th>Booked</th><th>Reference</th><th style="text-align:right">Amount</th><th>Matched as</th></tr>
+      ${matched.map((l: any) => `<tr><td>${esc(l.booked_on)}</td><td class="muted">${esc(l.reference)}</td>
+        <td style="text-align:right">${l.direction === "out" ? "-" : ""}${format(Number(l.amount_minor), t.decimals_in)} ${esc(l.currency)}</td>
+        <td>${esc(String(l.matched_what ?? "").replace(/^leg:.*/, "payment to a recipient").replace(/^penny:.*/, "penny test"))}</td></tr>`).join("")}
+    </table>` : ""}
+    ${pool.length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">${pool.length} unmatched line${pool.length === 1 ? "" : "s"} held on the account</summary><table>
+      <tr><th>Booked</th><th>Reference</th><th style="text-align:right">Amount</th></tr>
+      ${pool.map((l: any) => `<tr><td>${esc(l.booked_on)}</td><td class="muted">${esc(l.reference)}</td>
+        <td style="text-align:right">${l.direction === "out" ? "-" : ""}${format(Number(l.amount_minor), 2)} ${esc(l.currency)}</td></tr>`).join("")}
+    </table></details>` : ""}
+    <p class="muted" style="margin:10px 0 0">Anything the statement cannot say — a variance decision, evidence for a payment made another way — is still recorded on the <a href="/t/${esc(t.id)}/settle">settlement page</a>.</p>
+  </details>`;
+}
+
+async function bankAction(request: Request, env: Env, admin: { name: string }, actor: Actor, txId: string): Promise<Response> {
+  const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+  const f = await request.formData();
+  const action = String(f.get("action") ?? "");
+  if (action === "penny") {
+    const r = await sendPenny(env, actor, String(f.get("destination") ?? ""));
+    return "problem" in r ? detail(env, admin, txId, r.problem)
+      : detail(env, admin, txId, "", `Penny code ${r.code}. Put the reference ${pennyReference(r.code)} on a 0.01 payment from the client mandated account to that account. The recipient has been emailed to look out for it.`);
+  }
+  if (action === "import") {
+    const file = f.get("file");
+    const text = (file instanceof File && file.size > 0) ? await file.text() : String(f.get("text") ?? "");
+    if (!text.trim()) return detail(env, admin, txId, "Nothing to import — paste the statement or choose the file.");
+    const currency = t.inbound === "fiat" ? t.currency_in : t.currency_out;
+    const decimals = t.inbound === "fiat" ? t.decimals_in : t.decimals_out;
+    const r = await importStatement(env, actor, text, currency, decimals);
+    if (!r.added && !r.duplicates) return detail(env, admin, txId,
+      `Could not read that as a statement (${r.skipped} line${r.skipped === 1 ? "" : "s"} skipped). It needs a date column, a description or reference column, and an amount or paid-in / paid-out columns, named in the first row.`);
+    return detail(env, admin, txId, "", `Imported ${r.added} new line${r.added === 1 ? "" : "s"}; ${r.duplicates} already held; ${r.skipped} unreadable. Now press Reconcile.`);
+  }
+  if (action === "reconcile") {
+    const r = await reconcileBank(env, actor, txId);
+    const lines = [
+      r.recorded.length ? `Recorded ${r.recorded.length}:\n${r.recorded.join("\n")}` : "Nothing new matched.",
+      r.pennies.length ? `Pennies seen: ${r.pennies.join("; ")}` : "",
+      r.near.length ? `Look at these — reference matches but not the amount:\n${r.near.join("\n")}` : "",
+    ].filter(Boolean).join("\n\n");
+    return detail(env, admin, txId, "", lines);
+  }
+  return detail(env, admin, txId, "Unknown bank action.");
 }
 
 async function recordSettlement(request: Request, env: Env, actor: Actor,

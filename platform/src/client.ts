@@ -37,6 +37,7 @@ import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
 import { documentsFor } from "./documents.ts";
 import { forParticipation, save as saveDestination, confirm as confirmDestination,
          problemWith, describe, type Kind } from "./destinations.ts";
+import { claimPenny } from "./bank.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
          removeSendingWallet,
          sendingWallets, addSendingWallet, proveSendingWallet,
@@ -839,7 +840,9 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       if (d) await staffAddressConfirmed(env, actor, d.id);
     } else if (action === "prove") {
       const d = await forParticipation(env, part.participation_id);
-      if (d) {
+      if (d && kindNow === "bank") {
+        error = await claimPenny(env, actor, d.id, String(f.get("code") ?? "")) ?? "";
+      } else if (d) {
         error = await proveDestination(env, actor, d.id, part.ref,
           String(f.get("signature") ?? "")) ?? "";
       }
@@ -904,6 +907,19 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       case "details":
         return destinationCard(part, dest, kind, error, editing);
       case "prove":
+        if (kind === "bank") return `<div class="card now"><h2>Prove it is yours</h2>
+          <p>We have sent <b>0.01</b> to the account you gave, from ThePaymaster's client account.
+             On your statement its reference begins <b>TPM PENNY</b> followed by six characters.
+             Type those six characters here. That shows the account that received the penny is the one you can see.</p>
+          ${error ? `<div class="err">${esc(error)}</div>` : ""}
+          <form method="post" action="?">
+            <input type="hidden" name="action" value="prove">
+            <label for="pc">The six characters after TPM PENNY</label>
+            <input id="pc" name="code" maxlength="8" autocomplete="off" style="text-transform:uppercase;letter-spacing:.15em;font-family:ui-monospace,monospace" placeholder="K7X2QM">
+            <div class="row"><button>Confirm the code</button></div>
+          </form>
+          <p class="muted" style="margin-top:12px">Not landed yet? Bank transfers usually arrive within two hours, sometimes next working day.
+             The penny is yours to keep.</p></div>`;
         return `<div class="card now"><h2>Prove it is yours</h2>${proofForm({
           action: "", message: proofMessage, address: dest.address, rail,
           hidden: { action: "prove" }, error })}
