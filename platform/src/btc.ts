@@ -40,7 +40,7 @@ export interface Address {
 // Bytes
 // ---------------------------------------------------------------------------
 
-const concat = (...parts: Uint8Array[]): Uint8Array => {
+export const concat = (...parts: Uint8Array[]): Uint8Array => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let o = 0;
   for (const p of parts) { out.set(p, o); o += p.length; }
@@ -50,18 +50,18 @@ const eq = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 export const sha256d = (b: Uint8Array) => sha256(sha256(b));
 export const hash160 = (b: Uint8Array) => ripemd160(sha256(b));
-const u32le = (n: number) => new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]);
-const u64le = (n: bigint) => {
+export const u32le = (n: number) => new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]);
+export const u64le = (n: bigint) => {
   const out = new Uint8Array(8);
   for (let i = 0; i < 8; i++) out[i] = Number((n >> BigInt(8 * i)) & 255n);
   return out;
 };
-function varint(n: number): Uint8Array {
+export function varint(n: number): Uint8Array {
   if (n < 0xfd) return new Uint8Array([n]);
   if (n <= 0xffff) return new Uint8Array([0xfd, n & 255, n >>> 8]);
   return concat(new Uint8Array([0xfe]), u32le(n));
 }
-const varstr = (b: Uint8Array) => concat(varint(b.length), b);
+export const varstr = (b: Uint8Array) => concat(varint(b.length), b);
 const utf8 = (s: string) => new TextEncoder().encode(s);
 export const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 export const fromHex = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));

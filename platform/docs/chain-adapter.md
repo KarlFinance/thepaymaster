@@ -8,11 +8,17 @@ exists (migration 0021) and the Chain-settings form is a rail picker. The
 proof and send pages take their wallet from `rail.browser`. `rehearsal/btc.mjs`
 funds, signs and pays on signet.*
 
+*The one-transaction distribution is built too:* `src/psbt.ts` (coin selection,
+BIP-174 builder, parser; tests), `rail.batch.compose()` on the Bitcoin rail,
+`railWallet.signBatch()` for Unisat/OKX with a copy-out PSBT for Sparrow, and
+`recordBatch()` on the send page — one txid, each line verified and recorded on
+its own. `rehearsal/btc.mjs sign-psbt` signs and broadcasts it on signet.
+
 *Still to do, in order of value:* the signet rehearsal end to end (needs the
 throwaway key funded from a faucet — `node rehearsal/btc.mjs address`); Xverse
 and Leather in the browser script (sats-connect — today they use the
-copy-sign-paste route); one PSBT paying every recipient (below); Nominis
-screening for Bitcoin once the key arrives (the chain map already says `btc`).
+copy-sign-paste route); Nominis screening for Bitcoin once the key arrives (the
+chain map already says `btc`).
 
 ## Where the chain leaks in today
 

@@ -100,7 +100,32 @@ export interface Rail {
   dustMinor(): number;
   verify(env: Env, hash: string, want: { to: string; amountMinor: number | bigint }): Promise<Verification | null>;
 
+  /**
+   * Rails that can pay every line in one transaction offer this. Bitcoin does
+   * (a PSBT with an output per leg); an ERC-20 transfer cannot. The browser
+   * half is `railWallet.signBatch(payload)`, which returns the one hash.
+   */
+  batch?: {
+    compose(env: Env, o: {
+      from: string;
+      legs: { ref: string; to: string; amountMinor: number | bigint }[];
+    }): Promise<Batch | { ok: false; why: string }>;
+  };
+
   browser: Browser;
+}
+
+/** A composed batch, ready for the sender's wallet. */
+export interface Batch {
+  ok: true;
+  /** What the browser hands to the wallet. Rail-specific; the page does not look inside. */
+  payload: unknown;
+  /** The hash the transaction will carry, when the rail can know it in advance. */
+  txid: string | null;
+  /** One line per output, for the confirmation the sender reads before signing. */
+  outputs: { ref: string | null; to: string; amountMinor: bigint; change: boolean }[];
+  feeMinor: bigint;
+  human: string;
 }
 
 // ---------------------------------------------------------------------------

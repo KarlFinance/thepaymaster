@@ -5,6 +5,7 @@
  *   node btc.mjs balance [addr]       confirmed sats
  *   node btc.mjs send <to> <sats>     pay an address; prints the txid once broadcast
  *   node btc.mjs sign "<message>"     a BIP-322 signature the platform's proof step accepts
+ *   node btc.mjs sign-psbt <base64>   sign and broadcast the platform's one-transaction distribution
  *   node btc.mjs wait <txid>          block until confirmed
  *
  * The key lives in .rehearsal-key-btc (hex), generated on first use. It is a
@@ -23,6 +24,7 @@ import { ripemd160 } from "@noble/hashes/ripemd160";
 import { randomBytes } from "node:crypto";
 import { signMessageBip322P2wpkh, addressFor, parseAddress, scriptPubKey, toHex, fromHex }
   from "../platform/src/btc.ts";
+import { parsePsbt } from "../platform/src/psbt.ts";
 
 const API = process.env.SIGNET_API ?? "https://mempool.space/signet/api";
 
@@ -114,6 +116,33 @@ try {
     console.log(await send(rest[0], Number(rest[1])));
   } else if (cmd === "sign") {
     console.log(signMessageBip322P2wpkh(rest.join(" "), priv));
+  } else if (cmd === "sign-psbt") {
+    // Sign the platform's one-transaction distribution as the sender's wallet
+    // would: every input is ours (P2WPKH), sighash ALL, then broadcast.
+    const psbt = parsePsbt(Uint8Array.from(Buffer.from(rest[0], "base64")));
+    const { tx } = psbt;
+    const seq = (n) => u32(n);
+    const outBytes = concat(...tx.outputs.map((o) => concat(u64(o.value), varstr(o.script))));
+    const hashPrevouts = sha256d(concat(...tx.inputs.map((i) => concat(rev(i.txid), u32(i.vout)))));
+    const hashSequence = sha256d(concat(...tx.inputs.map((i) => seq(i.sequence))));
+    const hashOutputs = sha256d(outBytes);
+    const scriptCode = concat(new Uint8Array([0x19, 0x76, 0xa9, 0x14]), hash160(pub), new Uint8Array([0x88, 0xac]));
+    const witnesses = tx.inputs.map((i, n) => {
+      const w = psbt.inputs[n].witnessUtxo;
+      if (!w || toHex(w.script) !== toHex(myScript)) throw new Error(`input ${n} is not ours`);
+      const preimage = concat(u32(tx.version), hashPrevouts, hashSequence, rev(i.txid), u32(i.vout),
+        scriptCode, u64(w.value), seq(i.sequence), hashOutputs, u32(tx.locktime), u32(1));
+      const sig = concat(secp256k1.sign(sha256d(preimage), priv).toDERRawBytes(), new Uint8Array([1]));
+      return concat(varint(2), varstr(sig), varstr(pub));
+    });
+    const signed = concat(
+      u32(tx.version), new Uint8Array([0x00, 0x01]),
+      varint(tx.inputs.length), ...tx.inputs.map((i) => concat(rev(i.txid), u32(i.vout), varint(0), seq(i.sequence))),
+      varint(tx.outputs.length), outBytes, ...witnesses, u32(tx.locktime));
+    const r = await fetch(`${API}/tx`, { method: "POST", body: toHex(signed) });
+    const body = await r.text();
+    if (!r.ok) throw new Error(`broadcast refused: ${body}`);
+    console.log(body.trim());
   } else if (cmd === "wait") {
     for (let i = 0; i < 90; i++) {
       const s = await get(`/tx/${rest[0]}/status`);

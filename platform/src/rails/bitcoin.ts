@@ -21,7 +21,8 @@
 
 import { type Env } from "../db.ts";
 import { type Rail, type AddressReport, type Verification, type Health } from "../rail.ts";
-import { parseAddress, verifyMessage, BTC_CHAIN_ID, type Network } from "../btc.ts";
+import { parseAddress, verifyMessage, scriptPubKey, fromHex, BTC_CHAIN_ID, type Network } from "../btc.ts";
+import { paymentsFor, selectCoins, buildPsbt, type Utxo } from "../psbt.ts";
 import { challenge } from "../wallets.ts";
 
 
@@ -157,6 +158,64 @@ export function bitcoinRail(network: Network): Rail {
       return { ok: heard.every((a) => a.ok), from: seen.from, block: seen.block, sources: heard.length, agreed };
     },
 
+    batch: {
+      /**
+       * One transaction, an output per leg, change back to the sender. The
+       * sender's wallet signs the PSBT; nothing here can move anything.
+       */
+      async compose(_env, o) {
+        const from = parse(o.from);
+        if ("why" in from) return { ok: false as const, why: `Sending wallet: ${from.why}` };
+        const payments = paymentsFor(
+          o.legs.map((l) => ({ to: l.to, value: BigInt(l.amountMinor), ref: l.ref })), network);
+        if ("why" in payments) return { ok: false as const, why: payments.why };
+
+        let raw: any[] | null = null;
+        for (const ep of eps) {
+          try { raw = await get(`${ep.url}/address/${from.text}/utxo`); if (raw) break; } catch { /* next */ }
+        }
+        if (!raw) return { ok: false as const, why: "Could not read the sending wallet's coins from any Bitcoin endpoint." };
+        const confirmed = raw.filter((u) => u.status?.confirmed);
+        if (!confirmed.length) return { ok: false as const, why: "The sending wallet has no confirmed coins." };
+
+        // A fee that gets into the next few blocks. Falls back to 2 sat/vB.
+        let rate = 2;
+        try {
+          const fees = await get(`${eps[0].url}/v1/fees/recommended`);
+          if (fees?.halfHourFee) rate = Math.max(1, Math.ceil(fees.halfHourFee));
+        } catch { /* default */ }
+
+        const fromScript = scriptPubKey(from);
+        const utxos: Utxo[] = confirmed.map((u) => ({
+          txid: String(u.txid), vout: Number(u.vout), value: BigInt(u.value), script: fromScript,
+        }));
+        const selection = selectCoins(utxos, payments, from, rate);
+        if ("why" in selection) return { ok: false as const, why: selection.why };
+
+        // Legacy inputs are signed over the whole previous transaction.
+        if (from.type === "p2pkh") {
+          for (const u of selection.inputs) {
+            const hex = await get(`${eps[0].url}/tx/${u.txid}/hex`);
+            if (typeof hex === "string") u.rawTx = fromHex(hex.trim());
+          }
+        }
+
+        const built = buildPsbt({ from, payments, selection });
+        const total = payments.reduce((n, p) => n + p.value, 0n);
+        return {
+          ok: true as const,
+          payload: { psbtBase64: built.base64, psbtHex: built.hex, inputs: selection.inputs.length },
+          txid: from.type === "p2pkh" ? null : built.txid,
+          outputs: built.outputs.map((x) => ({ ref: x.ref ?? null, to: x.to, amountMinor: x.value, change: x.change })),
+          feeMinor: built.fee,
+          human: `${payments.length} payment${payments.length === 1 ? "" : "s"} totalling ` +
+            `${(Number(total) / 1e8).toFixed(8)} BTC in one transaction, ` +
+            `plus a miner fee of about ${built.fee} sats` +
+            (selection.change > 0n ? `, with ${selection.change} sats change back to your wallet` : ""),
+        };
+      },
+    },
+
     async health(): Promise<Health[]> {
       return Promise.all(eps.map(async (ep) => {
         try {
@@ -191,6 +250,13 @@ export function bitcoinRail(network: Network): Rail {
           prepare: async function () {},
           send: async function (check) {
             return w().sendBitcoin(check.to, Number(check.amountMinor));
+          },
+          // One PSBT for the whole distribution: the wallet signs it and
+          // broadcasts it; the txid comes back.
+          signBatch: async function (payload) {
+            var p = w();
+            var signed = await p.signPsbt(payload.psbtHex, { autoFinalized: true });
+            return p.pushPsbt(signed);
           },
           landed: async function (hash) {
             try {

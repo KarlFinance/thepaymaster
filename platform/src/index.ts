@@ -47,6 +47,12 @@ import { ACCEPTED } from "./documents.ts";
 import { grant as grantAttestation, revoke as revokeAttestation,
          forTransaction as attestationsFor } from "./attest.ts";
 
+/** The PDFs we hand to clients, by the name they are served under. */
+const PAPERS = new Set([
+  "distribution-without-custody.pdf",
+  "sending-a-crypto-distribution.pdf",
+]);
+
 /**
  * Staff only, and only on this hostname.
  *
@@ -116,6 +122,20 @@ export default {
         }
         if (url.pathname === "/") return clientHome(env, request);
         if (url.pathname === "/help") return clientHelpPage(env, request);
+        // Published papers: public, read-only, viewed in the browser. Only
+        // names from the list below are served, so the bucket is not browsable.
+        if (url.pathname.startsWith("/papers/")) {
+          const name = url.pathname.slice(8);
+          if (!PAPERS.has(name)) return new Response("Not found", { status: 404 });
+          const obj = await env.DOCS?.get(`papers/${name}`);
+          if (!obj) return new Response("Not found", { status: 404 });
+          return new Response(obj.body, { headers: {
+            "content-type": "application/pdf",
+            "content-disposition": `inline; filename="${name}"`,
+            "cache-control": "public, max-age=3600",
+            "x-robots-tag": "noindex",
+          } });
+        }
         if (url.pathname.startsWith("/d/")) {
           const dealId = url.pathname.slice(3).split("/")[0];
           if (url.pathname.endsWith("/record")) {

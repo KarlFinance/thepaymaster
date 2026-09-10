@@ -134,6 +134,8 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
       <input type="hidden" name="tx_hash" id="hash">
     </form>
 
+    ${outstanding.length && p.rail.batch ? batchCard(p) : ""}
+
     ${outstanding.length ? `<div class="card">
       <h2>Sent it another way?</h2>
       <p class="muted">The buttons above need a wallet in this browser. If you
@@ -148,6 +150,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
           ${outstanding.map((l) => `<option value="${esc(l.participationId ?? "fee")}"
             >${esc(l.name)} — ${esc(format(l.amountMinor, p.decimals))}
              ${esc(p.currency)}</option>`).join("")}
+          ${p.rail.batch ? `<option value="batch">Several of the above, in one transaction</option>` : ""}
         </select>
         <label for="kindsel">What was it</label>
         <select id="kindsel" name="kind">
@@ -189,13 +192,13 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
           }).then(function (r) { return r.json(); });
 
           if (check.problem) {
-            alert(check.problem + "\n\nThe page will reload with the current position.");
+            alert(check.problem + "\\n\\nThe page will reload with the current position.");
             location.reload();
             return;
           }
 
           if (!confirm("Send " + check.human + " to " + button.dataset.name +
-                       "?\n\n" + check.to)) {
+                       "?\\n\\n" + check.to)) {
             button.textContent = was; button.disabled = false; return;
           }
 
@@ -220,7 +223,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
           if (!landed && wallet.pendingAdvice) {
             var box = document.getElementById("manualhash");
             if (box) box.value = hash;
-            alert(wallet.pendingAdvice + "\n\nTransaction id: " + hash);
+            alert(wallet.pendingAdvice + "\\n\\nTransaction id: " + hash);
           }
 
           document.getElementById("leg").value = button.dataset.leg;
@@ -239,6 +242,70 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
       document.querySelectorAll("button.pay").forEach(function (b) {
         b.addEventListener("click", function () { sign(b, "payment"); });
       });
+
+      // The whole distribution as one transaction, where the rail allows it.
+      async function batch(button, kind) {
+        var out = document.getElementById("batchsays");
+        var psbtBox = document.getElementById("psbtbox");
+        button.disabled = true;
+        var was = button.textContent;
+        try {
+          button.textContent = "Composing…";
+          var check = await fetch(base + "/prepare", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "leg=batch&kind=" + kind,
+          }).then(function (r) { return r.json(); });
+          if (check.problem) { out.textContent = check.problem; button.textContent = was; button.disabled = false; return; }
+
+          var lines = check.outputs.map(function (o) {
+            return "  " + (o.change ? "change back to you" : o.name) + "  " + o.human + "  " + o.to;
+          }).join("\\n");
+          if (!wallet || !wallet.present() || !wallet.signBatch) {
+            // No wallet here: hand over the PSBT to sign elsewhere.
+            psbtBox.hidden = false;
+            document.getElementById("psbttext").value = check.payload.psbtBase64;
+            out.textContent = "No wallet in this browser. Copy the transaction below into Sparrow " +
+              "(File → Open Transaction → From Text), sign and broadcast it, then paste the " +
+              "transaction id under 'Sent it another way?' choosing 'Several of the above'.";
+            button.textContent = was; button.disabled = false; return;
+          }
+          if (!confirm(check.human + "\\n\\n" + lines + "\\n\\nSign it?")) {
+            button.textContent = was; button.disabled = false; return;
+          }
+          await wallet.accounts();
+          await wallet.prepare();
+          button.textContent = "Sign in your wallet…";
+          var hash = await wallet.signBatch(check.payload);
+
+          button.textContent = "Broadcast — waiting for it to land…";
+          var landed = false;
+          var ticks = Math.ceil((wallet.waitSeconds || 120) / 2);
+          for (var i = 0; i < ticks && !landed; i++) {
+            await new Promise(function (r) { setTimeout(r, 2000); });
+            try { landed = await wallet.landed(hash); } catch (ignored) {}
+            if (!landed) button.textContent = "Waiting for it to land… " + ((i + 1) * 2) + "s";
+          }
+          if (!landed && wallet.pendingAdvice) {
+            var box = document.getElementById("manualhash");
+            if (box) box.value = hash;
+            var sel = document.getElementById("whichleg");
+            if (sel) sel.value = "batch";
+            alert(wallet.pendingAdvice + "\\n\\nTransaction id: " + hash);
+          }
+          document.getElementById("leg").value = "batch";
+          document.getElementById("kind").value = kind;
+          document.getElementById("hash").value = hash;
+          button.textContent = landed ? "Landed — recording…" : "Taking a while — recording anyway…";
+          document.getElementById("record").submit();
+        } catch (err) {
+          button.textContent = was; button.disabled = false;
+          out.textContent = (err && (err.message || err.code)) || "Cancelled.";
+        }
+      }
+      var bt = document.getElementById("batchtest"), bp = document.getElementById("batchpay");
+      if (bt) bt.addEventListener("click", function () { batch(bt, "test"); });
+      if (bp) bp.addEventListener("click", function () { batch(bp, "payment"); });
       document.querySelectorAll("button.test").forEach(function (b) {
         b.addEventListener("click", function () { sign(b, "test"); });
       });
@@ -261,6 +328,7 @@ export async function prepare(env: Env, txId: string, legId: string,
       headers: { "content-type": "application/json" } });
 
   const p = await plan(env, txId);
+  if (legId === "batch") return json(await composeBatch(env, p, kind));
   const line = p.lines.find((l) => (l.participationId ?? "fee") === legId);
   if (!line) return json({ problem: "That payment is not part of this transaction." });
   if (!line.address) return json({ problem: "That payment has no address." });
@@ -300,6 +368,7 @@ export async function prepare(env: Env, txId: string, legId: string,
 export async function recordTest(env: Env, actor: Actor, txId: string,
                                  legId: string, txHash: string): Promise<string> {
   const p = await plan(env, txId);
+  if (legId === "batch") return recordBatch(env, actor, txId, p, "test", txHash);
   const line = p.lines.find((l) => (l.participationId ?? "fee") === legId);
   if (!line || !line.address) return "That payment is not part of this transaction.";
   if (line.testedHash) return "A test payment has already reached that address.";
@@ -345,6 +414,7 @@ export async function recordTest(env: Env, actor: Actor, txId: string,
 export async function recordLeg(env: Env, actor: Actor, txId: string,
                                 legId: string, txHash: string): Promise<string> {
   const p = await plan(env, txId);
+  if (legId === "batch") return recordBatch(env, actor, txId, p, "payment", txHash);
   const line = p.lines.find((l) =>
     (l.participationId ?? "fee") === legId);
   if (!line) return "That payment is not part of this transaction.";
@@ -426,3 +496,126 @@ export async function recordLeg(env: Env, actor: Actor, txId: string,
 }
 
 export { plan, transferData };
+
+
+// ---------------------------------------------------------------------------
+// The whole distribution in one transaction
+// ---------------------------------------------------------------------------
+
+/** Which lines a batch of this kind would pay right now, and why the rest would not. */
+function batchLines(p: Plan, kind: string): { lines: Line[]; skipped: string[] } {
+  const testing = kind === "test";
+  const lines: Line[] = [], skipped: string[] = [];
+  for (const l of p.lines) {
+    if (l.paid || !l.address) continue;
+    const problems = testing ? l.problems.filter((x) => !x.startsWith("No test payment")) : l.problems;
+    if (testing && l.testedHash) { skipped.push(`${l.name}: already tested`); continue; }
+    if (!testing && !l.testedHash) { skipped.push(`${l.name}: no test payment yet`); continue; }
+    if (problems.length) { skipped.push(`${l.name}: ${problems.join("; ")}`); continue; }
+    lines.push(l);
+  }
+  return { lines, skipped };
+}
+
+/** The batch the sender's wallet will sign, composed at the moment of the click. */
+async function composeBatch(env: Env, p: Plan, kind: string): Promise<unknown> {
+  if (!p.rail.batch) return { problem: "This rail cannot pay several lines in one transaction." };
+  if (p.blocking.length) return { problem: p.blocking.join(" ") };
+  const { lines, skipped } = batchLines(p, kind);
+  if (!lines.length) {
+    return { problem: skipped.length
+      ? `Nothing can go in a batch right now — ${skipped.join("; ")}.`
+      : "Nothing left to send." };
+  }
+  const funder = p.funders.find((f) => f.proved);
+  if (!funder) return { problem: "No proved sending wallet." };
+
+  const testing = kind === "test";
+  const composed = await p.rail.batch.compose(env, {
+    from: funder.address,
+    legs: lines.map((l) => ({
+      ref: l.participationId ?? "fee", to: l.address!,
+      amountMinor: testing ? p.rail.dustMinor() : l.amountMinor,
+    })),
+  });
+  if (!composed.ok) return { problem: composed.why };
+  const nameOf = (ref: string | null) => lines.find((l) => (l.participationId ?? "fee") === ref)?.name ?? "";
+  return {
+    batch: true,
+    payload: composed.payload,
+    txid: composed.txid,
+    human: composed.human + (skipped.length ? ` Left out: ${skipped.join("; ")}.` : ""),
+    outputs: composed.outputs.map((o) => ({
+      name: nameOf(o.ref), to: o.to, change: o.change,
+      human: `${format(Number(o.amountMinor), p.decimals)} ${p.currency}`,
+    })),
+  };
+}
+
+/**
+ * One hash, many lines. Each outstanding line is checked against the
+ * transaction's outputs on its own, and recorded on its own, so the record
+ * reads exactly as it would had they been paid one at a time — with the same
+ * hash on each. Lines the transaction did not pay are simply left outstanding.
+ */
+async function recordBatch(env: Env, actor: Actor, txId: string, p: Plan,
+                           kind: string, txHash: string): Promise<string> {
+  const shape = p.rail.hashProblem(txHash);
+  if (shape) return shape;
+  const testing = kind === "test";
+  const candidates = p.lines.filter((l) => !l.paid && l.address && (testing ? !l.testedHash : true));
+  if (!candidates.length) return "There is nothing outstanding for that transaction to have paid.";
+
+  const done: string[] = [], missed: string[] = [];
+  let pending = false, unreachable = false;
+  for (const line of candidates) {
+    const moved = await p.rail.verify(env, txHash.trim(), {
+      to: line.address!, amountMinor: testing ? p.rail.dustMinor() : line.amountMinor,
+    });
+    if (!moved) { unreachable = true; break; }
+    if (moved.problem === "pending") { pending = true; break; }
+    if (!moved.ok) { missed.push(line.name); continue; }
+    const legId = line.participationId ?? "fee";
+    const problem = testing
+      ? await recordTest(env, actor, txId, legId, txHash)
+      : await recordLeg(env, actor, txId, legId, txHash);
+    if (problem) missed.push(`${line.name} (${problem})`); else done.push(line.name);
+  }
+  if (unreachable) return "Could not reach the chain to check that transaction. Try again.";
+  if (pending) {
+    return "That transaction has been broadcast but has not been included in a block " +
+           `yet. Nothing is wrong — wait for it to confirm and record it again: ${txHash.trim()}`;
+  }
+  if (!done.length) {
+    return `That transaction does not pay any of the outstanding ${testing ? "test " : ""}lines. ` +
+           "Each output has to carry the exact amount to the exact address.";
+  }
+  return `Recorded ${done.length} ${testing ? "test payment" : "payment"}${done.length === 1 ? "" : "s"} ` +
+         `from that transaction: ${done.join(", ")}.` +
+         (missed.length ? ` Not in it: ${missed.join(", ")}.` : "");
+}
+
+/** The card offering the whole distribution as one transaction. */
+function batchCard(p: Plan): string {
+  const tests = batchLines(p, "test"), pays = batchLines(p, "payment");
+  return `<div class="card">
+    <h2>Or pay everyone in one transaction</h2>
+    <p class="muted">${esc(p.rail.name)} lets one transaction carry every payment. We compose
+      it — an output for each line below, our fee among them, and any change back to your
+      wallet — and your wallet signs it once. Each line is then verified against that one
+      transaction and recorded exactly as if paid on its own.</p>
+    <div class="row" style="gap:10px;flex-wrap:wrap">
+      <button type="button" id="batchtest"${tests.lines.length && !p.blocking.length ? "" : " disabled"}
+        >Test every address in one transaction (${tests.lines.length})</button>
+      <button type="button" id="batchpay" class="go"${pays.lines.length && !p.blocking.length ? "" : " disabled"}
+        >Pay every tested line in one transaction (${pays.lines.length})</button>
+    </div>
+    <p class="muted" id="batchsays" style="margin:8px 0 0">${
+      !pays.lines.length && tests.lines.length ? "Tests first; the real batch unlocks once they have landed."
+      : !tests.lines.length && !pays.lines.length ? "Nothing is ready to go in a batch yet." : ""}</p>
+    <div id="psbtbox" hidden style="margin-top:10px">
+      <label for="psbttext">The unsigned transaction (PSBT), to sign in your own wallet</label>
+      <textarea id="psbttext" rows="4" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px"></textarea>
+    </div>
+  </div>`;
+}
