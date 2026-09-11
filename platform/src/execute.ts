@@ -108,12 +108,17 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
   const raw: Leg[] = await payoutLegs(env, txId);
   const blocking: string[] = [];
 
-  const modeC = t.execution === "client_wallet";
-  if (!["none", "thepaymaster_wallet"].includes(holderFor(t))) {
+  // Mode C proper, or the second half of a purchase: what the desk delivered
+  // into our client wallet goes out from it the same way.
+  const bought = Boolean(t.converts) && t.outbound === "crypto";
+  const modeC = t.execution === "client_wallet" || bought;
+  if (!["none", "thepaymaster_wallet"].includes(holderFor(t)) && !bought) {
     blocking.push("This transaction is not one that is executed on chain.");
   }
   if (modeC && !t.client_wallet) blocking.push("No client wallet is set on this transaction.");
-  if (!t.fee_wallet) blocking.push("No fee wallet is set on this transaction.");
+  // Our fee on a converting transaction is taken in fiat before the desk, so
+  // there is no fee line on the chain and no fee wallet to insist on.
+  if (!t.fee_wallet && !bought) blocking.push("No fee wallet is set on this transaction.");
 
   // The readiness gate says a transaction *may* be sent; a person moving it to
   // ready says it *should* be. Until that has happened the send screen shows
@@ -159,8 +164,9 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
     });
   }
 
-  // Our fee is a line like any other, and cannot be quietly dropped.
-  lines.push({
+  // Our fee is a line like any other, and cannot be quietly dropped —
+  // except where it was already taken in fiat before the conversion.
+  if (!bought) lines.push({
     participationId: null,
     name: "ThePaymaster — fee",
     address: t.fee_wallet ?? null,
@@ -225,8 +231,11 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
         .bind(txId).all<any>();
   if (modeC) {
     const got = await env.DB.prepare(
-      "SELECT coalesce(sum(amount_minor), 0) AS n FROM custody_events WHERE transaction_id = ? AND event = 'received'").bind(txId).first<any>();
-    if (!(got?.n > 0)) blocking.push("The sender's funds have not been recorded as received into the client wallet.");
+      `SELECT coalesce(sum(amount_minor), 0) AS n FROM custody_events
+        WHERE transaction_id = ? AND event = ? AND holder = 'thepaymaster_wallet'`).bind(txId, bought ? "converted" : "received").first<any>();
+    if (!(got?.n > 0)) blocking.push(bought
+      ? "The desk's delivery into the client wallet has not been recorded yet (Conversion panel)."
+      : "The sender's funds have not been recorded as received into the client wallet.");
   }
 
   const funders: Funder[] = await Promise.all((sw ?? []).map(async (w: any) => {

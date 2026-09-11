@@ -62,6 +62,8 @@ export function recipientJourney(o: {
   agreement?: "unsigned" | "signed" | "stale";
   /** Manual fiat: the recipient says the money arrived. */
   receiptConfirmedAt?: string | null;
+  /** A converting transaction: where the desk stage is. */
+  conversion?: { state: "todo" | "instructed" | "done"; summary?: string };
 }): Step[] {
   const steps: Step[] = [];
 
@@ -131,6 +133,13 @@ export function recipientJourney(o: {
     label: "Checked and locked by us", state: "done", summary: `Locked ${day(o.dest.locked_at)}` });
   else steps.push({ key: "locked", label: "Checked and locked by us", state: "wait",
     summary: "We are screening the address. Nothing needed from you." });
+
+  // 4b. the desk, on a converting transaction
+  if (o.conversion) {
+    steps.push({ key: "converting", label: "Converted at the desk",
+      state: o.conversion.state === "done" ? "done" : o.conversion.state === "instructed" ? "wait" : "todo",
+      summary: o.conversion.summary });
+  }
 
   // 5. paid
   if (o.paidHash) steps.push({ key: "paid", label: "Paid", state: "done",
@@ -214,6 +223,8 @@ export function senderJourney(o: {
   received?: boolean;
   /** Mode C: the sender sends to our client wallet and we pay out; their step is to send, ours to distribute. */
   modeC?: boolean;
+  /** A converting transaction: where the desk stage is. */
+  conversion?: { state: "todo" | "instructed" | "done"; summary?: string };
 }): Step[] {
   const steps: Step[] = [];
 
@@ -269,6 +280,12 @@ export function senderJourney(o: {
   else if (ready && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: "We are checking the gate. You will get an email when you can send." });
   else steps.push({ key: "send", label: sendLabel, state: "todo" });
+
+  if (o.conversion) {
+    steps.push({ key: "converting", label: "Converted at the desk",
+      state: o.conversion.state === "done" ? "done" : o.conversion.state === "instructed" ? "wait" : "todo",
+      summary: o.conversion.summary });
+  }
 
   if (o.sealed) steps.push({ key: "record", label: "Complete", state: "done",
     summary: "Record sealed. Everyone has their copy." });

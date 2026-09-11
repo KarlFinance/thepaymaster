@@ -25,6 +25,7 @@ import { assess } from "./readiness.ts";
 import { resembles } from "./mandate.ts";
 import { accountFromVar, paysDirect } from "./bank.ts";
 import { esc } from "./views.ts";
+import { DESK } from "./conversion.ts";
 import text from "./agreements-text.json" with { type: "json" };
 
 export type Kind = "sender_agreement" | "recipient_authorisation";
@@ -105,7 +106,11 @@ const modeLetter = (tx: any) => { const m = modesOf(tx); return m.A ? "A" : m.B 
 function entitlementOf(f: Facts, r: any): { text: string; pct: string; amountMinor: number } {
   const amountMinor = f.amounts[r.participation_id] ?? 0;
   const pct = r.share_bps != null ? `${(r.share_bps / 100).toFixed(2).replace(/\.?0+$/, "")}` : "";
-  const money = `${format(amountMinor, f.tx.decimals_out)} ${f.tx.currency_out}`;
+  // On a converting transaction the share is fixed in the incoming currency;
+  // what arrives is that share of what the desk returns.
+  const money = f.tx.converts
+    ? `${format(amountMinor, f.tx.decimals_in)} ${f.tx.currency_in} before conversion, delivered as the same share of the ${f.tx.currency_out} the desk returns`
+    : `${format(amountMinor, f.tx.decimals_out)} ${f.tx.currency_out}`;
   return { text: pct ? `${pct}% (${money})` : money, pct: pct || "—", amountMinor };
 }
 
@@ -160,7 +165,9 @@ function fillSender(env: Env, f: Facts): Block[] {
           "Receipt pattern": "Single receipt.",
           "Distribution Mode(s)": `${modes.A ? TICK : BOX} Mode A (Fiat)   ${modes.B ? TICK : BOX} Mode B (Fiat with Conversion)   ${modes.C ? TICK : BOX} Mode C (Native Digital Asset)`,
           "Service Fee": `1% of the Gross Amount (${tx.currency_in} ${format(f.feeMinor, tx.decimals_in)}). Borne by: ${pct ? BOX : TICK} deducted from the Gross Amount pro rata across Recipients   ${pct ? TICK : BOX} paid by the Principal in addition to the Gross Amount   ${BOX} borne by named Recipient(s)`,
-          "Conversion Fee (Mode B only)": modes.B ? "As confirmed in writing by ThePaymaster before signing and recorded in the transaction record." : "Not applicable.",
+          "Conversion Fee (Mode B only)": modes.B || tx.converts
+            ? `${(DESK.feeBps / 100).toFixed(2).replace(/\.?0+$/, "")}% of each converted amount, charged by ${DESK.name} at source and deducted from the converted amount at Conversion (clause 8.2). It is the desk's charge and is not collected by ThePaymaster. The desk's spread and network fees are costs of the Distribution.`
+            : "Not applicable.",
           "Network fees (Modes B and C)": modes.A ? "Not applicable." : `${TICK} deducted from the relevant Recipient's Distribution   ${BOX} borne by the Principal`,
           "Special terms": "None.",
         };
@@ -256,7 +263,9 @@ function fillRecipient(env: Env, f: Facts, participationId: string): Block[] | n
       b.text = b.text.replace("[AGREEMENT OR BASIS OF ENTITLEMENT, DATED]", `the arrangement described in Transaction Schedule ${tx.ref}`)
         .replace("[PERCENTAGE]%", e.pct === "—" ? "a fixed amount" : `${e.pct}%`)
         .replace("[TOTAL AMOUNT AND CURRENCY OR DIGITAL ASSET]", grossText)
-        .replace("[ENTITLEMENT AMOUNT]", `${tx.currency_out} ${format(e.amountMinor, tx.decimals_out)}`);
+        .replace("[ENTITLEMENT AMOUNT]", tx.converts
+          ? `${tx.currency_in} ${format(e.amountMinor, tx.decimals_in)} before conversion, delivered in ${tx.currency_out} as the same share of what the desk returns`
+          : `${tx.currency_out} ${format(e.amountMinor, tx.decimals_out)}`);
     }
     if (b.t === "tick") {
       const deducted = tx.fee_mode !== "grossed_up";

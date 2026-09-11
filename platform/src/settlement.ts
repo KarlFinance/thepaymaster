@@ -26,6 +26,7 @@ import { format } from "./money.ts";
 import { assess } from "./readiness.ts";
 import { store, DocumentProblem } from "./documents.ts";
 import { txHashProblem, receipt as txReceipt } from "./chain.ts";
+import { deliveredAmounts } from "./conversion.ts";
 
 export type Holder = "client" | "thepaymaster_hsbc" | "thepaymaster_wallet" | "otc_desk" | "none";
 export type Event = "received" | "converted" | "sent" | "fee_taken" | "returned";
@@ -202,6 +203,9 @@ export async function arrival(env: Env, transactionId: string): Promise<Arrival 
 /** What each recipient is owed, and what has actually gone to them. */
 export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
   const state = await assess(env, transactionId);
+  // A converting transaction pays out what the desk returned, shared as the
+  // incoming amounts were; until the desk has executed there is no figure.
+  const delivered = await deliveredAmounts(env, transactionId);
   const { results } = await env.DB.prepare(
     `SELECT p.id AS participation_id, p.party_id, y.display_name
        FROM participations p JOIN parties y ON y.id = p.party_id
@@ -223,7 +227,7 @@ export async function legs(env: Env, transactionId: string): Promise<Leg[]> {
       participationId: r.participation_id,
       partyId: r.party_id,
       name: r.display_name,
-      expectedMinor: state.settlement?.amounts[r.participation_id] ?? 0,
+      expectedMinor: delivered ? (delivered[r.participation_id] ?? 0) : (state.settlement?.amounts[r.participation_id] ?? 0),
       sentMinor: sent?.amount_minor ?? null,
       sentAt: sent?.occurred_at ?? null,
       evidenceId: sent?.evidence_id ?? null,

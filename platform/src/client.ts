@@ -40,6 +40,7 @@ import { forParticipation, save as saveDestination, confirm as confirmDestinatio
 import { claimPenny, paysDirect, expected as bankExpected, paymentsCsv, importStatement, reconcile as reconcileBank,
          accountFromVar } from "./bank.ts";
 import { status as agreementStatus, sign as agreementSign, AGREEMENT_CSS } from "./agreements.ts";
+import { latest as latestConversion, DESK } from "./conversion.ts";
 import { staffSenderSaysSent, staffRecipientConfirmed } from "./notify.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
          removeSendingWallet,
@@ -1087,17 +1088,26 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'received' LIMIT 1").bind(txId).first());
   const myPart = part.role === "recipient" ? await env.DB.prepare(
     "SELECT receipt_confirmed_at FROM participations WHERE id = ?").bind(part.participation_id).first<any>() : null;
+  // A converting transaction: where the desk stage is, in the party's words.
+  let conversion: { state: "todo" | "instructed" | "done"; summary?: string } | undefined;
+  if (part.converts) {
+    const c = await latestConversion(env, txId);
+    conversion = !c ? { state: "todo", summary: `${DESK.name} converts ${part.currency_in} to ${part.currency_out} once the funds are with us. The desk's ${(DESK.feeBps / 100).toFixed(1)}% is charged at source; the rate is the desk's.` }
+      : c.executed_at ? { state: "done", summary: `${c.from_currency} ${format(c.from_minor, c.from_decimals)} became ${c.to_currency} ${format(c.to_minor ?? 0, c.to_decimals)}${c.rate ? ` at ${c.rate}` : ""} on ${String(c.executed_at).slice(0, 10)}` }
+      : { state: "instructed", summary: `With ${c.desk} since ${String(c.instructed_at).slice(0, 16)}. This happens outside the platform; you will be emailed the rate and the amount when the desk confirms. Nothing is needed from you.` };
+  }
   const steps = part.role === "recipient"
     ? recipientJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, kind,
         dest: dest ? { ...dest, attested: destProof?.attestation ?? null } : null,
         paidHash: out.paidFor(part.participation_id), sealed: out.sealed,
-        agreement: agreement?.state, receiptConfirmedAt: kind === "bank" ? (myPart?.receipt_confirmed_at ?? null) : undefined })
+        agreement: agreement?.state, receiptConfirmedAt: kind === "bank" ? (myPart?.receipt_confirmed_at ?? null) : undefined,
+        conversion })
     : senderJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
         recipients: progress, status: part.status,
         agreement: agreement?.state, senderSentAt: part.sender_sent_at ?? null, received: receivedAny,
-        modeC: part.execution === "client_wallet",
+        modeC: part.execution === "client_wallet", conversion,
         // Paying directly, the sender's job includes our fee: "Pay" is not done until it is on the statement.
         allPaid: out.allPaid && (!paysDirect(part) || Boolean(await env.DB.prepare(
           "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'fee_taken' LIMIT 1").bind(txId).first())),

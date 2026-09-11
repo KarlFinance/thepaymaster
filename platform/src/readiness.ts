@@ -240,7 +240,7 @@ export async function assess(env: Env, transactionId: string,
     // And it must be one of ours, from the Wallets page — an address typed into
     // a transaction is an address nobody reviewed.
     const house = await isHouse(env, rail.key, t.fee_wallet);
-    checks.push({
+    if (!t.converts) checks.push({
       key: "fee_destination",
       label: "Our fee goes to a registered ThePaymaster wallet",
       met: Boolean(t.fee_wallet) && Boolean(house),

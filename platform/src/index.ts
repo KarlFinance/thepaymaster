@@ -60,6 +60,8 @@ import { fiatMode, FIAT_MODES, set as setSwitch, type FiatMode, cryptoExecution,
 import { list as houseWallets, forRail as houseForRail, feeWalletFor, add as addHouseWallet, retire as retireHouseWallet,
          challenge as houseChallenge, prove as proveHouseWallet, RAIL_LABEL, isHouse as isHouseWallet } from "./housewallets.ts";
 import { executeBody, recordLeg, recordTest, prepare as prepareLeg } from "./executeview.ts";
+import { DESK, latest as latestConversion, amountToConvert, instruct as instructDesk, execute as executeConversion,
+         cancel as cancelConversion, directionFor } from "./conversion.ts";
 import { plan as executionPlan } from "./execute.ts";
 import { agreementRequested, fundsReceived, paymentMade } from "./notify.ts";
 
@@ -347,6 +349,9 @@ export default {
           const note = [r.minted.length ? `Minted ${r.minted.length}: ${r.minted.join("; ")}.` : "",
                         r.skipped.length ? `Skipped: ${r.skipped.join("; ")}.` : "", r.problem ?? ""].filter(Boolean).join(" ");
           return dossierPage(env, admin, txId, note || "Nothing to mint.");
+        }
+        if (url.pathname.endsWith("/conversion") && request.method === "POST") {
+          return conversionAction(request, env, admin, actor, txId);
         }
         if (url.pathname.endsWith("/distribute") || url.pathname.endsWith("/distribute/prepare")) {
           return distributePage(env, admin, actor, request, txId);
@@ -747,8 +752,11 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
     gross_expected_minor: gross,
     status: "draft", created_by: actor.id,
     // Crypto to crypto without conversion: which route, from the platform switch. Changed per transaction under Chain settings.
+    // Crypto to crypto without conversion: which route, from the platform switch.
+    // Crypto in with a conversion always comes into our client wallet for the desk.
     execution: s("inbound") === "crypto" && s("outbound") === "crypto" && ["", "0", "false", "off", "no"].includes(s("converts").toLowerCase())
-      ? await cryptoExecution(env) : "sender",
+      ? await cryptoExecution(env)
+      : s("inbound") === "crypto" ? "client_wallet" : "sender",
   });
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
@@ -1020,13 +1028,15 @@ async function detail(env: Env, admin: { name: string }, txId: string,
       </form>
     </details>
     ${mandatePanel(t.id, liveMandate, pastMandates)}
-    ${isOnChain(t as any) ? await chainSettingsPanel(env, t) : ""}
+    ${isOnChain(t as any) || t.inbound === "crypto" || t.outbound === "crypto" ? await chainSettingsPanel(env, t) : ""}
+    ${t.converts ? await conversionPanel(env, t, bankNote) : ""}
     <div class="panel"><table>
       ${kv("Type", esc(typeName(t as any)) + (isOnChain(t as any) ? ' <span class="tag chain">sender executes on-chain</span>' : ' <span class="tag">we settle manually</span>'))}
       ${kv("Status", `<span class="tag">${esc(t.status)}</span>`)}
       ${kv("Recipients supply", destinationKind(t as any) === "bank" ? "Bank details" : "Wallet address")}
       ${kv("Sender proves wallets", t.inbound === "crypto" ? "Yes — one or more" : "No")}
       ${kv("Currencies", `${esc(t.currency_in)} in, ${esc(t.currency_out)} out`)}
+      ${t.converts ? kv("Conversion", `${esc(DESK.name)} — ${directionFor(t as any) === "buy" ? `buys ${esc(t.currency_out)} with ${esc(t.currency_in)}` : `sells ${esc(t.currency_in)} for ${esc(t.currency_out)}`}; desk fee ${(DESK.feeBps / 100).toFixed(1)}% at source, our fee 1%`) : ""}
       ${isOnChain(t as any) ? kv("Executed by", t.execution === "client_wallet"
         ? `ThePaymaster from the client wallet (Mode C)${t.client_wallet ? ` — <span class="mono">${esc(t.client_wallet)}</span> — <a href="/t/${esc(t.id)}/distribute">Distribute</a>` : ""}`
         : "The sender, from their own wallet") : ""}
@@ -2161,6 +2171,106 @@ async function walletsPage(env: Env, admin: { name: string; role?: string }, act
 }
 
 /**
+ * The desk stage on a converting transaction: instruct, then record what came
+ * back. The step itself happens at the desk; this panel brackets it so the
+ * record and every party's page know we have stepped out and when we returned.
+ */
+async function conversionPanel(env: Env, t: any, note = ""): Promise<string> {
+  const c = await latestConversion(env, t.id);
+  const dir = directionFor(t);
+  const want = await amountToConvert(env, t.id);
+  const pct = (DESK.feeBps / 100).toFixed(1);
+  const today = new Date().toISOString().slice(0, 10);
+  const head = `<summary><strong>Conversion at the desk</strong> — ${c?.executed_at ? "executed" : c ? "with the desk" : "not yet instructed"}${
+    tip(`This transaction ${dir === "buy" ? `buys ${t.currency_out} with the sender's ${t.currency_in}` : `sells the sender's ${t.currency_in} for ${t.currency_out}`} through ${DESK.name}, outside the platform. Instruct records that we have stepped out and emails every party. When the desk confirms, record what came back: ${dir === "buy" ? "the hash of its delivery into our client wallet, verified on the chain" : "the confirmation or bank advice showing the fiat proceeds"}, the rate, and the desk's ${pct}% fee at source — the desk's charge, never collected by us. Recipients' amounts then follow as their share of what came back.`)}</summary>`;
+  const noteHtml = note && /desk|convers/i.test(note) ? `<div class="good" style="white-space:pre-line">${esc(note)}</div>` : "";
+  if (!c) {
+    return `<details class="panel" open>${head}${noteHtml}
+      <p class="muted">Our fee of 1% is taken ${dir === "buy" ? "in fiat before the desk" : "from the fiat proceeds after the desk"}; ${DESK.name} charges ${pct}% at source on what it converts. ${want && want.minor > 0
+        ? `To convert: <b>${esc(want.currency)} ${format(want.minor, want.decimals)}</b>${dir === "buy" ? " (the gross less our fee)" : " (what the sender has sent)"}.`
+        : dir === "buy" ? "Set the split (so the gross and our fee are known) and record the sender's payment as received first." : "Record the sender's digital assets as received into the client wallet first."}</p>
+      <form method="post" action="/t/${esc(t.id)}/conversion">
+        <input type="hidden" name="action" value="instruct">
+        <label>Amount handed to the desk (${esc(t.currency_in)}) <input name="amount" value="${want && want.minor > 0 ? format(want.minor, want.decimals) : ""}" required></label>
+        <label>Desk reference (optional) <input name="desk_ref" placeholder="Order or ticket number"></label>
+        <label>Note (optional) <input name="note"></label>
+        <div class="row"><button class="go">Instruct ${esc(DESK.name)} and tell everyone</button></div>
+      </form></details>`;
+  }
+  const status = `<table>
+      <tr><th>Direction</th><td>${c.direction === "buy" ? `Buy ${esc(c.to_currency)} with ${esc(c.from_currency)}` : `Sell ${esc(c.from_currency)} for ${esc(c.to_currency)}`}</td></tr>
+      <tr><th>Handed to the desk</th><td>${esc(c.from_currency)} ${format(c.from_minor, c.from_decimals)} — instructed ${esc(String(c.instructed_at).slice(0, 16))}${c.desk_ref ? ` — ref ${esc(c.desk_ref)}` : ""}</td></tr>
+      ${c.executed_at ? `<tr><th>Came back</th><td>${esc(c.to_currency)} ${format(c.to_minor, c.to_decimals)}${c.rate ? ` at ${esc(c.rate)}` : ""} — ${esc(String(c.executed_at).slice(0, 10))}</td></tr>
+      <tr><th>Desk fee at source</th><td>${c.desk_fee_minor != null ? `${esc(c.from_currency)} ${format(c.desk_fee_minor, c.from_decimals)}` : "—"} (${(c.desk_fee_bps / 100).toFixed(1)}%)</td></tr>
+      ${c.evidence_id ? `<tr><th>Evidence</th><td><a href="/doc/${esc(c.evidence_id)}">desk confirmation</a></td></tr>` : ""}` : ""}
+    </table>`;
+  if (c.executed_at) {
+    return `<details class="panel">${head}${noteHtml}${status}
+      <p class="muted">${c.direction === "buy"
+        ? `The ${esc(c.to_currency)} sits in our client wallet. <a href="/t/${esc(t.id)}/distribute">Distribute it</a> to the recipients.`
+        : `The ${esc(c.to_currency)} sits in the client account. Pay the recipients and record each payment on the <a href="/t/${esc(t.id)}/settle">settlement page</a>.`}</p></details>`;
+  }
+  return `<details class="panel" open>${head}${noteHtml}${status}
+    <p class="muted">With the desk since ${esc(String(c.instructed_at).slice(0, 16))}. Every party has been told. When ${esc(c.desk)} confirms, record it here.</p>
+    <form method="post" action="/t/${esc(t.id)}/conversion" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="execute"><input type="hidden" name="conversion" value="${esc(c.id)}">
+      <label>What came back (${esc(c.to_currency)}) <input name="to_amount" required placeholder="${c.to_decimals === 6 ? "0.000000" : ""}"></label>
+      <div class="row" style="gap:14px">
+        <label>Rate, as the desk stated it <input name="rate" placeholder="1 ${esc(c.from_currency)} = … ${esc(c.to_currency)}"></label>
+        <label>Desk fee at source (${esc(c.from_currency)}) <input name="desk_fee" placeholder="${format(Math.round(c.from_minor * c.desk_fee_bps / 10000), c.from_decimals)}"></label>
+        <label>Executed on <input name="on" type="date" value="${today}" required></label>
+      </div>
+      <label>Desk reference <input name="desk_ref" value="${esc(c.desk_ref ?? "")}"></label>
+      ${c.direction === "buy"
+        ? `<label>Hash of the desk's delivery into our client wallet <input name="tx_hash" placeholder="0x… / 64 hex" spellcheck="false" required></label>
+           <p class="muted">Checked on the chain: it must deliver exactly that amount to <span class="mono">${esc(t.client_wallet ?? "— no client wallet set")}</span>.</p>`
+        : `<label>Desk confirmation or bank advice <input name="file" type="file" accept="${ACCEPTED}" required></label>`}
+      <label>Note (optional) <input name="note"></label>
+      <div class="row"><button class="go">Record the execution and tell everyone</button>
+        <button class="plain" name="action" value="cancel" formnovalidate>Cancel this instruction</button>
+        <input name="reason" placeholder="Why (if cancelling)" style="max-width:220px"></div>
+    </form></details>`;
+}
+
+async function conversionAction(request: Request, env: Env, admin: { name: string }, actor: Actor, txId: string): Promise<Response> {
+  const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+  const f = await request.formData();
+  const action = String(f.get("action") ?? "");
+  if (action === "instruct") {
+    let minor: number;
+    try { minor = parse(String(f.get("amount") ?? ""), t.decimals_in); } catch (e) { return detail(env, admin, txId, (e as Error).message); }
+    const r = await instructDesk(env, actor, txId, { fromMinor: minor, deskRef: String(f.get("desk_ref") ?? ""), note: String(f.get("note") ?? "") });
+    return typeof r === "object" ? detail(env, admin, txId, r.problem)
+      : detail(env, admin, txId, "", `${DESK.name} instructed for ${t.currency_in} ${format(minor, t.decimals_in)}. Every party has been emailed that the conversion is with the desk.`);
+  }
+  const convId = String(f.get("conversion") ?? "");
+  if (action === "cancel") {
+    const err = await cancelConversion(env, actor, convId, String(f.get("reason") ?? ""));
+    return err ? detail(env, admin, txId, err) : detail(env, admin, txId, "", "The desk instruction is cancelled and stays on the record as cancelled.");
+  }
+  if (action === "execute") {
+    const c = await latestConversion(env, txId);
+    if (!c || c.id !== convId) return detail(env, admin, txId, "That is not the current conversion.");
+    let toMinor: number, deskFee: number | null = null;
+    try {
+      toMinor = parse(String(f.get("to_amount") ?? ""), c.to_decimals);
+      const df = String(f.get("desk_fee") ?? "").trim(); if (df) deskFee = parse(df, c.from_decimals);
+    } catch (e) { return detail(env, admin, txId, (e as Error).message); }
+    const file = f.get("file");
+    const err = await executeConversion(env, actor, convId, {
+      toMinor, deskFeeMinor: deskFee, rate: String(f.get("rate") ?? "").trim() || null, deskRef: String(f.get("desk_ref") ?? "").trim() || null,
+      executedOn: String(f.get("on") ?? "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+      txHash: String(f.get("tx_hash") ?? "").trim() || null, file: file instanceof File && file.size > 0 ? file : null,
+      note: String(f.get("note") ?? ""),
+    });
+    return err ? detail(env, admin, txId, err)
+      : detail(env, admin, txId, "", `Conversion recorded: ${c.to_currency} ${format(toMinor, c.to_decimals)} came back from ${c.desk}. Every party has been emailed the rate and the amount.`);
+  }
+  return detail(env, admin, txId, "Unknown conversion action.");
+}
+
+/**
  * Mode C: staff pay the recipients from ThePaymaster's client wallet.
  *
  * The same screen the sender would see on their own route, driven from the
@@ -2171,7 +2281,8 @@ async function walletsPage(env: Env, admin: { name: string; role?: string }, act
 async function distributePage(env: Env, admin: { name: string }, actor: Actor, request: Request, txId: string): Promise<Response> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
   if (!t) return new Response("Not found", { status: 404 });
-  if (t.execution !== "client_wallet" || !isOnChain(t as any)) {
+  const bought = Boolean(t.converts) && t.outbound === "crypto";
+  if (!bought && (t.execution !== "client_wallet" || !isOnChain(t as any))) {
     return detail(env, admin, txId, "This transaction is not in Mode C; the sender executes it from their own wallet.");
   }
   const base = `/t/${txId}/distribute`;
@@ -2393,8 +2504,8 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
     // the rail, not through Ethereum's receipt call.
     let preVerified: { block: number | null; sources: number } | null = null;
     const hashIn = String(f.get("tx_hash") ?? "").trim() || null;
-    if (t.execution === "client_wallet" && isOnChain(t as any)) {
-      if (!hashIn) return settlePage(env, { name: "" }, txId, "In Mode C a receipt is recorded by its transaction hash.");
+    if (t.inbound === "crypto" && t.execution === "client_wallet") {
+      if (!hashIn) return settlePage(env, { name: "" }, txId, "A receipt into the client wallet is recorded by its transaction hash.");
       if (!t.client_wallet) return settlePage(env, { name: "" }, txId, "No client wallet is set on this transaction.");
       const rail = railFor(t as any);
       const shape = rail.hashProblem(hashIn);

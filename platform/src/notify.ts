@@ -546,6 +546,62 @@ export async function staffRecipientConfirmed(env: Env, actor: Actor, txId: stri
   });
 }
 
+/** We have stepped out to the desk. Every party hears, so nobody wonders why nothing is moving. */
+export async function conversionInstructed(env: Env, actor: Actor, txId: string, convId: string): Promise<void> {
+  await quietly("conversion instructed", async () => {
+    const t = await tx(env, txId); if (!t) return;
+    const c = await env.DB.prepare("SELECT * FROM conversions WHERE id = ?").bind(convId).first<any>();
+    if (!c) return;
+    for (const p of await peopleOn(env, txId)) {
+      if (!p.email) continue;
+      await send(env, actor, {
+        to: [p.email],
+        subject: `${t.ref}: the conversion is with the desk`,
+        text: [
+          `Hello ${first(p.display_name)},`,
+          ``,
+          `We have instructed ${c.desk} to ${c.direction === "buy" ? `buy ${c.to_currency} with` : `sell`} ${c.from_currency} ${format(c.from_minor, c.from_decimals)}${c.direction === "sell" ? ` for ${c.to_currency}` : ""} on ${t.ref}.`,
+          `This step happens at the desk, outside our platform, on the desk's own terms. The rate is the rate the desk achieves; we do not set, time or guarantee it.`,
+          `The desk charges ${(c.desk_fee_bps / 100).toFixed(2).replace(/\.?0+$/, "")}% at source; that is the desk's charge, not ours, and it is deducted from the converted amount.`,
+          ``,
+          `You will be emailed the moment the desk confirms, with the rate and the amount that came back. Nothing is needed from you.`,
+          ``,
+          `  ${CLIENT}/d/${t.id}`,
+        ].join("\n"),
+        about: { kind: "conversions", id: convId },
+      });
+    }
+  });
+}
+
+/** The desk has executed. Every party hears the rate and what came back. */
+export async function conversionExecuted(env: Env, actor: Actor, txId: string, convId: string): Promise<void> {
+  await quietly("conversion executed", async () => {
+    const t = await tx(env, txId); if (!t) return;
+    const c = await env.DB.prepare("SELECT * FROM conversions WHERE id = ?").bind(convId).first<any>();
+    if (!c) return;
+    for (const p of await peopleOn(env, txId)) {
+      if (!p.email) continue;
+      await send(env, actor, {
+        to: [p.email],
+        subject: `${t.ref}: the desk has executed — ${c.to_currency} ${format(c.to_minor, c.to_decimals)}`,
+        text: [
+          `Hello ${first(p.display_name)},`,
+          ``,
+          `${c.desk} has ${c.direction === "buy" ? "bought" : "sold"}: ${c.from_currency} ${format(c.from_minor, c.from_decimals)} became ${c.to_currency} ${format(c.to_minor, c.to_decimals)}${c.rate ? ` at ${c.rate}` : ""}, after the desk's fee at source${c.desk_fee_minor != null ? ` of ${c.from_currency} ${format(c.desk_fee_minor, c.from_decimals)}` : ""}.`,
+          ``,
+          p.role === "recipient"
+            ? `Your share is the same proportion of what came back. It will be paid from here; your account shows the exact figure and you will be told when it is sent.`
+            : `Your recipients are now paid from what came back, each in the same proportion as their share. You can see each payment in your account as it is made.`,
+          ``,
+          `  ${CLIENT}/d/${t.id}`,
+        ].join("\n"),
+        about: { kind: "conversions", id: convId },
+      });
+    }
+  });
+}
+
 /** The penny has gone; the recipient is told what to look for. */
 export async function pennySent(env: Env, actor: Actor, destinationId: string): Promise<void> {
   await quietly("penny sent", async () => {
