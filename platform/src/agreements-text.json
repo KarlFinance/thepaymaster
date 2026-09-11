@@ -1,0 +1,1583 @@
+{
+ "version": "v2026-09",
+ "sender": [
+  {
+   "t": "title",
+   "text": "SENDER'S PAYMASTER AGREEMENT"
+  },
+  {
+   "t": "subtitle",
+   "text": "Master Terms for fiat and digital asset distributions"
+  },
+  {
+   "t": "p",
+   "text": "THIS AGREEMENT is made on [DATE]"
+  },
+  {
+   "t": "h2",
+   "text": "BETWEEN:"
+  },
+  {
+   "t": "sub",
+   "n": "(1)",
+   "text": "THEPAYMASTER LIMITED, a company registered in England and Wales with company number 15991850, whose registered office is at 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF (\"ThePaymaster\"); and"
+  },
+  {
+   "t": "sub",
+   "n": "(2)",
+   "text": "[PRINCIPAL NAME], [an individual residing at [ADDRESS]] / [a [ENTITY TYPE] registered in [JURISDICTION] with registration number [NUMBER], whose registered office is at [ADDRESS]] (the \"Principal\")."
+  },
+  {
+   "t": "p",
+   "text": "Each a \"Party\" and together the \"Parties\"."
+  },
+  {
+   "t": "h2",
+   "text": "BACKGROUND"
+  },
+  {
+   "t": "sub",
+   "n": "(A)",
+   "text": "The Principal has entered into, or expects to receive proceeds from, the Underlying Transaction described in the Transaction Schedule, and is obliged to pay part of those proceeds to one or more Recipients."
+  },
+  {
+   "t": "sub",
+   "n": "(B)",
+   "text": "The Principal wishes to appoint ThePaymaster as its commercial agent to receive those proceeds and, on the Principal's behalf and only on the Principal's behalf, to conclude the settlement of the Principal's payment obligations to the Recipients, in fiat currency, in Digital Assets, or in a combination of the two."
+  },
+  {
+   "t": "sub",
+   "n": "(C)",
+   "text": "ThePaymaster has agreed to accept that appointment on the terms of this Agreement."
+  },
+  {
+   "t": "h2",
+   "text": "AGREED TERMS"
+  },
+  {
+   "t": "h2",
+   "text": "1. DEFINITIONS AND INTERPRETATION"
+  },
+  {
+   "t": "clause",
+   "n": "1.1",
+   "text": "In this Agreement the following words have the following meanings:"
+  },
+  {
+   "t": "def",
+   "term": "Banking Day",
+   "text": "a day, other than a Saturday, Sunday or public holiday in England, on which banks in London are open for general business."
+  },
+  {
+   "t": "def",
+   "term": "Client Account",
+   "text": "the segregated bank account or accounts described in clause 5, used to receive and distribute Principal Funds."
+  },
+  {
+   "t": "def",
+   "term": "Client Wallet",
+   "text": "the Digital Asset wallet or wallets controlled by ThePaymaster and used solely to receive and distribute Principal Digital Assets, as described in Schedule 3."
+  },
+  {
+   "t": "def",
+   "term": "Conversion",
+   "text": "the exchange of Principal Funds into a Digital Asset through the OTC Desk in accordance with Schedule 3."
+  },
+  {
+   "t": "def",
+   "term": "Conversion Fee",
+   "text": "the fee for Conversion in Mode B, confirmed by ThePaymaster and stated in the Transaction Schedule."
+  },
+  {
+   "t": "def",
+   "term": "Digital Asset",
+   "text": "a cryptoasset listed as a Supported Asset in Schedule 3."
+  },
+  {
+   "t": "def",
+   "term": "Distribution",
+   "text": "a payment or transfer to a Recipient made by ThePaymaster under this Agreement, whether in fiat currency or in Digital Assets."
+  },
+  {
+   "t": "def",
+   "term": "Distribution Mode",
+   "text": "one of the three modes described in clause 6.2 and Schedule 4: Mode A (Fiat), Mode B (Fiat with Conversion) and Mode C (Native Digital Asset)."
+  },
+  {
+   "t": "def",
+   "term": "Distribution Schedule",
+   "text": "a schedule in the form of Schedule 2, completed and signed by the Principal, identifying each Recipient, its entitlement and its chosen payment rail, as amended under clause 6.5."
+  },
+  {
+   "t": "def",
+   "term": "Gross Amount",
+   "text": "the total amount, in fiat currency or Digital Assets, received by ThePaymaster under a Transaction Schedule before deduction of any fee."
+  },
+  {
+   "t": "def",
+   "term": "Net Distribution Amount",
+   "text": "in respect of a Recipient, the amount payable to that Recipient after deduction of the fees and costs borne by that Recipient under this Agreement."
+  },
+  {
+   "t": "def",
+   "term": "OTC Desk",
+   "text": "the over-the-counter digital asset trading and liquidity provider identified in Schedule 4, or any replacement notified by ThePaymaster to the Principal."
+  },
+  {
+   "t": "def",
+   "term": "Principal Digital Assets",
+   "text": "Digital Assets received into a Client Wallet under a Transaction Schedule, including Digital Assets received from the OTC Desk following a Conversion."
+  },
+  {
+   "t": "def",
+   "term": "Principal Funds",
+   "text": "fiat currency received into a Client Account under a Transaction Schedule."
+  },
+  {
+   "t": "def",
+   "term": "Recipient",
+   "text": "a person identified in the Distribution Schedule as entitled to receive a Distribution."
+  },
+  {
+   "t": "def",
+   "term": "Recipient's Authorisation",
+   "text": "ThePaymaster's standard form document titled Recipient's Authorisation and Payment Instruction, completed and signed by a Recipient."
+  },
+  {
+   "t": "def",
+   "term": "Reference Code",
+   "text": "the unique code issued by ThePaymaster under clause 5.4 and, for Digital Assets, the source wallet whitelisting and reference transaction procedure in Schedule 3."
+  },
+  {
+   "t": "def",
+   "term": "Secure Channel",
+   "text": "the encrypted data room, e-signature platform or other channel identified in Schedule 4 through which the Parties exchange payment details and instructions. Ordinary email and messaging applications are not Secure Channels."
+  },
+  {
+   "t": "def",
+   "term": "Service Fee",
+   "text": "one per cent (1%) of the Gross Amount, in every Distribution Mode."
+  },
+  {
+   "t": "def",
+   "term": "Services",
+   "text": "the services described in clause 2.1."
+  },
+  {
+   "t": "def",
+   "term": "Supported Asset",
+   "text": "and \"Supported Network\" have the meanings given in Schedule 3."
+  },
+  {
+   "t": "def",
+   "term": "Transaction Schedule",
+   "text": "a schedule in the form of Schedule 1, signed by both Parties, describing a specific Underlying Transaction and the Distributions to be made in connection with it."
+  },
+  {
+   "t": "def",
+   "term": "Underlying Transaction",
+   "text": "the commercial transaction, contract or arrangement from which the Principal's obligations to the Recipients arise, as described in the Transaction Schedule."
+  },
+  {
+   "t": "def",
+   "term": "Verification",
+   "text": "the identity, beneficial ownership, sanctions, politically exposed person and adverse media checks, source of funds and source of wealth enquiries, and (for Digital Assets) wallet ownership and wallet screening checks that ThePaymaster carries out under clause 4."
+  },
+  {
+   "t": "def",
+   "term": "Verified Wallet Certificate",
+   "text": "a certificate issued through the wallet verification service identified in Schedule 4 evidencing that the holder controls the private keys of a wallet address."
+  },
+  {
+   "t": "clause",
+   "n": "1.2",
+   "text": "The Schedules form part of this Agreement. Clause and Schedule headings do not affect interpretation. If a Transaction Schedule conflicts with these terms, the Transaction Schedule prevails for that transaction only. A reference to a person includes an individual, company, partnership, trust or unincorporated body. \"Including\" means including without limitation."
+  },
+  {
+   "t": "h2",
+   "text": "2. APPOINTMENT AS COMMERCIAL AGENT"
+  },
+  {
+   "t": "clause",
+   "n": "2.1",
+   "text": "The Principal appoints ThePaymaster as its commercial agent, and ThePaymaster accepts the appointment, for the purpose of concluding, on the Principal's behalf and in the Principal's name, the settlement of the Principal's payment obligations to the Recipients under the Underlying Transaction, by:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "receiving the Gross Amount into a Client Account or Client Wallet;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "carrying out Verification of the Principal, of the source of the Gross Amount and of each Recipient;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "where the Distribution Schedule so requires, procuring Conversion through the OTC Desk;"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "making Distributions to Recipients in accordance with the Distribution Schedule; and"
+  },
+  {
+   "t": "sub",
+   "n": "(e)",
+   "text": "keeping the records described in clause 11."
+  },
+  {
+   "t": "clause",
+   "n": "2.2",
+   "text": "ThePaymaster acts on behalf of the Principal only. It does not act for, advise or owe any duty to any Recipient. It receives each Recipient's Authorisation as agent for the Principal. Nothing in this Agreement creates any obligation of ThePaymaster to a Recipient."
+  },
+  {
+   "t": "clause",
+   "n": "2.3",
+   "text": "Each Transaction Schedule is a separate and distinct agency appointment on the terms of this Agreement. The appointment under a Transaction Schedule ends when every Distribution under it has been completed, returned or otherwise dealt with under clause 10."
+  },
+  {
+   "t": "clause",
+   "n": "2.4",
+   "text": "ThePaymaster's authority is limited to the matters in clause 2.1 and it shall not hold itself out as having wider authority. ThePaymaster is not a party to the Underlying Transaction and gives no assurance as to its performance."
+  },
+  {
+   "t": "h2",
+   "text": "3. REGULATORY STATUS"
+  },
+  {
+   "t": "clause",
+   "n": "3.1",
+   "text": "ThePaymaster is not authorised or regulated by the Financial Conduct Authority and is not a payment institution. It provides the Services as a commercial agent acting on behalf of only the payer, within paragraph 2(b) of Schedule 1 to the Payment Services Regulations 2017. It does not provide payment services to the Principal or to any Recipient and does not safeguard funds under those Regulations. The protection of Principal Funds and Principal Digital Assets is contractual and is set out in clause 5."
+  },
+  {
+   "t": "clause",
+   "n": "3.2",
+   "text": "Participation by ThePaymaster or any affiliate in the Financial Conduct Authority's Digital Sandbox is not authorisation, registration or endorsement by the Financial Conduct Authority, and the Principal shall not treat or describe it as such."
+  },
+  {
+   "t": "clause",
+   "n": "3.3",
+   "text": "Conversion is executed by the OTC Desk on its own regulatory footing, described in Schedule 4, and on its own terms of business. ThePaymaster places the order and receives the proceeds as the Principal's agent. ThePaymaster does not operate an exchange or trading platform and does not set or guarantee any exchange rate."
+  },
+  {
+   "t": "clause",
+   "n": "3.4",
+   "text": "ThePaymaster does not advise on the Underlying Transaction, on the merits of receiving or holding any Digital Asset, or on tax. The Principal confirms that it has taken its own advice."
+  },
+  {
+   "t": "h2",
+   "text": "4. VERIFICATION AND FINANCIAL CRIME"
+  },
+  {
+   "t": "clause",
+   "n": "4.1",
+   "text": "Before making any Distribution, ThePaymaster will complete Verification of:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "the Principal, its beneficial owners and controllers, and the source of the Gross Amount;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "each Recipient and, where a Recipient is not an individual, its beneficial owners and controllers; and"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "for any Distribution in Digital Assets, the destination wallet and, in Mode C, the source wallet, in accordance with Schedule 3."
+  },
+  {
+   "t": "clause",
+   "n": "4.2",
+   "text": "Verification is carried out through the providers identified in Schedule 4. The Principal shall, and shall procure that each Recipient shall, promptly provide all information and documents ThePaymaster reasonably requests, and shall notify ThePaymaster of any change to that information."
+  },
+  {
+   "t": "clause",
+   "n": "4.3",
+   "text": "ThePaymaster may delay, suspend or refuse any Distribution, or return Principal Funds or Principal Digital Assets to their source, if in its reasonable opinion Verification is incomplete or unsatisfactory, the Distribution may breach any law or sanction, ThePaymaster's bank, the OTC Desk or another provider declines to process it, or ThePaymaster is required to do so by a competent authority. ThePaymaster may be prohibited by law from explaining its reasons."
+  },
+  {
+   "t": "clause",
+   "n": "4.4",
+   "text": "Principal Funds and Principal Digital Assets will only ever be returned to the account or wallet from which they were received. They will not be redirected to any third party, whatever the reason given."
+  },
+  {
+   "t": "clause",
+   "n": "4.5",
+   "text": "Where a Recipient fails Verification, ThePaymaster will retain that Recipient's Net Distribution Amount in the Client Account or Client Wallet, and the Principal may, by written instruction through a Secure Channel, nominate a replacement Recipient (who must complete Verification and sign a Recipient's Authorisation) or request return under clause 4.4."
+  },
+  {
+   "t": "clause",
+   "n": "4.6",
+   "text": "Verification of the Principal and of a Recipient remains valid for twelve (12) months from completion for the purposes of further Transaction Schedules, unless ThePaymaster has reason to believe that circumstances have changed or a provider or bank requires it to be refreshed."
+  },
+  {
+   "t": "h2",
+   "text": "5. CLIENT ACCOUNT, CLIENT WALLET AND REFERENCE CODES"
+  },
+  {
+   "t": "clause",
+   "n": "5.1",
+   "text": "ThePaymaster shall maintain the Client Account and the Client Wallet as dedicated accounts, separate from its operational accounts and wallets and used only for Principal Funds and Principal Digital Assets received under this Agreement and under equivalent agreements with other principals. No funds or assets of ThePaymaster or its subsidiary are held in them."
+  },
+  {
+   "t": "clause",
+   "n": "5.2",
+   "text": "ThePaymaster holds all Principal Funds and Principal Digital Assets on trust for the Principal absolutely, as bare trustee, from receipt until Distribution or return. ThePaymaster shall not use them for any purpose other than the Services, shall not lend, stake, pledge or invest them, and shall account to the Principal for any interest actually credited to the Client Account on Principal Funds."
+  },
+  {
+   "t": "clause",
+   "n": "5.3",
+   "text": "The Client Account is held with HSBC UK in the name of ThePaymaster's wholly owned subsidiary ThePaymaster (Global) Ltd (company number 15803273), on the terms of this clause 5. Its details are set out in Schedule 5. Where a Transaction Schedule is denominated in a currency for which HSBC provides ThePaymaster with local account details, ThePaymaster will supply those details for that Transaction Schedule through a Secure Channel."
+  },
+  {
+   "t": "clause",
+   "n": "5.4",
+   "text": "Before any transfer to the Client Account, ThePaymaster will issue to the Principal, through a Secure Channel only, a unique Reference Code for the Transaction Schedule and confirm the Client Account details to be used. The Principal shall ensure that every transfer to the Client Account, whether made by the Principal or by a third party payer named in the Transaction Schedule, carries the Reference Code. Transfers without a valid Reference Code, or from an unverified source, may be held pending enquiry or returned under clause 4.4."
+  },
+  {
+   "t": "clause",
+   "n": "5.5",
+   "text": "ThePaymaster will never notify a change to Client Account or Client Wallet details by email or messaging application. Any communication purporting to do so should be treated as fraudulent and reported to ThePaymaster by telephone on +44 20 7088 8267. The Principal shall verify the Client Account or Client Wallet details by telephone call to that number before the first transfer under each Transaction Schedule, even where the details match Schedule 5."
+  },
+  {
+   "t": "h2",
+   "text": "6. DISTRIBUTION INSTRUCTIONS AND EXECUTION"
+  },
+  {
+   "t": "clause",
+   "n": "6.1",
+   "text": "The Principal instructs ThePaymaster by delivering, through a Secure Channel, a signed Distribution Schedule for the Transaction Schedule. The Distribution Schedule must identify each Recipient, its entitlement (as a percentage of the Gross Amount or a fixed amount), the payment rail chosen by that Recipient and, for Digital Assets, the Supported Asset and Supported Network. Entitlements must account for one hundred per cent (100%) of the Gross Amount after fees."
+  },
+  {
+   "t": "clause",
+   "n": "6.2",
+   "text": "Each Recipient's payment rail falls into one Distribution Mode:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "Mode A (Fiat): Principal Funds are distributed by bank transfer to the Recipient's verified bank account;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "Mode B (Fiat with Conversion): Principal Funds allocated to the Recipient are converted into the chosen Digital Asset through the OTC Desk and delivered to the Recipient's verified wallet; and"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "Mode C (Native Digital Asset): Principal Digital Assets received from the Principal are distributed in the same Digital Asset to the Recipient's verified wallet, without Conversion."
+  },
+  {
+   "t": "p",
+   "text": "A single Transaction Schedule may combine Modes A and B. Mode C applies where the Gross Amount is received in Digital Assets. Schedule 4 sets out the operating procedure for each Mode."
+  },
+  {
+   "t": "clause",
+   "n": "6.3",
+   "text": "ThePaymaster shall make each Distribution within one Banking Day after the last to occur of:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "receipt of cleared Principal Funds carrying the Reference Code or, in Mode C, confirmed on-chain receipt of Principal Digital Assets from the whitelisted source wallet at the confirmation depth stated in Schedule 3;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "completion of Verification of the Principal, of the source of the Gross Amount and of the relevant Recipient;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "receipt of a complete and signed Distribution Schedule and of that Recipient's signed Recipient's Authorisation;"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "for Modes B and C, the Recipient's written confirmation of the test transaction under Schedule 3; and"
+  },
+  {
+   "t": "sub",
+   "n": "(e)",
+   "text": "for Mode B, settlement of the Conversion by the OTC Desk."
+  },
+  {
+   "t": "clause",
+   "n": "6.4",
+   "text": "Where the Transaction Schedule provides for recurring receipts from a named third party payer, the Distribution Schedule operates as a standing instruction. ThePaymaster shall issue a fresh Reference Code for each period stated in the Transaction Schedule. The Principal shall notify ThePaymaster through a Secure Channel of each expected receipt at least one Banking Day in advance, and of any extension, variation or new period before it begins, and shall supply any evidence of the extension that ThePaymaster's bank or providers require."
+  },
+  {
+   "t": "clause",
+   "n": "6.5",
+   "text": "The Principal may amend the Distribution Schedule only by a fresh signed Distribution Schedule delivered through a Secure Channel at least one Banking Day before the affected Distribution. A change to a Recipient's bank account or wallet address also requires a fresh Recipient's Authorisation from that Recipient and, for a wallet, a fresh Verified Wallet Certificate. ThePaymaster will not act on changes received by email or messaging application alone."
+  },
+  {
+   "t": "clause",
+   "n": "6.6",
+   "text": "ThePaymaster will confirm to the Principal, through a Secure Channel or its transaction portal, receipt of the Gross Amount, completion of each Distribution (with the bank reference or transaction hash) and any Distribution held under clause 4."
+  },
+  {
+   "t": "h2",
+   "text": "7. DIGITAL ASSET DISTRIBUTIONS"
+  },
+  {
+   "t": "clause",
+   "n": "7.1",
+   "text": "Schedule 3 applies to every Distribution in Digital Assets and to every Conversion."
+  },
+  {
+   "t": "clause",
+   "n": "7.2",
+   "text": "In Mode B, the Principal accepts the exchange rate achieved by the OTC Desk at the time of Conversion. The quantity of Digital Asset delivered to a Recipient is the quantity actually received from the OTC Desk in respect of that Recipient's allocation, less the Conversion Fee and any network fees, and is not adjusted for price movement before or after delivery. ThePaymaster shall not top up, hedge or time Conversions."
+  },
+  {
+   "t": "clause",
+   "n": "7.3",
+   "text": "In Mode C, entitlements are expressed and settled in units of the Digital Asset received. The Principal bears all price movement. ThePaymaster does not convert, value or hedge Principal Digital Assets."
+  },
+  {
+   "t": "clause",
+   "n": "7.4",
+   "text": "Digital Asset transfers are irreversible. ThePaymaster shall transfer only to a wallet address that appears in a signed Recipient's Authorisation, is covered by a current Verified Wallet Certificate and has passed wallet screening, and only after the test transaction procedure in Schedule 3. The Principal acknowledges that a transfer to the address and network specified by a Recipient is at the Recipient's risk, and that ThePaymaster has no means of recovering Digital Assets once sent."
+  },
+  {
+   "t": "clause",
+   "n": "7.5",
+   "text": "ThePaymaster may decline any Digital Asset Distribution if the OTC Desk declines the Conversion, the wallet screening result is unsatisfactory, the relevant network is congested or compromised, or the Digital Asset ceases to be a Supported Asset."
+  },
+  {
+   "t": "h2",
+   "text": "8. FEES"
+  },
+  {
+   "t": "clause",
+   "n": "8.1",
+   "text": "The Service Fee is payable on the Gross Amount of each Transaction Schedule. Unless the Transaction Schedule provides otherwise, ThePaymaster shall deduct the Service Fee from the Gross Amount before Distribution, so that it is borne by the Recipients in proportion to their entitlements. The Transaction Schedule may instead provide that the Service Fee is paid by the Principal in addition to the Gross Amount, or is borne by one or more named Recipients."
+  },
+  {
+   "t": "clause",
+   "n": "8.2",
+   "text": "In Mode B, the Conversion Fee is confirmed by ThePaymaster before the Transaction Schedule is signed, is stated in it, and is deducted from the converted amount at Conversion. The OTC Desk's spread and any network fees are costs of the Distribution and are borne as stated in the Transaction Schedule."
+  },
+  {
+   "t": "clause",
+   "n": "8.3",
+   "text": "No other fee is payable unless agreed in writing. Charges levied by a Recipient's bank, and intermediary bank charges on international transfers, are for the Recipient's account."
+  },
+  {
+   "t": "clause",
+   "n": "8.4",
+   "text": "ThePaymaster may deduct its fees from Principal Funds and Principal Digital Assets held under clause 5, and the trust in clause 5.2 is subject to that entitlement."
+  },
+  {
+   "t": "h2",
+   "text": "9. PRINCIPAL'S WARRANTIES AND OBLIGATIONS"
+  },
+  {
+   "t": "clause",
+   "n": "9.1",
+   "text": "The Principal warrants and represents, on signing this Agreement and each Transaction Schedule and on each transfer to the Client Account or Client Wallet, that:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "it has full power and authority to enter into and perform this Agreement and the Underlying Transaction, and the Underlying Transaction is lawful, genuine and accurately described in the Transaction Schedule;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "the Gross Amount is the Principal's own property, or the Principal is entitled to direct its payment, derives from the source described in the Transaction Schedule, and is not the proceeds of crime;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "neither the Principal, nor to its knowledge any Recipient or any third party payer named in the Transaction Schedule, is the subject of sanctions administered by the United Kingdom, the United Nations, the European Union or the United States, or is located in or organised under the laws of a comprehensively sanctioned territory;"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "each Recipient's entitlement stated in the Distribution Schedule is correct and lawfully due;"
+  },
+  {
+   "t": "sub",
+   "n": "(e)",
+   "text": "it is not relying on ThePaymaster for advice of any kind; and"
+  },
+  {
+   "t": "sub",
+   "n": "(f)",
+   "text": "all information supplied to ThePaymaster is true, complete and not misleading."
+  },
+  {
+   "t": "clause",
+   "n": "9.2",
+   "text": "The Principal shall:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "pay or bear the fees under clause 8;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "ensure that any third-party payer uses the Reference Code, and that each Recipient completes Verification and signs a Recipient's Authorisation;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "tell ThePaymaster promptly, through a Secure Channel, of any change to the Underlying Transaction, the Recipients or any information supplied; and"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "be responsible for all taxes arising on the Underlying Transaction, on any Conversion and on any Distribution, and for any associated reporting. ThePaymaster may deduct, withhold or report where required by law or directed by a competent authority."
+  },
+  {
+   "t": "h2",
+   "text": "10. FAILED, REFUSED AND RETURNED DISTRIBUTIONS"
+  },
+  {
+   "t": "clause",
+   "n": "10.1",
+   "text": "If a Distribution fails, is rejected by a Recipient's bank or cannot be made to a Recipient's wallet, ThePaymaster shall notify the Principal and hold the Net Distribution Amount under clause 5 pending a fresh instruction under clause 6.5."
+  },
+  {
+   "t": "clause",
+   "n": "10.2",
+   "text": "If no valid instruction is received within twenty (20) Banking Days of ThePaymaster's notice, or if the Principal so requests, ThePaymaster shall return the relevant Principal Funds or Principal Digital Assets in accordance with clause 4.4, less fees already earned and the costs of return."
+  },
+  {
+   "t": "clause",
+   "n": "10.3",
+   "text": "A Distribution made to the account or wallet specified in a signed Recipient's Authorisation discharges ThePaymaster's obligations in respect of that Distribution, whether or not the details given by the Recipient were correct."
+  },
+  {
+   "t": "h2",
+   "text": "11. RECORDS AND REPORTING"
+  },
+  {
+   "t": "clause",
+   "n": "11",
+   "text": "ThePaymaster shall keep records of each Transaction Schedule, Verification, receipt, Conversion and Distribution for at least five (5) years after the end of the relationship, or longer where required by law, and shall provide the Principal on request with a statement of receipts and Distributions for each Transaction Schedule."
+  },
+  {
+   "t": "h2",
+   "text": "12. LIABILITY"
+  },
+  {
+   "t": "clause",
+   "n": "12.1",
+   "text": "Nothing in this Agreement limits liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, or for any liability that cannot lawfully be limited."
+  },
+  {
+   "t": "clause",
+   "n": "12.2",
+   "text": "Subject to clause 12.1, ThePaymaster shall not be liable for:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "any loss arising from the Underlying Transaction or from the acts or omissions of any Recipient or third party payer;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "any delay, refusal or return under clause 4, or any delay caused by its bank, the OTC Desk, a Verification provider, a blockchain network or a competent authority;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "any change in the value of any Digital Asset or fiat currency, or any exchange rate achieved by the OTC Desk;"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "loss of Digital Assets caused by an incorrect address or network specified by a Recipient or the Principal; or"
+  },
+  {
+   "t": "sub",
+   "n": "(e)",
+   "text": "indirect or consequential loss, loss of profit, loss of opportunity or loss of business, however arising."
+  },
+  {
+   "t": "clause",
+   "n": "12.3",
+   "text": "Subject to clause 12.1, ThePaymaster's total liability to the Principal under or in connection with a Transaction Schedule shall not exceed the fees received by ThePaymaster under that Transaction Schedule, save that where Principal Funds or Principal Digital Assets are lost as a direct result of ThePaymaster's breach of clause 5, its liability shall not exceed the amount so lost."
+  },
+  {
+   "t": "clause",
+   "n": "12.4",
+   "text": "The Principal shall indemnify ThePaymaster against all losses, claims, costs and expenses (including reasonable legal fees) arising from any breach of clause 9, from any claim by a Recipient or third party in connection with the Underlying Transaction or a Distribution made in accordance with a Distribution Schedule, or from any tax assessed on ThePaymaster in respect of the Gross Amount."
+  },
+  {
+   "t": "h2",
+   "text": "13. CONFIDENTIALITY AND DATA PROTECTION"
+  },
+  {
+   "t": "clause",
+   "n": "13.1",
+   "text": "Each Party shall keep confidential the terms of this Agreement, each Transaction Schedule and all information about the other Party's business obtained under it, except as required by law or a competent authority, as needed by a bank or provider identified in Schedule 4 for the purpose of the Services, or with the other Party's consent."
+  },
+  {
+   "t": "clause",
+   "n": "13.2",
+   "text": "ThePaymaster processes personal data of the Principal, its officers and beneficial owners, and of Recipients, as a controller, to perform this Agreement and to meet its legal obligations, including under the Money Laundering, Terrorist Financing and Transfer of Funds (Information on the Payer) Regulations 2017. It does so in accordance with the UK GDPR, the Data Protection Act 2018 and its Privacy Policy at thepaymaster.co.uk/privacy-policy. ThePaymaster is registered with the Information Commissioner's Office under reference ZB877477. Personal data is shared with the providers identified in Schedule 4 to the extent necessary for Verification and Distribution, and is retained for five (5) years after the end of the relationship or longer where the law requires."
+  },
+  {
+   "t": "clause",
+   "n": "13.3",
+   "text": "Where the Principal supplies personal data of Recipients or any other individual, the Principal warrants that it is entitled to do so and has given those individuals the information required by data protection law."
+  },
+  {
+   "t": "h2",
+   "text": "14. TERM AND TERMINATION"
+  },
+  {
+   "t": "clause",
+   "n": "14.1",
+   "text": "This Agreement begins on the date it is signed and continues until terminated. It governs every Transaction Schedule signed while it is in force."
+  },
+  {
+   "t": "clause",
+   "n": "14.2",
+   "text": "Either Party may terminate this Agreement on thirty (30) days' written notice. Termination does not affect a Transaction Schedule already in progress, which continues on these terms until completed or returned."
+  },
+  {
+   "t": "clause",
+   "n": "14.3",
+   "text": "ThePaymaster may terminate this Agreement or any Transaction Schedule immediately by written notice if the Principal is in material breach, if ThePaymaster reasonably suspects financial crime, if required to do so by a competent authority, bank or provider, or if continuing would in ThePaymaster's reasonable opinion expose it to legal or regulatory risk. Clause 4.4 applies to any amounts then held."
+  },
+  {
+   "t": "clause",
+   "n": "14.4",
+   "text": "Clauses 4.4, 5, 10, 11, 12, 13, 16 and 17 survive termination."
+  },
+  {
+   "t": "h2",
+   "text": "15. NOTICES AND SECURE CHANNELS"
+  },
+  {
+   "t": "clause",
+   "n": "15.1",
+   "text": "Payment details, Distribution Schedules, Recipient's Authorisations and changes to any of them must be exchanged only through a Secure Channel. Other notices may be given by email to the addresses on the signature page and are deemed received on the next Banking Day after sending."
+  },
+  {
+   "t": "clause",
+   "n": "15.2",
+   "text": "ThePaymaster may record briefing calls and other communications for compliance purposes."
+  },
+  {
+   "t": "h2",
+   "text": "16. GENERAL"
+  },
+  {
+   "t": "clause",
+   "n": "16.1",
+   "text": "This Agreement, with its Schedules, is the entire agreement between the Parties on its subject matter and supersedes any earlier agreement or representation. Each Party confirms that it has not relied on any statement not set out in this Agreement."
+  },
+  {
+   "t": "clause",
+   "n": "16.2",
+   "text": "No variation of these terms is effective unless in writing and signed by both Parties. A Transaction Schedule or Distribution Schedule is not a variation of these terms."
+  },
+  {
+   "t": "clause",
+   "n": "16.3",
+   "text": "Neither Party may assign or transfer its rights or obligations without the other's written consent, except that ThePaymaster may perform through its wholly owned subsidiary ThePaymaster (Global) Ltd and may replace any provider identified in Schedule 4 on notice."
+  },
+  {
+   "t": "clause",
+   "n": "16.4",
+   "text": "Nothing in this Agreement creates a partnership, joint venture or employment relationship or, beyond clause 2, any agency. A person who is not a Party has no right under the Contracts (Rights of Third Parties) Act 1999 to enforce any term. A failure or delay in exercising a right is not a waiver. If any provision is unenforceable, the remainder is unaffected."
+  },
+  {
+   "t": "clause",
+   "n": "16.5",
+   "text": "Neither Party is liable for delay caused by events beyond its reasonable control, including bank or blockchain network outages, provided that it notifies the other Party and resumes performance as soon as practicable. Clause 4.4 continues to apply."
+  },
+  {
+   "t": "clause",
+   "n": "16.6",
+   "text": "Each Party shall comply with the Bribery Act 2010 and shall not offer or accept any inducement in connection with this Agreement."
+  },
+  {
+   "t": "clause",
+   "n": "16.7",
+   "text": "This Agreement may be signed electronically and in counterparts. Electronic signatures have the same effect as handwritten signatures."
+  },
+  {
+   "t": "h2",
+   "text": "17. GOVERNING LAW AND JURISDICTION"
+  },
+  {
+   "t": "clause",
+   "n": "17.1",
+   "text": "This Agreement, each Transaction Schedule and any dispute or claim (including any non-contractual dispute or claim) arising out of or in connection with them are governed by the law of England and Wales."
+  },
+  {
+   "t": "clause",
+   "n": "17.2",
+   "text": "The courts of England and Wales have exclusive jurisdiction to settle any such dispute or claim."
+  },
+  {
+   "t": "p",
+   "text": "SIGNED by the Parties on the date first written above."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "For and on behalf of THEPAYMASTER LIMITED / Signature: ______________________________ / Name: Keirón Allen / Position: Director / Email: ka@thepaymaster.co.uk / Date:",
+     "For and on behalf of the PRINCIPAL / Signature: ______________________________ / Name: / Position: / Email: / Date:"
+    ]
+   ]
+  },
+  {
+   "t": "h2",
+   "text": "SCHEDULE 1"
+  },
+  {
+   "t": "h3",
+   "text": "TRANSACTION SCHEDULE No. [ XXXXXX]"
+  },
+  {
+   "t": "p",
+   "text": "This Transaction Schedule is entered into under, and is governed by, the Sender's Paymaster Agreement dated [DATE] between ThePaymaster Limited and the Principal named below. Capitalised terms have the meanings given in that Agreement. The Client Account details are in Schedule 5. Recipient bank and wallet details are never recorded in this Schedule; ThePaymaster takes them only from each Recipient's signed Recipient's Authorisation."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Principal",
+     ""
+    ],
+    [
+     "Underlying Transaction",
+     "Nature of the transaction, date, counterparties and the agreement(s) from which the Principal's payment obligations arise. Copies supplied through a Secure Channel:"
+    ],
+    [
+     "Source of the Gross Amount",
+     "Name of the payer. Account or wallet from which the Gross Amount will be sent. Description of the source of funds and the evidence supplied:"
+    ],
+    [
+     "Third party payer (if any)",
+     "Name and role. Whether the payer has completed Verification:"
+    ],
+    [
+     "Gross Amount",
+     "Currency or Digital Asset and amount. State whether fixed, expected or variable:"
+    ],
+    [
+     "Receipt pattern",
+     "Single receipt / recurring receipts. If recurring: frequency, expected period(s), and the notice required for any extension or new period (clause 6.4):"
+    ],
+    [
+     "Distribution Mode(s)",
+     "☐ Mode A (Fiat)      ☐ Mode B (Fiat with Conversion)      ☐ Mode C (Native Digital Asset)"
+    ],
+    [
+     "Service Fee",
+     "1% of the Gross Amount, in every Mode. / Borne by:  ☐ deducted from the Gross Amount pro rata across Recipients (default) / ☐ paid by the Principal in addition to the Gross Amount   ☐ borne by named Recipient(s): ______________"
+    ],
+    [
+     "Conversion Fee (Mode B only)",
+     "[  ]% of each converted amount, confirmed by ThePaymaster before signing and deducted at Conversion (clause 8.2). Not applicable to Modes A and C."
+    ],
+    [
+     "Network fees (Modes B and C)",
+     "☐ deducted from the relevant Recipient's Distribution (default)      ☐ borne by the Principal"
+    ],
+    [
+     "Special terms",
+     "Any term specific to this transaction. Where it conflicts with the Agreement it prevails for this Transaction Schedule only (clause 1.2):"
+    ]
+   ]
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "For THEPAYMASTER LIMITED / Signature: ______________________________ / Name: Keirón Allen / Date:",
+     "For the PRINCIPAL / Signature: ______________________________ / Name: / Date:"
+    ]
+   ]
+  },
+  {
+   "t": "h2",
+   "text": "SCHEDULE 2"
+  },
+  {
+   "t": "h3",
+   "text": "DISTRIBUTION SCHEDULE for Transaction Schedule No. [ XXXXXX]"
+  },
+  {
+   "t": "p",
+   "text": "Signed by the Principal and delivered through a Secure Channel. Entitlements must account for 100% of the Gross Amount after fees. Bank account and wallet details are not recorded here: ThePaymaster takes them solely from each Recipient's signed Recipient's Authorisation, and the amount in that Authorisation must match this Schedule before any Distribution is made."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "#",
+     "Recipient (name and type)",
+     "Entitlement (% of Gross or fixed amount)",
+     "Mode A / B / C",
+     "Fiat currency, or Digital Asset and Network",
+     "Recipient's Authorisation received (date)",
+     "Verification complete (date)",
+     "Verified Wallet Certificate ref. (B/C)"
+    ],
+    [
+     "1",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "2",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "3",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "4",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "5",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "6",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "7",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "8",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "Total",
+     "100%",
+     ""
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "text": "Signed for the Principal: ______________________________"
+  },
+  {
+   "t": "p",
+   "text": "Name:"
+  },
+  {
+   "t": "p",
+   "text": "Date:"
+  },
+  {
+   "t": "h2",
+   "text": "SCHEDULE 3"
+  },
+  {
+   "t": "h2",
+   "text": "DIGITAL ASSET TERMS"
+  },
+  {
+   "t": "p",
+   "text": "1. Supported Assets and Supported Networks"
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Supported Asset",
+     "Supported Network(s)",
+     "Notes"
+    ],
+    [
+     "Bitcoin (BTC)",
+     "Bitcoin mainnet",
+     "Native segwit addresses preferred."
+    ],
+    [
+     "Ether (ETH)",
+     "Ethereum mainnet",
+     ""
+    ],
+    [
+     "Tether (USDT)",
+     "[Ethereum (ERC-20)] [Tron (TRC-20)]",
+     "The network is chosen by the Recipient and must be stated in the Recipient's Authorisation."
+    ],
+    [
+     "USD Coin (USDC)",
+     "[Ethereum (ERC-20)]",
+     ""
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "text": "ThePaymaster may add or remove Supported Assets and Supported Networks on notice to the Principal. A Distribution is made only in the Supported Asset and on the Supported Network stated in the Recipient's signed Recipient's Authorisation."
+  },
+  {
+   "t": "p",
+   "text": "2. Conversion (Mode B)"
+  },
+  {
+   "t": "clause",
+   "n": "2.1",
+   "text": "Once clause 6.3(a) to (c) of the Agreement are satisfied for a Mode B Recipient, ThePaymaster places a Conversion order with the OTC Desk for the fiat amount allocated to that Recipient, net of the Service Fee where the Service Fee is deducted from the Gross Amount."
+  },
+  {
+   "t": "clause",
+   "n": "2.2",
+   "text": "The rate is the rate achieved by the OTC Desk. ThePaymaster will report to the Principal the executed rate, the quantity received and the OTC Desk's confirmation."
+  },
+  {
+   "t": "clause",
+   "n": "2.3",
+   "text": "Conversions of up to the equivalent of £1,000,000 are normally executed on the day the order is placed. Larger Conversions may be worked over more than one day at the OTC Desk's discretion, and ThePaymaster will keep the Principal informed."
+  },
+  {
+   "t": "clause",
+   "n": "2.4",
+   "text": "Conversion proceeds are received into the Client Wallet and held under clause 5.2 of the Agreement until Distribution. Where the OTC Desk permits and ThePaymaster considers it appropriate, proceeds may instead be delivered by the OTC Desk directly to the Recipient's verified wallet, in which case the test transaction and confirmation procedure in paragraph 4 still applies."
+  },
+  {
+   "t": "p",
+   "text": "3. Receipt of Principal Digital Assets (Mode C)"
+  },
+  {
+   "t": "clause",
+   "n": "3.1",
+   "text": "The Principal shall supply a Verified Wallet Certificate for each source wallet from which Principal Digital Assets will be sent. ThePaymaster will screen the source wallet, and complete source of funds enquiries in respect of the Digital Assets held in it, before providing the Client Wallet address."
+  },
+  {
+   "t": "clause",
+   "n": "3.2",
+   "text": "ThePaymaster provides the Client Wallet address through a Secure Channel only. The Principal shall verify it by telephone under clause 5.5 of the Agreement before sending anything."
+  },
+  {
+   "t": "clause",
+   "n": "3.3",
+   "text": "Reference transaction: before sending the Gross Amount, the Principal shall send from the whitelisted source wallet a reference transaction of the exact amount notified by ThePaymaster. ThePaymaster will confirm receipt through a Secure Channel before the Principal sends the balance. Digital Assets received from any wallet other than the whitelisted source wallet, or without the reference transaction having been confirmed, may be held pending enquiry or returned under clause 4.4 of the Agreement."
+  },
+  {
+   "t": "clause",
+   "n": "3.4",
+   "text": "Receipt is confirmed at [six] block confirmations for Bitcoin, [twelve] for Ethereum-based assets and [twenty] for Tron-based assets, or such other depth as ThePaymaster notifies for a Supported Network."
+  },
+  {
+   "t": "p",
+   "text": "4. Destination wallets (Modes B and C)"
+  },
+  {
+   "t": "clause",
+   "n": "4.1",
+   "text": "Before any Digital Asset Distribution, the Recipient must have (a) completed Verification through the verification provider identified in Schedule 4; (b) supplied a Verified Wallet Certificate for the destination address, obtained by signing a challenge with the wallet's private key; and (c) passed wallet screening through the blockchain analytics provider identified in Schedule 4. A Verified Wallet Certificate evidences control of a wallet. It is not identity verification and does not replace Verification."
+  },
+  {
+   "t": "clause",
+   "n": "4.2",
+   "text": "The destination address, Supported Asset and Supported Network are taken only from the Recipient's signed Recipient's Authorisation. Only self-custodied wallets are accepted. Exchange-hosted and other custodial deposit addresses are not accepted, because control of them cannot be evidenced by a Verified Wallet Certificate."
+  },
+  {
+   "t": "clause",
+   "n": "4.3",
+   "text": "Test transaction: ThePaymaster will first send a test amount notified to the Recipient. The Recipient must confirm receipt in writing through a Secure Channel, quoting the transaction hash, before the balance is sent. If the Recipient does not confirm within five (5) Banking Days, ThePaymaster will notify the Principal and clause 10 of the Agreement applies."
+  },
+  {
+   "t": "clause",
+   "n": "4.4",
+   "text": "A change of destination address requires a fresh Recipient's Authorisation, a fresh Verified Wallet Certificate, fresh wallet screening and a fresh test transaction."
+  },
+  {
+   "t": "p",
+   "text": "5. Client Wallets"
+  },
+  {
+   "t": "clause",
+   "n": "5.1",
+   "text": "Client Wallets are self-custodied by ThePaymaster using multi-signature smart contract wallets for Ethereum-compatible networks and hardware wallets for Bitcoin and other networks. They are used only for Principal Digital Assets and are not used for ThePaymaster's own assets, for staking, lending or trading."
+  },
+  {
+   "t": "clause",
+   "n": "5.2",
+   "text": "ThePaymaster will provide the Principal, on request, with the Client Wallet address used for its Transaction Schedule and the transaction hashes of every receipt and Distribution, so that the Principal can verify them independently on the relevant public ledger."
+  },
+  {
+   "t": "p",
+   "text": "6. Transfer information"
+  },
+  {
+   "t": "clause",
+   "n": "6.1",
+   "text": "The OTC Desk, a bank or a counterparty institution may require originator and beneficiary information for a transfer of Digital Assets. The Principal consents, and shall procure that each Recipient consents through the Recipient's Authorisation, to ThePaymaster providing that information."
+  },
+  {
+   "t": "h2",
+   "text": "SCHEDULE 4"
+  },
+  {
+   "t": "h2",
+   "text": "OPERATING PROCEDURE AND SERVICE PROVIDERS"
+  },
+  {
+   "t": "h3",
+   "text": "Part 1. Operating procedure by Distribution Mode"
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "",
+     "Step",
+     "Mode A: Fiat",
+     "Mode B: Fiat with Conversion",
+     "Mode C: Native Digital Asset"
+    ],
+    [
+     "1",
+     "Briefing call (recorded); Transaction Schedule agreed and signed",
+     "Underlying Transaction documents supplied through a Secure Channel.",
+     "As Mode A",
+     "As Mode A. Digital Asset and network agreed."
+    ],
+    [
+     "2",
+     "Principal Verification",
+     "KYC/KYB, beneficial ownership, sanctions, PEP and adverse media screening; source of funds evidence.",
+     "As Mode A",
+     "As Mode A, plus Verified Wallet Certificate and screening of the source wallet; source of the Digital Assets evidenced."
+    ],
+    [
+     "3",
+     "Recipient Verification",
+     "KYC/KYB and screening of each Recipient.",
+     "As Mode A, plus Verified Wallet Certificate and wallet screening for the destination address.",
+     "As Mode B."
+    ],
+    [
+     "4",
+     "Recipient's Authorisation signed",
+     "Bank details given only in the signed Authorisation (e-signature).",
+     "Wallet address, asset and network given only in the signed Authorisation.",
+     "As Mode B."
+    ],
+    [
+     "5",
+     "Distribution Schedule signed by the Principal",
+     "Amounts reconciled against each Recipient's Authorisation.",
+     "As Mode A",
+     "As Mode A"
+    ],
+    [
+     "6",
+     "Client Account or Client Wallet details and Reference Code issued",
+     "Through a Secure Channel; Principal verifies by telephone.",
+     "As Mode A",
+     "Client Wallet address issued through a Secure Channel; reference transaction amount notified; Principal verifies by telephone."
+    ],
+    [
+     "7",
+     "Principal (or third party payer) sends the Gross Amount",
+     "Bank transfer carrying the Reference Code.",
+     "As Mode A",
+     "Reference transaction from the whitelisted source wallet, then the balance once confirmed."
+    ],
+    [
+     "8",
+     "Receipt confirmed to all parties",
+     "On cleared funds.",
+     "As Mode A",
+     "On the confirmation depth in Schedule 3."
+    ],
+    [
+     "9",
+     "Conversion",
+     "Not applicable.",
+     "Order placed with the OTC Desk for the Mode B allocation; proceeds to the Client Wallet; executed rate reported.",
+     "Not applicable."
+    ],
+    [
+     "10",
+     "Test transaction",
+     "Not applicable.",
+     "Test amount sent; Recipient confirms the transaction hash through a Secure Channel.",
+     "As Mode B."
+    ],
+    [
+     "11",
+     "Distribution",
+     "Bank transfer within one Banking Day of step 8.",
+     "On-chain transfer within one Banking Day of steps 9 and 10.",
+     "On-chain transfer within one Banking Day of steps 8 and 10."
+    ],
+    [
+     "12",
+     "Confirmation and record",
+     "Bank reference to Principal and Recipient.",
+     "Transaction hash to Principal and Recipient.",
+     "As Mode B."
+    ],
+    [
+     "13",
+     "Statement of receipts and Distributions",
+     "Issued to the Principal on completion of the Transaction Schedule.",
+     "As Mode A",
+     "As Mode A"
+    ]
+   ]
+  },
+  {
+   "t": "h3",
+   "text": "Part 2. Service providers"
+  },
+  {
+   "t": "p",
+   "text": "ThePaymaster may replace a provider on notice to the Principal under clause 16.3 of the Agreement. Each provider acts on its own terms and on its own regulatory footing; none of them is an agent of ThePaymaster."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Role",
+     "Provider",
+     "Status and notes"
+    ],
+    [
+     "Identity, KYB, sanctions, PEP and adverse media screening; ongoing monitoring (Verification)",
+     "Themis, through the Themis Search platform (themissearch.com; wearethemis.com)",
+     "Electronic identity verification, screening and continuous monitoring. Verification results are held in ThePaymaster's secure environment."
+    ],
+    [
+     "Wallet ownership certificates",
+     "Verified Wallet (verifiedwallet.io)",
+     "A certificate proves control of a wallet's private keys by cryptographic signature, counter-signed and publicly verifiable. Used only to evidence wallet ownership. It is not identity verification and is not a regulatory endorsement."
+    ],
+    [
+     "Wallet screening and blockchain analytics",
+     "Nominis",
+     "Wallet history, risk scoring and transaction tracing of source and destination wallets."
+    ],
+    [
+     "OTC Desk (Conversion, Mode B)",
+     "MAS Digital, a trading name of Multi Asset Solutions Digital Payments Limited (Canada, company number BC1370632)",
+     "Registered with the Financial Transactions and Reports Analysis Centre of Canada (FINTRAC) as a Money Services Business, registration M22527201. MAS Digital is not authorised or regulated by the UK Financial Conduct Authority. Its services are provided to ThePaymaster on its own terms of business."
+    ],
+    [
+     "Banking (Client Account)",
+     "HSBC UK",
+     "Client Account held in the name of ThePaymaster (Global) Ltd under clause 5.3 and dedicated to client funds. Details in Schedule 5. Local currency account details available through HSBC Global Wallet."
+    ],
+    [
+     "Secure Channels",
+     "DocuSign (e-signature) Adobe (e-signature)",
+     "Payment details, schedules and authorisations are exchanged only through these channels."
+    ]
+   ]
+  },
+  {
+   "t": "h2",
+   "text": "SCHEDULE 5"
+  },
+  {
+   "t": "h2",
+   "text": "CLIENT ACCOUNT DETAILS"
+  },
+  {
+   "t": "p",
+   "text": "The Client Account is held with HSBC UK in the name of ThePaymaster (Global) Ltd, the wholly owned subsidiary of ThePaymaster Limited, and is dedicated to client funds. No funds of ThePaymaster Limited or ThePaymaster (Global) Ltd are held in it (clause 5). Every transfer must carry the Reference Code issued for the Transaction Schedule (clause 5.4)."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Bank",
+     "{{account.bank}}"
+    ],
+    [
+     "Account name",
+     "{{account.account_name}}"
+    ],
+    [
+     "Account number",
+     "{{account.account_number}}"
+    ],
+    [
+     "Sort code",
+     "{{account.sort_code}}"
+    ],
+    [
+     "IBAN",
+     "{{account.iban}}"
+    ],
+    [
+     "BIC / SWIFT",
+     "{{account.bic_swift}}"
+    ],
+    [
+     "Payment reference",
+     "{{account.payment_reference}}"
+    ],
+    [
+     "Local currency details",
+     "{{account.local_currency_details}}"
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "text": "Verification. Before the first transfer under each Transaction Schedule, the Principal must confirm these details by telephone to ThePaymaster on +44 20 7088 8267. ThePaymaster will never notify a change to these details by email or messaging application. Any message doing so is fraudulent and should be reported on that number (clause 5.5)."
+  }
+ ],
+ "recipient": [
+  {
+   "t": "title",
+   "text": "RECIPIENT'S AUTHORISATION AND PAYMENT INSTRUCTION"
+  },
+  {
+   "t": "subtitle",
+   "text": "For fiat and digital asset distributions"
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Given by (the \"Recipient\")",
+     "[RECIPIENT NAME], [an individual residing at [ADDRESS]] / [a [ENTITY TYPE] registered in [JURISDICTION] with registration number [NUMBER], whose registered office is at [ADDRESS]]"
+    ],
+    [
+     "To (the \"Principal\")",
+     "[PRINCIPAL NAME], care of its commercial agent ThePaymaster Limited, company number 15991850, of 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF (\"ThePaymaster\")"
+    ],
+    [
+     "Transaction Schedule reference",
+     ""
+    ],
+    [
+     "Date",
+     ""
+    ]
+   ]
+  },
+  {
+   "t": "h2",
+   "text": "1. BACKGROUND"
+  },
+  {
+   "t": "clause",
+   "n": "1.1",
+   "text": "The Principal has appointed ThePaymaster as its commercial agent to distribute proceeds of [DESCRIPTION OF UNDERLYING TRANSACTION] (the \"Underlying Transaction\") to the persons entitled to them. ThePaymaster acts for the Principal only."
+  },
+  {
+   "t": "clause",
+   "n": "1.2",
+   "text": "The Recipient is entitled under [AGREEMENT OR BASIS OF ENTITLEMENT, DATED] to receive [PERCENTAGE]% of the gross proceeds of [TOTAL AMOUNT AND CURRENCY OR DIGITAL ASSET], being [ENTITLEMENT AMOUNT] before fees (the \"Entitlement\")."
+  },
+  {
+   "t": "h2",
+   "text": "2. CONFIRMATION OF ENTITLEMENT AND FEES"
+  },
+  {
+   "t": "clause",
+   "n": "2.1",
+   "text": "The Recipient confirms that the Entitlement is correct and lawfully due to it, and that no other person has any interest in it."
+  },
+  {
+   "t": "clause",
+   "n": "2.2",
+   "text": "The Recipient acknowledges that ThePaymaster's service fee of 1% of the gross amount is dealt with as ticked below, and that any conversion fee, exchange spread, network fee or bank charge applicable to the payment method chosen in section 3 is deducted from the Recipient's payment. The amount actually received (the \"Net Amount\") may therefore differ from the Entitlement."
+  },
+  {
+   "t": "tick",
+   "text": "deducted from the gross amount before distribution, so that the Recipient's share bears its proportion"
+  },
+  {
+   "t": "tick",
+   "text": "paid by the Principal in addition, so that the Recipient's share is not reduced by it"
+  },
+  {
+   "t": "tick",
+   "text": "borne by the Recipient in full: [AMOUNT]"
+  },
+  {
+   "t": "h2",
+   "text": "3. ELECTION OF PAYMENT METHOD"
+  },
+  {
+   "t": "p",
+   "text": "The Recipient elects to receive the Net Amount as follows. Tick all that apply; the percentages must total 100%."
+  },
+  {
+   "t": "tick",
+   "text": "Method A: Bank transfer in fiat currency. [ ]% of the Net Amount, in [CURRENCY]. Details in section 4."
+  },
+  {
+   "t": "tick",
+   "text": "Method B: Digital Asset purchased from fiat. [ ]% of the Net Amount, in [ASSET] on the [NETWORK] network. Details in section 5."
+  },
+  {
+   "t": "tick",
+   "text": "Method C: Digital Asset transferred without conversion (only where the Principal is distributing Digital Assets). [ ]% of the Net Amount, in [ASSET] on the [NETWORK] network. Details in section 5."
+  },
+  {
+   "t": "p",
+   "text": "4. BANK ACCOUNT DETAILS (Method A)"
+  },
+  {
+   "t": "p",
+   "text": "The account must be in the Recipient's own name. Payments to third party accounts are not made."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Account name (exactly as held at the bank)",
+     ""
+    ],
+    [
+     "Bank name and country",
+     ""
+    ],
+    [
+     "Account number",
+     ""
+    ],
+    [
+     "Sort code / routing / branch code",
+     ""
+    ],
+    [
+     "IBAN",
+     ""
+    ],
+    [
+     "BIC / SWIFT",
+     ""
+    ],
+    [
+     "Intermediary bank (if any)",
+     ""
+    ],
+    [
+     "Reference to appear on the Recipient's statement (optional)",
+     ""
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "text": "5. DIGITAL ASSET WALLET DETAILS (Methods B and C)"
+  },
+  {
+   "t": "p",
+   "text": "Only self-custodied wallets are accepted. Exchange-hosted and other custodial deposit addresses cannot be used, because control of them cannot be evidenced by a Verified Wallet Certificate."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "Digital Asset",
+     ""
+    ],
+    [
+     "Network (for example Bitcoin, Ethereum ERC-20, Tron TRC-20)",
+     ""
+    ],
+    [
+     "Wallet address",
+     ""
+    ],
+    [
+     "Verified Wallet Certificate reference or URL",
+     ""
+    ],
+    [
+     "Certificate date",
+     ""
+    ],
+    [
+     "Wallet type",
+     "☐ Hardware wallet    ☐ Software wallet    ☐ Multi-signature wallet"
+    ],
+    [
+     "Email address for test transaction confirmation",
+     ""
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "text": "ThePaymaster will first send a small test transaction. The Recipient must confirm receipt by email from the address above, quoting the transaction hash, before the balance is sent."
+  },
+  {
+   "t": "h2",
+   "text": "6. RECIPIENT'S CONFIRMATIONS"
+  },
+  {
+   "t": "p",
+   "text": "The Recipient confirms and agrees that:"
+  },
+  {
+   "t": "sub",
+   "n": "(a)",
+   "text": "it is the sole legal and beneficial owner of the bank account and/or wallet stated above, holds the private keys to any wallet address stated, and is not receiving the payment on behalf of any other person;"
+  },
+  {
+   "t": "sub",
+   "n": "(b)",
+   "text": "it will complete identity, beneficial ownership and source of wealth verification through ThePaymaster's verification provider and, for Methods B and C, wallet ownership certification and wallet screening, and will supply any further information reasonably requested;"
+  },
+  {
+   "t": "sub",
+   "n": "(c)",
+   "text": "no payment will be made until verification is complete, and payment may be delayed, withheld or returned to the Principal if verification is incomplete or unsatisfactory, or if ThePaymaster, its bank or its providers are unable or unwilling to process it. ThePaymaster may be prevented by law from giving reasons;"
+  },
+  {
+   "t": "sub",
+   "n": "(d)",
+   "text": "it is not the subject of sanctions administered by the United Kingdom, the United Nations, the European Union or the United States, and is not located in or organised under the laws of a comprehensively sanctioned territory;"
+  },
+  {
+   "t": "sub",
+   "n": "(e)",
+   "text": "Digital Asset transfers are irreversible. The Recipient alone is responsible for the accuracy of the wallet address and for choosing a network that the wallet supports. Digital Assets sent to the address and network stated above cannot be recovered by ThePaymaster or the Principal;"
+  },
+  {
+   "t": "sub",
+   "n": "(f)",
+   "text": "for Method B, the quantity of Digital Asset received depends on the rate achieved at conversion and its value may rise or fall before and after receipt; for Method C, the Recipient receives units of the Digital Asset and bears its price movement. Neither ThePaymaster nor the Principal guarantees any value;"
+  },
+  {
+   "t": "sub",
+   "n": "(g)",
+   "text": "ThePaymaster acts solely as the Principal's agent. It owes the Recipient no duty of care, fiduciary duty or other obligation, has not advised the Recipient on the Underlying Transaction, on Digital Assets or on tax, and is not liable to the Recipient for any loss. Any dispute about the Entitlement is between the Recipient and the Principal;"
+  },
+  {
+   "t": "sub",
+   "n": "(h)",
+   "text": "payment to the account or wallet stated above fully discharges the Principal's obligations, and any obligation of ThePaymaster, in respect of the Entitlement;"
+  },
+  {
+   "t": "sub",
+   "n": "(i)",
+   "text": "the Recipient is responsible for its own tax on any amount received and for any reporting of it; and"
+  },
+  {
+   "t": "sub",
+   "n": "(j)",
+   "text": "ThePaymaster, its bank, the OTC desk used for any conversion and a counterparty institution may be required to share the Recipient's identifying information with each other or with authorities in connection with a transfer, and the Recipient consents to that sharing."
+  },
+  {
+   "t": "h2",
+   "text": "7. CHANGES TO PAYMENT DETAILS"
+  },
+  {
+   "t": "clause",
+   "n": "7.1",
+   "text": "The details in sections 4 and 5 can be changed only by a new Recipient's Authorisation and Payment Instruction signed by the Recipient through ThePaymaster's e-signature platform and, for a wallet, a new Verified Wallet Certificate. ThePaymaster will telephone the Recipient on the number given below to confirm any change before acting on it."
+  },
+  {
+   "t": "clause",
+   "n": "7.2",
+   "text": "ThePaymaster will not act on changes received by email, messaging application or telephone alone. The Recipient should treat any message purporting to change ThePaymaster's details, or asking the Recipient to make a payment, as fraudulent and report it to ThePaymaster on +44 20 7088 8267. ThePaymaster will never ask the Recipient to pay anything to receive its Entitlement."
+  },
+  {
+   "t": "h2",
+   "text": "8. COMMUNICATIONS"
+  },
+  {
+   "t": "clause",
+   "n": "8.1",
+   "text": "ThePaymaster will send notifications of verification status, test transactions and payment through its secure channels or to the email address given below. Payment confirmation will include the bank reference or transaction hash."
+  },
+  {
+   "t": "h2",
+   "text": "9. DATA PROTECTION"
+  },
+  {
+   "t": "clause",
+   "n": "9.1",
+   "text": "ThePaymaster processes the Recipient's personal data as a controller in order to perform the distribution and to meet its legal obligations, including under the Money Laundering, Terrorist Financing and Transfer of Funds (Information on the Payer) Regulations 2017. Data is shared with its verification, wallet certification and wallet screening providers, its bank and, for Digital Assets, the OTC desk, to the extent necessary, and is retained for five (5) years after the relationship ends or longer where the law requires. ThePaymaster is registered with the Information Commissioner's Office under reference ZB877477. Its Privacy Policy is at thepaymaster.co.uk/privacy-policy."
+  },
+  {
+   "t": "h2",
+   "text": "10. GOVERNING LAW"
+  },
+  {
+   "t": "clause",
+   "n": "10.1",
+   "text": "This document and any dispute or claim arising from it are governed by the law of England and Wales, whose courts have exclusive jurisdiction."
+  },
+  {
+   "t": "table",
+   "rows": [
+    [
+     "SIGNED by the RECIPIENT / Signature: ______________________________ / Name: / Position (if signing for an entity): / Email: / Telephone (for verification calls): / Date:",
+     "RECEIVED by THEPAYMASTER LIMITED / as commercial agent for the Principal / Signature: ______________________________ / Name: Keirón Allen / Position: Director / Email: ka@thepaymaster.co.uk / Date:"
+    ]
+   ]
+  }
+ ]
+}

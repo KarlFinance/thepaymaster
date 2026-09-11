@@ -36,6 +36,8 @@ export interface Env {
   FEE_BANK_ACCOUNT?: string;
   /** The client mandated account senders pay into, same shape. */
   MANDATED_ACCOUNT?: string;
+  /** HSBC API credentials — none yet; the fiat mode switch stays on manual until they exist. */
+  HSBC_API_KEY?: string;
 }
 
 export interface Actor {

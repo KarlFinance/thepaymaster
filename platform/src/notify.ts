@@ -437,6 +437,115 @@ export async function staffCannotSign(env: Env, actor: Actor, destinationId: str
   });
 }
 
+/** A party is asked to sign their agreement (or sign again after a change). */
+export async function agreementRequested(env: Env, actor: Actor, txId: string, partyId: string, again: boolean): Promise<void> {
+  await quietly("agreement requested", async () => {
+    const t = await tx(env, txId); if (!t) return;
+    const p = (await peopleOn(env, txId)).find((x) => x.party_id === partyId);
+    if (!p?.email) return;
+    const doc = p.role === "sender" ? "Sender's Paymaster Agreement" : "Recipient's Authorisation and Payment Instruction";
+    await send(env, actor, {
+      to: [p.email],
+      subject: `${t.ref}: please ${again ? "sign again — the details changed" : "sign your " + doc}`,
+      text: [
+        `Hello ${first(p.display_name)},`,
+        ``,
+        again ? `Something in ${t.ref} changed after you signed your ${doc} — an amount, a recipient or an account. The document has been refreshed from the record and needs your signature again.`
+              : `Your ${doc} for ${t.ref} is ready. It is filled in from the transaction record — your details, the amounts, the account you gave — so please read it and sign it in your account.`,
+        ``,
+        `  ${CLIENT}/d/${t.id}`,
+        ``,
+        `You sign by typing your name against the document. The words you see are the words that go into the record.`,
+      ].join("\n"),
+      about: { kind: "transactions", id: txId },
+    });
+  });
+}
+
+/** Manual fiat: the sender says the money has gone. Someone here must look at the account. */
+export async function staffSenderSaysSent(env: Env, actor: Actor, txId: string, note: string): Promise<void> {
+  await quietly("sender says sent", async () => {
+    const t = await tx(env, txId); const staff = await staffEmails(env);
+    if (!t || !staff.length) return;
+    const s = (await peopleOn(env, txId)).find((p) => p.role === "sender");
+    await send(env, actor, {
+      to: staff,
+      subject: `${t.ref}: ${s?.display_name ?? "the sender"} says the funds have been sent — confirm receipt`,
+      text: [
+        `${s?.display_name ?? "The sender"} has marked ${t.ref} as paid into the client account.`,
+        note ? `\nIn their words: "${note}"\n` : ``,
+        `Check the account for the Reference Code ${t.ref}, then record the receipt with the bank advice on the settlement page:`,
+        ``,
+        `${ADMIN}/t/${t.id}/settle`,
+      ].join("\n"),
+      about: { kind: "transactions", id: txId },
+    });
+  });
+}
+
+/** Manual fiat: the money is in the client account. Everyone hears. */
+export async function fundsReceived(env: Env, actor: Actor, txId: string, amountMinor: number, currency: string, decimals: number): Promise<void> {
+  await quietly("funds received", async () => {
+    const t = await tx(env, txId); if (!t) return;
+    for (const p of await peopleOn(env, txId)) {
+      if (!p.email) continue;
+      await send(env, actor, {
+        to: [p.email],
+        subject: `${t.ref}: funds received into the client account`,
+        text: [
+          `Hello ${first(p.display_name)},`,
+          ``,
+          p.role === "sender"
+            ? `${currency} ${format(amountMinor, decimals)} has arrived in the client account under Reference Code ${t.ref}. We are now paying each recipient; you will see each payment confirmed in your account.`
+            : `The sender's funds for ${t.ref} have arrived in ThePaymaster's client account. Your payment follows once every check is complete; you will be asked to confirm when it reaches you.`,
+          ``,
+          `  ${CLIENT}/d/${t.id}`,
+        ].join("\n"),
+        about: { kind: "transactions", id: txId },
+      });
+    }
+  });
+}
+
+/** Manual fiat: we have paid a recipient; they are asked to confirm it arrived. */
+export async function paymentMade(env: Env, actor: Actor, txId: string, participationId: string, amountMinor: number): Promise<void> {
+  await quietly("payment made", async () => {
+    const t = await tx(env, txId); if (!t) return;
+    const r = (await peopleOn(env, txId)).find((p) => p.participation_id === participationId);
+    if (!r?.email) return;
+    await send(env, actor, {
+      to: [r.email],
+      subject: `${t.ref}: your payment of ${t.currency_out} ${format(amountMinor, t.decimals_out)} has been made`,
+      text: [
+        `Hello ${first(r.display_name)},`,
+        ``,
+        `We have paid ${t.currency_out} ${format(amountMinor, t.decimals_out)} to the account in your signed authorisation, reference ${t.ref}.`,
+        `Bank transfers usually land within two hours, sometimes next working day. When it shows on your statement, please confirm it in your account:`,
+        ``,
+        `  ${CLIENT}/d/${t.id}`,
+        ``,
+        `Your confirmation goes into the record alongside our evidence of the payment.`,
+      ].join("\n"),
+      about: { kind: "participations", id: participationId },
+    });
+  });
+}
+
+/** Manual fiat: a recipient confirmed the money arrived. */
+export async function staffRecipientConfirmed(env: Env, actor: Actor, txId: string, participationId: string): Promise<void> {
+  await quietly("recipient confirmed", async () => {
+    const t = await tx(env, txId); const staff = await staffEmails(env);
+    if (!t || !staff.length) return;
+    const r = (await peopleOn(env, txId)).find((p) => p.participation_id === participationId);
+    await send(env, actor, {
+      to: staff,
+      subject: `${t.ref}: ${r?.display_name ?? "a recipient"} confirms receipt`,
+      text: [`${r?.display_name ?? "A recipient"} has confirmed their payment on ${t.ref} arrived.`, ``, `${ADMIN}/t/${t.id}`].join("\n"),
+      about: { kind: "participations", id: participationId },
+    });
+  });
+}
+
 /** The penny has gone; the recipient is told what to look for. */
 export async function pennySent(env: Env, actor: Actor, destinationId: string): Promise<void> {
   await quietly("penny sent", async () => {
@@ -536,7 +645,7 @@ export async function roomShared(env: Env, actor: Actor, inviteId: string, url: 
         `open is watermarked with your name and the time. To check any of it without`,
         `relying on us, paste the record.json at https://client.thepaymaster.co.uk/verify-record.`,
         ``,
-        `ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT`,
+        `ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF`,
         `info@thepaymaster.co.uk · +44 20 7088 8267`,
       ].join("\n"),
       about: { kind: "room_invites", id: inviteId },

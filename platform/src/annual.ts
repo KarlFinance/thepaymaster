@@ -163,7 +163,7 @@ export function annualPdf(d: AnnualData, opts: { watermark?: string | null } = {
   pdf.para(who, { face: "bold", size: 13, after: 2 });
   pdf.para(`Every payment ${who} sent or received through ThePaymaster® between 1 January and 31 December ${d.year}, ` +
     `drawn from the sealed record of each transaction. Issued ${d.issuedAt.slice(0, 16)} UTC by ThePaymaster Ltd, ` +
-    `85 Great Portland Street, First Floor, London W1W 7LT.`, { size: 9, colour: MUTED, after: 10 });
+    `167-169 The Fifth Floor, Great Portland Street, London W1W 5PF.`, { size: 9, colour: MUTED, after: 10 });
 
   // --- totals ------------------------------------------------------------------
   const rows: [string, string, boolean?][] = [];

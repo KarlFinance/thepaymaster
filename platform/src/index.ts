@@ -14,7 +14,7 @@ import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
-import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments,
+import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
          clientStartOwn, clientAgain, clientCounterparties, clientTeam, clientAnnual } from "./client.ts";
@@ -55,6 +55,9 @@ import { grant as grantAttestation, revoke as revokeAttestation,
          forTransaction as attestationsFor } from "./attest.ts";
 import { sendPenny, pennyReference, importStatement, reconcile as reconcileBank,
          expected as bankExpected, paymentsCsv, linesFor as bankLines, paysDirect, accountFromVar } from "./bank.ts";
+import { forTransaction as agreementsFor, VERSION as AGREEMENT_VERSION } from "./agreements.ts";
+import { fiatMode, FIAT_MODES, set as setSwitch, type FiatMode } from "./switches.ts";
+import { agreementRequested, fundsReceived, paymentMade } from "./notify.ts";
 
 /** The PDFs we hand to clients, by the name they are served under. */
 const PAPERS = new Set([
@@ -182,7 +185,8 @@ export default {
             return clientAgain(env, request, dealId);
           }
           if (url.pathname.endsWith("/payments.csv")) return clientPayments(env, request, dealId);
-          if (url.pathname.endsWith("/bank") && request.method === "POST") {
+          if (url.pathname.endsWith("/agreement.pdf")) return clientAgreementPdf(env, request, dealId);
+          if (/\/(bank|agreement|sent|received)$/.test(url.pathname) && request.method === "POST") {
             return clientDeal(env, request, dealId);
           }
           if (url.pathname.endsWith("/send") || url.pathname.endsWith("/send/prepare")) {
@@ -236,6 +240,7 @@ export default {
         return page("Help", adminHelp(), { nav: nav("/help", admin.name) });
       }
       if (url.pathname === "/badges") return badgesPage(env, admin, actor, request);
+      if (url.pathname === "/fiat") return fiatPage(env, admin, actor, request);
       if (url.pathname.startsWith("/p/")) {
         const pid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/decide") && request.method === "POST") {
@@ -365,6 +370,15 @@ export default {
         }
         if (url.pathname.endsWith("/bank") && request.method === "POST") {
           return bankAction(request, env, admin, actor, txId);
+        }
+        if (url.pathname.endsWith("/agreements/remind") && request.method === "POST") {
+          const f = await request.formData();
+          const partyId = String(f.get("party") ?? "");
+          const row = (await agreementsFor(env, txId)).find((a) => a.partyId === partyId);
+          if (!row) return detail(env, admin, txId, "No such party on this transaction.");
+          await agreementRequested(env, actor, txId, partyId, row.state === "stale");
+          await log(env.DB, actor, "agreement.reminded", "transactions", txId, { note: `${row.name} asked to sign${row.state === "stale" ? " again" : ""}` });
+          return detail(env, admin, txId, "", `${row.name} has been emailed to sign${row.state === "stale" ? " again" : ""}.`);
         }
         if (url.pathname.endsWith("/settle")) {
           return request.method === "POST"
@@ -984,6 +998,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
          ? ` — <form method="post" action="/t/${esc(t.id)}/clone" style="display:inline"><button class="plain small" type="submit">Run it again</button></form>${tip("Clone this distribution: same recipients and shares, addresses and proofs carried over as confirmed (you screen and lock again), chain settings kept, amount blank. It arrives submitted and ready to release.")}`
          : ""}</p>
     ${await txDocuments(env, t.id)}
+    ${await agreementsPanel(env, t, bankNote)}
     ${await bankPanel(env, t, bankNote)}
     <details class="panel"${t.summary ? "" : " open"}>
       <summary><strong>Executive summary</strong>${t.summary ? "" : ' — <span class="muted">not written yet</span>'}${tip("A paragraph a bank's compliance officer can read first: what this transaction is, who is paying whom and why. It opens the dossier PDF and appears in every party's Counterparty Certification. It is a fact in the record; each save is logged.")}</summary>
@@ -1942,7 +1957,9 @@ async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
     : i.what === "receipt" ? "client mandated account" : '<span class="bad">no account yet</span>';
   const anyPaid = items.some((i) => i.paid);
   const bothFiat = t.inbound === "fiat" && t.outbound === "fiat";
-  const payerForm = bothFiat ? `<form method="post" action="/t/${esc(t.id)}/bank" class="row" style="gap:14px;align-items:center;margin:6px 0 10px">
+  const mode = await fiatMode(env);
+  const flow = await fiatChecklist(env, t, items);
+  const payerForm = bothFiat && (mode === "sender_direct" || direct) ? `<form method="post" action="/t/${esc(t.id)}/bank" class="row" style="gap:14px;align-items:center;margin:6px 0 10px">
       <input type="hidden" name="action" value="payer">
       <strong>Who makes the payments${tip("Mandated account: the sender pays us, we pay everyone from the client mandated account. Sender pays directly: the sender uploads our payment file to their own bank and pays every recipient and our fee themselves; nothing passes through an account we operate, and the certification says so. Fixed once any payment is on the record.")}</strong>
       <label style="display:inline-flex;gap:6px;align-items:center"><input type="radio" name="payer" value="mandated"${direct ? "" : " checked"}${anyPaid ? " disabled" : ""}> Client mandated account</label>
@@ -1955,6 +1972,7 @@ async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
         ? "The sender pays every recipient and our fee from their own bank, using the payment file and references from their page, and uploads their statement there. Reconcile (theirs or ours) turns each line with a matching reference and amount into a custody event held by the client. Nothing passes through an account we operate."
         : "Fiat moves through the client mandated account at HSBC, so the record is built from the statement. Every payment carries a reference we chose; import the statement and Reconcile turns each line with a matching reference and amount into a custody event. Anything that nearly matches is shown for a person to decide.")}</summary>
     ${note ? `<div class="good" style="white-space:pre-line">${esc(note)}</div>` : ""}
+    ${flow}
     ${payerForm}
     <h3 style="margin:8px 0 4px">What we expect to see${tip("The reference is the whole matching rule: a statement line must carry it and the exact amount. Give the sender theirs to put on their payment; ours go on the bulk payment file.")}</h3>
     <table>
@@ -1991,6 +2009,122 @@ async function bankPanel(env: Env, t: any, note = ""): Promise<string> {
   </details>`;
 }
 
+/**
+ * The agreements: who has signed what, and whether the signature still covers
+ * the facts. A stale line means the transaction changed after signing.
+ */
+async function agreementsPanel(env: Env, t: any, note = ""): Promise<string> {
+  const rows = await agreementsFor(env, t.id);
+  if (!rows.length) return "";
+  const signed = rows.filter((r) => r.state === "signed").length;
+  return `<details class="panel"${signed === rows.length ? "" : " open"}>
+    <summary><strong>Agreements</strong> — ${signed} of ${rows.length} signed${tip(`Each party signs the document generated for this transaction from the record: the sender the Sender's Paymaster Agreement (with its Transaction, Distribution and Client Account schedules), each recipient a Recipient's Authorisation carrying their own account. Template ${AGREEMENT_VERSION}. The signature is over a hash of the exact text shown; if an amount, recipient or account changes afterwards the line goes stale and the party is asked to sign again. Signed PDFs are documents on the transaction, shared with the party.`)}</summary>
+    ${note && /signed|emailed/.test(note) ? `<div class="good">${esc(note)}</div>` : ""}
+    <table>
+      <tr><th>Party</th><th>Document</th><th>Status</th><th></th></tr>
+      ${rows.map((r) => `<tr>
+        <td>${esc(r.name)}<div class="muted log">${esc(r.role)}</div></td>
+        <td>${r.kind === "sender_agreement" ? "Sender's Paymaster Agreement" : "Recipient's Authorisation"}</td>
+        <td>${r.state === "signed" ? `<span class="good">Signed</span> <span class="muted">${esc(String(r.latest.signed_at).slice(0, 16))} by ${esc(r.latest.signed_name)}</span>`
+             : r.state === "stale" ? `<span class="warn">Signed ${esc(String(r.latest.signed_at).slice(0, 10))}, but the facts changed since</span>`
+             : '<span class="muted">Not signed</span>'}</td>
+        <td class="row" style="gap:6px">${r.latest?.artefact_id ? `<a href="/doc/${esc(r.latest.artefact_id)}"><button class="plain small" type="button">PDF</button></a>` : ""}
+          ${r.state !== "signed" ? `<form method="post" action="/t/${esc(t.id)}/agreements/remind" style="display:inline"><input type="hidden" name="party" value="${esc(r.partyId)}"><button class="plain small">${r.state === "stale" ? "Ask to sign again" : "Ask to sign"}</button></form>` : ""}</td></tr>`).join("")}
+    </table>
+  </details>`;
+}
+
+/** The manual fiat flow as a numbered list, each line pointing at where it is done. */
+async function fiatChecklist(env: Env, t: any, items: Awaited<ReturnType<typeof bankExpected>>["items"]): Promise<string> {
+  if (t.inbound !== "fiat" && t.outbound !== "fiat") return "";
+  const sigs = await agreementsFor(env, t.id);
+  const allSigned = sigs.length > 0 && sigs.every((s) => s.state === "signed");
+  const receipt = items.find((i) => i.what === "receipt");
+  const legs = items.filter((i) => i.what.startsWith("leg:"));
+  const { results: confirmed } = await env.DB.prepare(
+    "SELECT id FROM participations WHERE transaction_id = ? AND role = 'recipient' AND receipt_confirmed_at IS NOT NULL").bind(t.id).all<any>();
+  const confirmedIds = new Set((confirmed ?? []).map((r: any) => r.id));
+  const paidLegs = legs.filter((l) => l.paid).length;
+  const confirmedLegs = legs.filter((l) => confirmedIds.has(l.what.slice(4))).length;
+  const sealed = await env.DB.prepare("SELECT 1 FROM dossier_seals WHERE transaction_id = ? LIMIT 1").bind(t.id).first();
+  const li = (done: boolean, now: boolean, text: string) =>
+    `<li class="${done ? "good" : now ? "" : "muted"}">${done ? "&#10003;" : now ? "&rarr;" : "&#9675;"} ${text}</li>`;
+  const stage = [allSigned, Boolean(t.sender_sent_at), Boolean(receipt?.paid), legs.length > 0 && paidLegs === legs.length,
+                 legs.length > 0 && confirmedLegs === legs.length, Boolean(sealed)];
+  const nowIdx = stage.findIndex((x) => !x);
+  return `<ol class="fiatflow" style="margin:6px 0 12px;padding-left:20px;line-height:1.7">
+    ${li(stage[0], nowIdx === 0, `Agreements signed by every party${sigs.length ? ` (${sigs.filter((s) => s.state === "signed").length} of ${sigs.length})` : ""}`)}
+    ${li(stage[1], nowIdx === 1, t.sender_sent_at ? `Sender says the funds were sent ${esc(String(t.sender_sent_at).slice(0, 16))}${t.sender_sent_note ? ` — “${esc(t.sender_sent_note)}”` : ""}` : `Sender pays the client account under <code>${esc(t.ref)}</code> and presses “I have sent it”`)}
+    ${li(stage[2], nowIdx === 2, receipt?.paid ? "Receipt confirmed into the client account" : `Confirm receipt against the bank on the <a href="/t/${esc(t.id)}/settle">settlement page</a>, with the advice as evidence`)}
+    ${li(stage[3], nowIdx === 3, `Recipients paid from the client account, each recorded with evidence (${paidLegs} of ${legs.length})${nowIdx === 3 && legs.some((l) => !l.paid) ? ` — <a href="/t/${esc(t.id)}/bank/payments.csv">payment file</a>, then record each on the <a href="/t/${esc(t.id)}/settle">settlement page</a>` : ""}`)}
+    ${li(stage[4], nowIdx === 4, `Recipients confirm receipt in their accounts (${confirmedLegs} of ${legs.length})`)}
+    ${li(stage[5], nowIdx === 5, sealed ? "Record sealed" : `Seal the record on the <a href="/t/${esc(t.id)}/dossier">dossier page</a>`)}
+  </ol>`;
+}
+
+/** Fiat Transactions: which fiat mode is on, and every fiat transaction with where it has got to. */
+async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request: Request): Promise<Response> {
+  let note = "", error = "";
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const want = String(f.get("mode") ?? "") as FiatMode;
+    const m = FIAT_MODES.find((x) => x.key === want);
+    if (!m) error = "Unknown mode.";
+    else if (!m.available(env)) error = m.why ?? "That mode is not available yet.";
+    else { await setSwitch(env, actor, "fiat_mode", want, `fiat mode → ${m.label}`); note = `${m.label} is on.`; }
+  }
+  const mode = await fiatMode(env);
+  const acct = accountFromVar(env.MANDATED_ACCOUNT);
+  const { results: txs } = await env.DB.prepare(
+    `SELECT id, ref, name, status, inbound, outbound, fiat_payer, sender_sent_at, currency_in, gross_expected_minor, decimals_in
+       FROM transactions WHERE inbound = 'fiat' OR outbound = 'fiat' ORDER BY created_at DESC LIMIT 60`).all<any>();
+  const rows: string[] = [];
+  for (const t of txs ?? []) {
+    const received = await env.DB.prepare("SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'received' LIMIT 1").bind(t.id).first();
+    const sigs = await agreementsFor(env, t.id);
+    const legs = await env.DB.prepare(
+      `SELECT count(*) AS n, sum(CASE WHEN EXISTS (SELECT 1 FROM payout_legs l JOIN custody_events c ON c.id = l.event_id WHERE l.participation_id = p.id AND c.event = 'sent') THEN 1 ELSE 0 END) AS paid,
+              sum(CASE WHEN p.receipt_confirmed_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed
+         FROM participations p WHERE p.transaction_id = ? AND p.role = 'recipient'`).bind(t.id).first<any>();
+    const stage = t.status === "closed" || t.status === "settled" ? "Settled"
+      : legs?.n && legs.confirmed === legs.n ? "Recipients confirmed — seal"
+      : legs?.paid ? `Paid ${legs.paid} of ${legs.n}` : received ? "Funds received — pay recipients"
+      : t.sender_sent_at ? "Sender says sent — confirm receipt" : sigs.length && sigs.every((s) => s.state === "signed") ? "Awaiting the sender's payment"
+      : `Agreements ${sigs.filter((s) => s.state === "signed").length} of ${sigs.length}`;
+    rows.push(`<tr><td><a href="/t/${esc(t.id)}">${esc(t.ref)}</a><div class="muted log">${esc(t.name)}</div></td>
+      <td>${esc(t.inbound)} → ${esc(t.outbound)}${t.fiat_payer === "sender" ? ' <span class="tag">sender direct</span>' : ""}</td>
+      <td>${t.gross_expected_minor != null ? `${esc(t.currency_in)} ${format(t.gross_expected_minor, t.decimals_in)}` : "—"}</td>
+      <td><span class="tag">${esc(t.status)}</span></td><td>${stage}</td></tr>`);
+  }
+  return page("Fiat transactions", `
+    <h1>Fiat transactions</h1>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}${note ? `<div class="good">${esc(note)}</div>` : ""}
+    <div class="panel">
+      <h2 style="margin-top:0">How fiat runs${tip("One switch for every fiat transaction. Manual is how it runs today; the HSBC API mode becomes selectable once the bank has issued credentials for the client account; the sender-direct mode is built and kept but off the default path. Changing the switch is logged.")}</h2>
+      <form method="post" action="/fiat">
+        ${FIAT_MODES.map((m) => { const ok = m.available(env); return `
+        <label style="display:block;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;margin:8px 0;${ok ? "" : "opacity:.65"}">
+          <input type="radio" name="mode" value="${m.key}"${mode === m.key ? " checked" : ""}${ok ? "" : " disabled"}>
+          <strong>${esc(m.label)}</strong>${mode === m.key ? ' <span class="tag">on</span>' : ""}
+          <div class="muted" style="margin:4px 0 0 22px">${esc(m.detail)}</div>
+          ${m.why ? `<div class="muted" style="margin:4px 0 0 22px;font-size:12.5px">${esc(m.why)}</div>` : ""}
+        </label>`; }).join("")}
+        <div class="row"><button class="go">Save</button></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2 style="margin-top:0">The client account</h2>
+      ${acct ? `<p><b>${esc(acct.name)}</b>${acct.bank ? `, ${esc(acct.bank)}` : ""} — ${acct.iban ? `IBAN ${esc(acct.iban)}` : `sort code ${esc(acct.sortCode ?? "")}, account ${esc(acct.accountNumber ?? "")}`}</p>
+             <p class="muted">Shown to senders on their page and written into Schedule 5 of every Sender's Paymaster Agreement. Set as MANDATED_ACCOUNT in wrangler.toml.</p>`
+           : `<p class="warn">MANDATED_ACCOUNT is not set. Senders are told the details will follow separately, and Schedule 5 says “supplied through a Secure Channel”. Set it in wrangler.toml as “Name|sort code|account number|IBAN|BIC|bank”.</p>`}
+      <p class="muted">Agreement template in use: ${esc(AGREEMENT_VERSION)}.</p>
+    </div>
+    <div class="panel">
+      <h2 style="margin-top:0">Every fiat transaction</h2>
+      ${rows.length ? `<table><tr><th>Ref</th><th>Legs</th><th>Gross</th><th>Status</th><th>Where it is</th></tr>${rows.join("")}</table>` : '<p class="muted">None yet.</p>'}
+    </div>`, { nav: nav("/fiat", admin.name) });
+}
+
 async function bankAction(request: Request, env: Env, admin: { name: string }, actor: Actor, txId: string): Promise<Response> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
   if (!t) return new Response("Not found", { status: 404 });
@@ -1998,6 +2132,9 @@ async function bankAction(request: Request, env: Env, admin: { name: string }, a
   const action = String(f.get("action") ?? "");
   if (action === "payer") {
     const want = String(f.get("payer")) === "sender" ? "sender" : "mandated";
+    if (want === "sender" && (await fiatMode(env)) !== "sender_direct") {
+      return detail(env, admin, txId, "The sender-pays-directly mode is switched off on the Fiat page. It is built and kept, but off the default path: it does not sit inside the commercial agent model as we operate it.");
+    }
     if (t.inbound !== "fiat" || t.outbound !== "fiat") return detail(env, admin, txId, "Only a fiat-to-fiat transaction has a choice of payer.");
     const paid = await env.DB.prepare("SELECT 1 FROM custody_events WHERE transaction_id = ? LIMIT 1").bind(txId).first();
     if (paid) return detail(env, admin, txId, "A payment is already on the record; who pays cannot change now.");
@@ -2108,6 +2245,7 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
     await update(env.DB, actor, "transaction.funds_received", "transactions", txId,
       { gross_received_minor: (t.gross_received_minor ?? 0) + amountMinor },
       { gross_received_minor: t.gross_received_minor });
+    if (t.inbound === "fiat") await fundsReceived(env, actor, txId, amountMinor, t.currency_in, t.decimals_in);
 
     // Recording that money has arrived is the transaction entering settlement.
     // This is still a person pressing a button — it is not the system deciding
@@ -2154,6 +2292,7 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
       .bind(result, participation).run();
     await log(env.DB, actor, "payout.recorded", "participations", participation,
       { note: `${t.currency_out} ${format(amountMinor, t.decimals_out)}` });
+    if (t.outbound === "fiat") await paymentMade(env, actor, txId, participation, amountMinor);
     return back();
   }
 

@@ -16,6 +16,7 @@ import { settle, format, type FeeMode } from "./money.ts";
 import { standingCheck } from "./screening.ts";
 import { CHAINS } from "./chain.ts";
 import { railFor } from "./rail.ts";
+import { forTransaction as agreementsFor } from "./agreements.ts";
 import { standing as standingScreen } from "./walletscreen.ts";
 import { proved as provedAddress } from "./attest.ts";
 
@@ -43,7 +44,7 @@ export interface Readiness {
 }
 
 export async function assess(env: Env, transactionId: string,
-                             opts: { onChain?: boolean } = {}): Promise<Readiness> {
+                             opts: { onChain?: boolean; agreements?: boolean } = {}): Promise<Readiness> {
   const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?")
     .bind(transactionId).first<any>();
   if (!t) return { checks: [], ready: false };
@@ -332,6 +333,22 @@ export async function assess(env: Env, transactionId: string,
       met: recipients.length > 0 && unproved.length === 0,
       detail: unproved.length ? `Waiting on ${unproved.join(", ")}`
         : `${recipients.length} account${recipients.length === 1 ? "" : "s"} proved by penny`,
+    });
+  }
+
+  // --- the agreements ------------------------------------------------------
+  // Skipped only when the agreements module itself is asking for the
+  // arithmetic, which is how it fills the schedules.
+  if (opts.agreements !== false) {
+    const sigs = await agreementsFor(env, transactionId);
+    const missing = sigs.filter((s) => s.state !== "signed");
+    checks.push({
+      key: "agreements",
+      label: "Every party has signed their agreement",
+      met: sigs.length > 0 && missing.length === 0,
+      detail: !sigs.length ? "No parties yet"
+        : missing.length ? `Waiting on ${missing.map((s) => `${s.name}${s.state === "stale" ? " (signed before the facts changed)" : ""}`).join(", ")}`
+        : `${sigs.length} signed: the Sender's Paymaster Agreement and every Recipient's Authorisation`,
     });
   }
 

@@ -34,11 +34,13 @@ import { standing as standingMandate, history as mandateHistory,
 import { executeBody, recordLeg, recordTest, prepare } from "./executeview.ts";
 import { verifyForm, receiveVerification, whatIsMissing, kycStyles,
          peopleOf, standingCheck } from "./kyc.ts";
-import { documentsFor } from "./documents.ts";
+import { documentsFor, fetchDocument } from "./documents.ts";
 import { forParticipation, save as saveDestination, confirm as confirmDestination,
          problemWith, describe, type Kind } from "./destinations.ts";
 import { claimPenny, paysDirect, expected as bankExpected, paymentsCsv, importStatement, reconcile as reconcileBank,
          accountFromVar } from "./bank.ts";
+import { status as agreementStatus, sign as agreementSign, AGREEMENT_CSS } from "./agreements.ts";
+import { staffSenderSaysSent, staffRecipientConfirmed } from "./notify.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
          removeSendingWallet,
          sendingWallets, addSendingWallet, proveSendingWallet,
@@ -136,7 +138,7 @@ function shell(title: string, body: string, who?: string,
 <title>${esc(title)} — ThePaymaster</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://thepaymaster.co.uk/wp-content/uploads/elementor/google-fonts/css/plusjakartasans.css">
 ${FAVICON}
-<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}${JOURNEY_CSS}${HELP_CSS}${VERIFY_CSS}
+<style>${CSS}${REVEAL_CSS}${kycStyles()}${PROOF_CSS}${JOURNEY_CSS}${HELP_CSS}${VERIFY_CSS}${AGREEMENT_CSS}
 .card.now{border-color:var(--accent);box-shadow:0 0 0 3px #FFF3ED}</style></head>
 <body>${bar}<div class="sheet"><main>${body}</main>
 <div class="panelfoot">&copy; ThePaymaster Ltd &reg; ${thisYear()} All Rights Reserved</div>
@@ -454,7 +456,15 @@ async function senderPayCard(env: Env, part: any, txId: string, error: string, n
          with the reference <b>${esc(receipt?.reference ?? part.ref)}</b>. The reference is how your money is matched
          to this distribution, so please put it exactly.</p>
       <p>${acct(accountFromVar(env.MANDATED_ACCOUNT))}</p>
-      <p class="muted">${receipt?.paid ? "Received — thank you. We are paying your recipients." : "We will confirm here when it arrives, and pay every recipient from the mandated account."}</p></div>`;
+      <p class="muted">Before your first transfer, telephone us on +44 20 7088 8267 to confirm these details. We never change account details by email or message.</p>
+      ${receipt?.paid ? `<p class="good">Received — thank you. We are paying your recipients.</p>`
+        : part.sender_sent_at ? `<p class="muted">You told us it was sent${part.sender_sent_at !== "now" ? ` on ${esc(String(part.sender_sent_at).slice(0, 16))}` : ""}. We will confirm here when it reaches the client account.</p>`
+        : `<form method="post" action="/d/${esc(txId)}/sent" style="margin-top:12px">
+            <label for="sn">Anything we should know (optional)</label>
+            <input id="sn" name="note" maxlength="500" placeholder="Sent from our Barclays account this morning">
+            <div class="row"><button class="go">I have sent it</button></div>
+            <p class="muted">This tells us to look for it. We confirm receipt ourselves against the bank.</p>
+          </form>`}</div>`;
   }
   const out = items.filter((i) => i.direction === "out" && i.amountMinor > 0);
   const todo = out.filter((i) => !i.paid);
@@ -481,6 +491,21 @@ async function senderPayCard(env: Env, part: any, txId: string, error: string, n
       <textarea name="text" rows="4" placeholder="Date,Description,Paid out,Paid in,Balance&#10;..."></textarea>
       <div class="row"><input type="file" name="file" accept=".csv,text/csv,text/plain"><button class="go">Match my payments</button></div>
     </form></div>`;
+}
+
+/** The party's latest signed agreement, as the PDF that went into their folder. */
+export async function clientAgreementPdf(env: Env, request: Request, txId: string): Promise<Response> {
+  const who = await whoIs(env, request);
+  if (!who) return Response.redirect(new URL("/", request.url).toString(), 302);
+  const mine = await principals(env, who.partyId);
+  const row = await env.DB.prepare(
+    `SELECT a.artefact_id FROM agreements a WHERE a.transaction_id = ? AND a.party_id IN (${mine.map(() => "?").join(",")})
+      ORDER BY a.signed_at DESC LIMIT 1`).bind(txId, ...mine).first<any>();
+  if (!row?.artefact_id) return new Response("Not found", { status: 404 });
+  const doc = await fetchDocument(env, row.artefact_id);
+  if (!doc) return new Response("Not found", { status: 404 });
+  return new Response(doc.body, { headers: { "content-type": doc.contentType,
+    "content-disposition": `inline; filename="${doc.filename}"`, "cache-control": "no-store" } });
 }
 
 /** The bulk payment file for a sender paying directly. */
@@ -862,7 +887,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // page, an error shown against all of them is as unhelpful as one shown
   // against none — and none is what happened.
   let errorWallet = "";
-  const isRoomPost = request.method === "POST" && /\/(room|bank)$/.test(new URL(request.url).pathname);
+  const isRoomPost = request.method === "POST" && /\/(room|bank|agreement|sent|received)$/.test(new URL(request.url).pathname);
   const canPrepare = atLeast(memberRole, "preparer");
   if (request.method === "POST" && !canPrepare) {
     error = "Your role on this account is viewer: you can read everything here but not change it.";
@@ -890,6 +915,45 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       }
     }
   }
+
+  // Signing the agreement, saying the money has gone, confirming it arrived.
+  // Each is the party's own act and is recorded against them.
+  const postPath = new URL(request.url).pathname;
+  if (request.method === "POST" && canPrepare && postPath.endsWith("/agreement")) {
+    const f = await request.formData();
+    error = await agreementSign(env, actor, txId, principalId, {
+      typedName: String(f.get("typed_name") ?? ""), shownHash: String(f.get("hash") ?? ""),
+      ip: request.headers.get("CF-Connecting-IP") ?? undefined, agent: request.headers.get("User-Agent") ?? undefined,
+      signerPartyId: who.partyId,
+    }) ?? "";
+    if (!error) bankNote = "Signed. Your copy is in your folder, and the record carries the hash of what you signed.";
+  }
+  if (request.method === "POST" && canPrepare && postPath.endsWith("/sent") && part.role === "sender" && part.inbound === "fiat") {
+    const f = await request.formData();
+    const note = String(f.get("note") ?? "").trim().slice(0, 500);
+    if (!part.sender_sent_at) {
+      await update(env.DB, actor, "transaction.sender_sent", "transactions", txId,
+        { sender_sent_at: new Date().toISOString().replace("T", " ").slice(0, 19), sender_sent_note: note || null },
+        { sender_sent_at: null }, { note: note || "the sender says the funds have been sent" });
+      await staffSenderSaysSent(env, actor, txId, note);
+      part.sender_sent_at = "now";
+    }
+    bankNote = "Thank you. We will confirm here as soon as it reaches the client account.";
+  }
+  if (request.method === "POST" && canPrepare && postPath.endsWith("/received") && part.role === "recipient") {
+    const paidRow = await env.DB.prepare(
+      `SELECT 1 FROM custody_events c JOIN payout_legs l ON l.event_id = c.id
+        WHERE c.transaction_id = ? AND l.participation_id = ? AND c.event = 'sent' LIMIT 1`).bind(txId, part.participation_id).first();
+    if (!paidRow) error = "We have not recorded a payment to you yet, so there is nothing to confirm. If money has arrived, tell us and we will look.";
+    else {
+      await update(env.DB, actor, "participation.receipt_confirmed", "participations", part.participation_id,
+        { receipt_confirmed_at: new Date().toISOString().replace("T", " ").slice(0, 19) }, { receipt_confirmed_at: null },
+        { note: "the recipient confirms the payment arrived" });
+      await staffRecipientConfirmed(env, actor, txId, part.participation_id);
+      bankNote = "Thank you. Your confirmation is in the record.";
+    }
+  }
+
   if (request.method === "POST" && !isRoomPost && canPrepare && part.role === "sender") {
     const f = await request.formData();
     const action = String(f.get("action") ?? "");
@@ -976,14 +1040,21 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   // Where they are. Decided from the record, never from what was last shown.
   const out = await outcome(env, txId);
   const progress = part.role === "sender" ? await recipientProgress(env, txId) : [];
+  const agreement = await agreementStatus(env, txId, principalId);
+  const receivedAny = part.inbound === "fiat" && Boolean(await env.DB.prepare(
+    "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'received' LIMIT 1").bind(txId).first());
+  const myPart = part.role === "recipient" ? await env.DB.prepare(
+    "SELECT receipt_confirmed_at FROM participations WHERE id = ?").bind(part.participation_id).first<any>() : null;
   const steps = part.role === "recipient"
     ? recipientJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, kind,
         dest: dest ? { ...dest, attested: destProof?.attestation ?? null } : null,
-        paidHash: out.paidFor(part.participation_id), sealed: out.sealed })
+        paidHash: out.paidFor(part.participation_id), sealed: out.sealed,
+        agreement: agreement?.state, receiptConfirmedAt: kind === "bank" ? (myPart?.receipt_confirmed_at ?? null) : undefined })
     : senderJourney({
         cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
         recipients: progress, status: part.status,
+        agreement: agreement?.state, senderSentAt: part.sender_sent_at ?? null, received: receivedAny,
         // Paying directly, the sender's job includes our fee: "Pay" is not done until it is on the statement.
         allPaid: out.allPaid && (!paysDirect(part) || Boolean(await env.DB.prepare(
           "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'fee_taken' LIMIT 1").bind(txId).first())),
@@ -1001,6 +1072,32 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
           <p><a href="/verify"><button>Start</button></a></p></div>`;
       case "details":
         return destinationCard(part, dest, kind, error, editing);
+      case "agreement": {
+        if (!agreement) return "";
+        const isSender = agreement.kind === "sender_agreement";
+        return `<div class="card now"><h2>${isSender ? "Sign the Sender's Paymaster Agreement" : "Sign your Recipient's Authorisation"}</h2>
+          ${bankNote ? `<div class="good">${esc(bankNote)}</div>` : ""}
+          ${error ? `<div class="err">${esc(error)}</div>` : ""}
+          ${agreement.state === "stale" ? `<p class="warn">You signed an earlier version on ${esc(String(agreement.latest.signed_at).slice(0, 16))}. The transaction has changed since — the document below is refreshed from the record and needs your signature again. Your earlier signed copy stays in your folder.</p>` : ""}
+          <p>${isSender
+            ? "This appoints ThePaymaster as your commercial agent for this distribution. It is filled in from the record: you, the transaction, the gross amount, how the fee is borne, each recipient and their share, and the client account. Read it through; the schedules are at the end."
+            : "This confirms your entitlement and gives ThePaymaster the account to pay it to, taken from what you entered and confirmed. Nothing can be paid to any other account. Read it through before you sign."}</p>
+          <div class="ag">${agreement.current!.html}</div>
+          <form method="post" action="/d/${esc(txId)}/agreement" style="margin-top:14px">
+            <input type="hidden" name="hash" value="${esc(agreement.current!.hash)}">
+            <label for="typed">Type your full name to sign</label>
+            <input id="typed" name="typed_name" autocomplete="name" required placeholder="Your full name">
+            <button class="go" type="submit">I have read this and I sign it</button>
+          </form>
+          <p class="muted">Your name, the time, and a fingerprint of the exact words above go into the record. A signed PDF is placed in your folder.</p></div>`;
+      }
+      case "confirm_receipt":
+        return `<div class="card now"><h2>Confirm you received it</h2>
+          ${error ? `<div class="err">${esc(error)}</div>` : ""}
+          <p>We have paid your share to the account in your signed authorisation, reference <b>${esc(part.ref)}</b>.
+             When it shows on your statement, confirm it here. Your confirmation goes into the record next to our evidence of the payment.</p>
+          <form method="post" action="/d/${esc(txId)}/received"><button class="go">It has arrived</button></form>
+          <p class="muted" style="margin-top:10px">Not there yet? Bank transfers usually land within two hours, sometimes next working day. If it has not arrived after two working days, tell us.</p></div>`;
       case "prove":
         if (kind === "bank") return `<div class="card now"><h2>Prove it is yours</h2>
           <p>We have sent <b>0.01</b> to the account you gave, from ThePaymaster's client account.

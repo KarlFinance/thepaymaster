@@ -32,7 +32,7 @@ export function dossierPdf(o: {
   // --- title ----------------------------------------------------------------
   pdf.heading("Transaction dossier", 22);
   pdf.para(`${o.tx.ref}${o.tx.name ? ` — ${o.tx.name}` : ""}`, { face: "bold", size: 13, after: 2 });
-  pdf.para("Produced by ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT. " +
+  pdf.para("Produced by ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF. " +
     "Every fact below was recorded at the time it happened and cannot be edited afterwards. " +
     `Produced ${(o.producedAt ?? new Date().toISOString()).replace("T", " ").slice(0, 16)} UTC.`,
     { size: 9, colour: "0.353 0.420 0.502", after: 10 });

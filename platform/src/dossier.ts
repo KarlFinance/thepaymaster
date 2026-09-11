@@ -246,6 +246,14 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
     "SELECT * FROM custody_events WHERE transaction_id = ?", txId)) {
     add("08-custody", c.id, `${c.event} — ${c.currency}`, c);
   }
+  // The agreements each party signed: the hash of the exact text they saw,
+  // who signed, when. The text itself is the signed PDF, a document below.
+  for (const g of await q(
+    "SELECT * FROM agreements WHERE transaction_id = ?", txId)) {
+    add("08d-agreement", g.id,
+        `${g.kind === "sender_agreement" ? "Sender's Paymaster Agreement" : "Recipient's Authorisation"} ${g.version} — signed by ${g.signed_name}`,
+        drop(g, ["content_json"]));
+  }
   for (const b of await q(
     "SELECT * FROM bank_lines WHERE transaction_id = ?", txId)) {
     add("08c-bank-line", b.id, `Statement line — ${b.direction === "in" ? "in" : "out"} ${b.currency} — ${b.matched_what ?? "unmatched"}`, b);

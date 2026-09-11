@@ -205,7 +205,7 @@ export function statementPdf(d: FolderData, opts: { watermark?: string | null } 
   pdf.heading("Counterparty Certification", 22);
   pdf.para(`${d.role === "recipient" ? "Statement of transaction" : "Statement of distribution"} — ${tx.ref}${tx.name ? ` — ${tx.name}` : ""}`,
     { face: "bold", size: 13, after: 2 });
-  pdf.para(`Issued to ${who} by ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT. ` +
+  pdf.para(`Issued to ${who} by ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF. ` +
     `Reference ${ref}. Every statement below is drawn from a record made at the time it happened; the record's ` +
     `root hash is printed at the end so that this document can be checked against it.`, { size: 9, colour: MUTED, after: 8 });
   if (status.final) pdf.status("FINAL — the transaction is complete and the record is sealed.", true);

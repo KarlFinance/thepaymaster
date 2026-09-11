@@ -232,7 +232,7 @@ footer{text-align:center;color:#8C99AC;font-size:13px;padding:10px 20px 30px}
        ${d.latestSeal ? `Record root <span class="mono">${esc(d.latestSeal.root)}</span>, sealed ${esc(String(d.latestSeal.sealed_at).slice(0, 16))} UTC.` : "The record is not yet sealed."}</p>
   </div>
 </main>
-<footer>ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT · info@thepaymaster.co.uk · +44 20 7088 8267<br>
+<footer>ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF · info@thepaymaster.co.uk · +44 20 7088 8267<br>
 ThePaymaster® acts exclusively as the sender's agent under a distinct appointment for each transaction (PSR 2017, Sch 1, para 2(b)).</footer>
 </body></html>`;
 }

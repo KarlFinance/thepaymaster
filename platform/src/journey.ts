@@ -58,6 +58,10 @@ export function recipientJourney(o: {
   kind: "wallet" | "bank";
   paidHash: string | null;
   sealed: boolean;
+  /** The Recipient's Authorisation: signed, not yet, or signed before the facts changed. */
+  agreement?: "unsigned" | "signed" | "stale";
+  /** Manual fiat: the recipient says the money arrived. */
+  receiptConfirmedAt?: string | null;
 }): Step[] {
   const steps: Step[] = [];
 
@@ -111,8 +115,18 @@ export function recipientJourney(o: {
   }
   const proved = Boolean(o.dest?.proved_at || o.dest?.attested);
 
+  // 3b. the Recipient's Authorisation — the account above, in a document they sign.
+  if (o.agreement !== undefined) {
+    if (o.agreement === "signed") steps.push({ key: "agreement", label: "Sign your authorisation", state: "done",
+      summary: "Recipient's Authorisation signed" });
+    else if (!(confirmed && proved)) steps.push({ key: "agreement", label: "Sign your authorisation", state: "todo" });
+    else steps.push({ key: "agreement", label: "Sign your authorisation", state: "now",
+      summary: o.agreement === "stale" ? "Your details or the amount changed since you signed — please sign again" : undefined });
+  }
+  const authorised = o.agreement === undefined || o.agreement === "signed";
+
   // 4. we lock it
-  if (!(confirmed && proved)) steps.push({ key: "locked", label: "Checked and locked by us", state: "todo" });
+  if (!(confirmed && proved && authorised)) steps.push({ key: "locked", label: "Checked and locked by us", state: "todo" });
   else if (o.dest.status === "locked") steps.push({ key: "locked",
     label: "Checked and locked by us", state: "done", summary: `Locked ${day(o.dest.locked_at)}` });
   else steps.push({ key: "locked", label: "Checked and locked by us", state: "wait",
@@ -125,11 +139,20 @@ export function recipientJourney(o: {
     summary: "Waiting for the sender. A test payment of one unit will arrive first." });
   else steps.push({ key: "paid", label: "Paid", state: "todo" });
 
+  // 5b. manual fiat: the recipient confirms it arrived
+  let confirmedReceipt = true;
+  if (o.kind === "bank" && o.receiptConfirmedAt !== undefined) {
+    if (o.receiptConfirmedAt) steps.push({ key: "confirm_receipt", label: "Confirm you received it", state: "done",
+      summary: `Confirmed ${day(o.receiptConfirmedAt)}` });
+    else if (o.paidHash) { steps.push({ key: "confirm_receipt", label: "Confirm you received it", state: "now" }); confirmedReceipt = false; }
+    else { steps.push({ key: "confirm_receipt", label: "Confirm you received it", state: "todo" }); confirmedReceipt = false; }
+  }
+
   // 6. record
   if (o.sealed) steps.push({ key: "record", label: "Your record", state: "done",
     summary: "Sealed. Yours to keep." });
-  else steps.push({ key: "record", label: "Your record", state: o.paidHash ? "wait" : "todo",
-    summary: o.paidHash ? "Being sealed by us." : undefined });
+  else steps.push({ key: "record", label: "Your record", state: o.paidHash && confirmedReceipt ? "wait" : "todo",
+    summary: o.paidHash && confirmedReceipt ? "Being sealed by us." : undefined });
 
   return steps;
 }
@@ -184,6 +207,11 @@ export function senderJourney(o: {
   onChain: boolean;
   /** Fiat the sender pays from their own bank: the step is "Pay", not "Send". */
   paysDirect?: boolean;
+  /** The Sender's Paymaster Agreement. */
+  agreement?: "unsigned" | "signed" | "stale";
+  /** Manual fiat: the sender has told us the money has gone, and whether we have confirmed it. */
+  senderSentAt?: string | null;
+  received?: boolean;
 }): Step[] {
   const steps: Step[] = [];
 
@@ -194,6 +222,16 @@ export function senderJourney(o: {
     summary: `Sent ${day(o.submittedAt)} — with us for checking.` });
   else steps.push({ key: "verify", label: "Verify yourself", state: "now" });
   const verified = steps[0].state === "done";
+
+  // 1b. the agreement — signed once verified, before anything else is asked of them
+  if (o.agreement !== undefined) {
+    if (o.agreement === "signed") steps.push({ key: "agreement", label: "Sign the agreement", state: "done",
+      summary: "Sender's Paymaster Agreement signed" });
+    else if (!verified) steps.push({ key: "agreement", label: "Sign the agreement", state: "todo" });
+    else steps.push({ key: "agreement", label: "Sign the agreement", state: "now",
+      summary: o.agreement === "stale" ? "The transaction changed since you signed — please sign again" : undefined });
+  }
+  const agreed = o.agreement === undefined || o.agreement === "signed";
 
   if (o.onChain) {
     const proved = o.wallets.filter((w) => w.proved_at).length;
@@ -217,10 +255,14 @@ export function senderJourney(o: {
     summary: `${done} of ${n} ready — waiting on them, not on you` });
 
   const canSend = o.status === "ready" || o.status === "settling";
-  const sendLabel = o.paysDirect ? "Pay" : "Send";
+  const sendLabel = o.paysDirect || !o.onChain ? "Pay" : "Send";
   if (o.allPaid) steps.push({ key: "send", label: sendLabel, state: "done",
-    summary: o.onChain ? "Every payment confirmed on the chain" : "Every payment on the statement" });
-  else if (canSend && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "now" });
+    summary: o.onChain ? "Every payment confirmed on the chain" : "Every payment confirmed" });
+  else if (!o.onChain && o.senderSentAt && !o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
+    summary: `You told us it was sent on ${day(o.senderSentAt)}. We are confirming receipt into the client account.` });
+  else if (!o.onChain && o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
+    summary: "Received into the client account. We are paying your recipients; each confirms when it arrives." });
+  else if (canSend && verified && walletsDone && agreed) steps.push({ key: "send", label: sendLabel, state: "now" });
   else if (ready && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: "We are checking the gate. You will get an email when you can send." });
   else steps.push({ key: "send", label: sendLabel, state: "todo" });

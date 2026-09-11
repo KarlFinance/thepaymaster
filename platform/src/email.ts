@@ -134,7 +134,7 @@ export function enquiryAcknowledged(name: string): { subject: string; text: stri
       "If it is urgent, call +44 20 7088 8267.",
       "",
       "ThePaymaster Ltd",
-      "85 Great Portland Street, First Floor, London W1W 7LT",
+      "167-169 The Fifth Floor, Great Portland Street, London W1W 5PF",
     ].join("\n"),
   };
 }

@@ -155,7 +155,7 @@ ol li{margin-bottom:8px}
 </style></head><body>
 <h1>Transaction dossier</h1>
 <p><b>${esc(tx.ref)}</b> — ${esc(tx.name ?? "")}<br>
-<span class="muted">Produced by ThePaymaster Ltd, 85 Great Portland Street, First Floor, London W1W 7LT.
+<span class="muted">Produced by ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF.
 Every fact below was recorded at the time it happened and cannot be edited afterwards.</span></p>
 
 <div class="seal">
