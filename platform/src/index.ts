@@ -56,9 +56,11 @@ import { grant as grantAttestation, revoke as revokeAttestation,
 import { sendPenny, pennyReference, importStatement, reconcile as reconcileBank,
          expected as bankExpected, paymentsCsv, linesFor as bankLines, paysDirect, accountFromVar } from "./bank.ts";
 import { forTransaction as agreementsFor, VERSION as AGREEMENT_VERSION } from "./agreements.ts";
-import { fiatMode, FIAT_MODES, set as setSwitch, type FiatMode } from "./switches.ts";
+import { fiatMode, FIAT_MODES, set as setSwitch, type FiatMode, cryptoExecution, CRYPTO_MODES } from "./switches.ts";
 import { list as houseWallets, forRail as houseForRail, feeWalletFor, add as addHouseWallet, retire as retireHouseWallet,
-         challenge as houseChallenge, prove as proveHouseWallet, RAIL_LABEL } from "./housewallets.ts";
+         challenge as houseChallenge, prove as proveHouseWallet, RAIL_LABEL, isHouse as isHouseWallet } from "./housewallets.ts";
+import { executeBody, recordLeg, recordTest, prepare as prepareLeg } from "./executeview.ts";
+import { plan as executionPlan } from "./execute.ts";
 import { agreementRequested, fundsReceived, paymentMade } from "./notify.ts";
 
 /** The PDFs we hand to clients, by the name they are served under. */
@@ -345,6 +347,9 @@ export default {
           const note = [r.minted.length ? `Minted ${r.minted.length}: ${r.minted.join("; ")}.` : "",
                         r.skipped.length ? `Skipped: ${r.skipped.join("; ")}.` : "", r.problem ?? ""].filter(Boolean).join(" ");
           return dossierPage(env, admin, txId, note || "Nothing to mint.");
+        }
+        if (url.pathname.endsWith("/distribute") || url.pathname.endsWith("/distribute/prepare")) {
+          return distributePage(env, admin, actor, request, txId);
         }
         if (url.pathname.endsWith("/clone") && request.method === "POST") {
           const made = await cloneTransaction(env, actor, txId, { requestedBy: "admin" });
@@ -741,6 +746,9 @@ async function createTransaction(request: Request, env: Env, actor: Actor,
     acting_for: s("acting_for") || null,
     gross_expected_minor: gross,
     status: "draft", created_by: actor.id,
+    // Crypto to crypto without conversion: which route, from the platform switch. Changed per transaction under Chain settings.
+    execution: s("inbound") === "crypto" && s("outbound") === "crypto" && ["", "0", "false", "off", "no"].includes(s("converts").toLowerCase())
+      ? await cryptoExecution(env) : "sender",
   });
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
@@ -1019,6 +1027,9 @@ async function detail(env: Env, admin: { name: string }, txId: string,
       ${kv("Recipients supply", destinationKind(t as any) === "bank" ? "Bank details" : "Wallet address")}
       ${kv("Sender proves wallets", t.inbound === "crypto" ? "Yes — one or more" : "No")}
       ${kv("Currencies", `${esc(t.currency_in)} in, ${esc(t.currency_out)} out`)}
+      ${isOnChain(t as any) ? kv("Executed by", t.execution === "client_wallet"
+        ? `ThePaymaster from the client wallet (Mode C)${t.client_wallet ? ` — <span class="mono">${esc(t.client_wallet)}</span> — <a href="/t/${esc(t.id)}/distribute">Distribute</a>` : ""}`
+        : "The sender, from their own wallet") : ""}
       ${kv("Expected in", t.gross_expected_minor
             ? `${esc(t.currency_in)} ${format(t.gross_expected_minor, t.decimals_in)}` : "—")}
       ${kv("Fee", `${(t.fee_bps / 100).toFixed(2)}% — ${t.fee_mode === "deducted"
@@ -1210,8 +1221,10 @@ async function setChainSettings(env: Env, actor: Actor, txId: string,
     if (!n.ok) return detail(env, { name: "" }, txId, `token address: ${n.why}`);
     tokenOk = n.address;
   } else if (choice.needsToken) {
-    // Nothing typed: the well-known contract for this asset on this chain, if there is one.
-    tokenOk = DEFAULT_TOKENS[choice.chainId]?.[key.split(":")[2]] ?? null;
+    // Nothing typed: keep what the transaction already has on this rail, else the
+    // well-known contract for this asset on this chain, if there is one.
+    const sameRail = before.rail === key || (!before.rail && Number(before.chain_id) === choice.chainId);
+    tokenOk = (sameRail ? before.token_address : null) ?? DEFAULT_TOKENS[choice.chainId]?.[key.split(":")[2]] ?? null;
     if (!tokenOk) return detail(env, { name: "" }, txId, "Type the token's contract address for this rail; there is no default on that network.");
   }
   // The fee wallet comes from the registry, never from a typed address. An
@@ -1225,12 +1238,24 @@ async function setChainSettings(env: Env, actor: Actor, txId: string,
     feeOk = (await feeWalletFor(env, key))?.address ?? null;
   }
 
+  // Mode C or sender-executes, and the client wallet for Mode C — from the registry only.
+  const execution = String(f.get("execution") ?? "") === "client_wallet" ? "client_wallet" : "sender";
+  let clientWallet: string | null = null;
+  if (execution === "client_wallet") {
+    const pick = String(f.get("client_wallet") ?? "").trim();
+    const house = (await houseForRail(env, key, "client")).find((w) => w.id === pick || w.address.toLowerCase() === pick.toLowerCase())
+      ?? (await houseForRail(env, key, "client"))[0];
+    if (!house) return detail(env, { name: "" }, txId, "Mode C needs a registered client wallet for this rail. Add one on the Wallets page (role: client wallet) first.");
+    clientWallet = house.address;
+  }
+  const beforeAll = await env.DB.prepare("SELECT rail, chain_id, token_address, fee_wallet, execution, client_wallet FROM transactions WHERE id = ?").bind(txId).first<any>();
   await update(env.DB, actor, "transaction.chain_set", "transactions", txId, {
     rail: key,
     chain_id: choice.chainId,
     token_address: choice.needsToken ? tokenOk : null,
     fee_wallet: feeOk,
-  }, before, { note: `${rail.name}, fee to ${feeOk || "nowhere"}` });
+    execution, client_wallet: clientWallet,
+  }, beforeAll ?? before, { note: `${rail.name}, fee to ${feeOk || "nowhere"}, ${execution === "client_wallet" ? `Mode C via ${clientWallet}` : "the sender executes"}` });
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
 }
@@ -1799,7 +1824,7 @@ async function settlePage(env: Env, admin: { name: string }, txId: string,
   const today = new Date().toISOString().slice(0, 10);
 
   const holderName = {
-    thepaymaster_hsbc: "our HSBC account", otc_desk: "the OTC desk",
+    thepaymaster_hsbc: "our HSBC account", thepaymaster_wallet: "our client wallet (Mode C)", otc_desk: "the OTC desk",
     client: "the client", none: "nobody — it never rests anywhere",
   }[holder];
 
@@ -2135,18 +2160,62 @@ async function walletsPage(env: Env, admin: { name: string; role?: string }, act
     </div>`, { nav: nav("/wallets", admin.name) });
 }
 
+/**
+ * Mode C: staff pay the recipients from ThePaymaster's client wallet.
+ *
+ * The same screen the sender would see on their own route, driven from the
+ * staff side: every line re-checked at the moment of the click, the payment
+ * signed in the browser from the wallet that holds the client wallet's key,
+ * the hash verified on the chain before anything is recorded.
+ */
+async function distributePage(env: Env, admin: { name: string }, actor: Actor, request: Request, txId: string): Promise<Response> {
+  const t = await env.DB.prepare("SELECT * FROM transactions WHERE id = ?").bind(txId).first<any>();
+  if (!t) return new Response("Not found", { status: 404 });
+  if (t.execution !== "client_wallet" || !isOnChain(t as any)) {
+    return detail(env, admin, txId, "This transaction is not in Mode C; the sender executes it from their own wallet.");
+  }
+  const base = `/t/${txId}/distribute`;
+  if (request.method === "POST" && new URL(request.url).pathname.endsWith("/prepare")) {
+    const f = await request.formData();
+    return prepareLeg(env, txId, String(f.get("leg") ?? ""), String(f.get("kind") ?? ""));
+  }
+  let notice = "";
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const leg = String(f.get("leg") ?? ""), hash = String(f.get("tx_hash") ?? "");
+    notice = String(f.get("kind") ?? "") === "test"
+      ? await recordTest(env, actor, txId, leg, hash)
+      : await recordLeg(env, actor, txId, leg, hash);
+    if (!notice) await log(env.DB, actor, "distribution.staff_recorded", "transactions", txId, { note: `${leg}: ${hash.trim()}` });
+  }
+  const p = await executionPlan(env, txId);
+  return page(`Distribute — ${t.ref}`, `
+    <p><a href="/t/${esc(txId)}">← ${esc(t.ref)}</a></p>
+    <div class="panel" style="margin-bottom:14px"><strong>Mode C.</strong> You are paying from ThePaymaster's client wallet
+      <span class="mono">${esc(t.client_wallet ?? "")}</span> as the sender's agent. Sign each payment in this browser from the wallet that
+      holds that key (${esc(p.rail.browser.walletHint)}). Every line is re-checked when you press it; every hash is verified on the chain before it is recorded; each recording is logged under your name.</div>
+    ${executeBody(p, txId, notice, base)}`, { nav: nav("", admin.name) });
+}
+
 /** Fiat Transactions: which fiat mode is on, and every fiat transaction with where it has got to. */
 async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request: Request): Promise<Response> {
   let note = "", error = "";
   if (request.method === "POST") {
     const f = await request.formData();
-    const want = String(f.get("mode") ?? "") as FiatMode;
-    const m = FIAT_MODES.find((x) => x.key === want);
-    if (!m) error = "Unknown mode.";
-    else if (!m.available(env)) error = m.why ?? "That mode is not available yet.";
-    else { await setSwitch(env, actor, "fiat_mode", want, `fiat mode → ${m.label}`); note = `${m.label} is on.`; }
+    if (f.get("crypto")) {
+      const want = String(f.get("crypto")) === "sender" ? "sender" : "client_wallet";
+      await setSwitch(env, actor, "crypto_execution", want, `new crypto transactions → ${want}`);
+      note = `New crypto-to-crypto transactions start as: ${CRYPTO_MODES.find((m) => m.key === want)!.label}.`;
+    } else {
+      const want = String(f.get("mode") ?? "") as FiatMode;
+      const m = FIAT_MODES.find((x) => x.key === want);
+      if (!m) error = "Unknown mode.";
+      else if (!m.available(env)) error = m.why ?? "That mode is not available yet.";
+      else { await setSwitch(env, actor, "fiat_mode", want, `fiat mode → ${m.label}`); note = `${m.label} is on.`; }
+    }
   }
   const mode = await fiatMode(env);
+  const cryptoDefault = await cryptoExecution(env);
   const acct = accountFromVar(env.MANDATED_ACCOUNT);
   const { results: txs } = await env.DB.prepare(
     `SELECT id, ref, name, status, inbound, outbound, fiat_payer, sender_sent_at, currency_in, gross_expected_minor, decimals_in
@@ -2182,6 +2251,18 @@ async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request
           <div class="muted" style="margin:4px 0 0 22px">${esc(m.detail)}</div>
           ${m.why ? `<div class="muted" style="margin:4px 0 0 22px;font-size:12.5px">${esc(m.why)}</div>` : ""}
         </label>`; }).join("")}
+        <div class="row"><button class="go">Save</button></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2 style="margin-top:0">How crypto runs${tip("The route a new crypto-to-crypto transaction starts on; staff can change it per transaction under Chain settings until the sender has signed. Mode C follows the Agreement. The sender-executes route is fully built and stays available.")}</h2>
+      <form method="post" action="/fiat">
+        ${CRYPTO_MODES.map((m) => `
+        <label style="display:block;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;margin:8px 0">
+          <input type="radio" name="crypto" value="${m.key}"${cryptoDefault === m.key ? " checked" : ""}>
+          <strong>${esc(m.label)}</strong>${cryptoDefault === m.key ? ' <span class="tag">default</span>' : ""}
+          <div class="muted" style="margin:4px 0 0 22px">${esc(m.detail)}</div>
+        </label>`).join("")}
         <div class="row"><button class="go">Save</button></div>
       </form>
     </div>
@@ -2307,10 +2388,33 @@ async function recordSettlement(request: Request, env: Env, actor: Actor,
   }
 
   if (action === "received") {
+    // Mode C: the hash must pay our client wallet this amount, from one of the
+    // sender's proved wallets, on whatever chain the rail is — checked through
+    // the rail, not through Ethereum's receipt call.
+    let preVerified: { block: number | null; sources: number } | null = null;
+    const hashIn = String(f.get("tx_hash") ?? "").trim() || null;
+    if (t.execution === "client_wallet" && isOnChain(t as any)) {
+      if (!hashIn) return settlePage(env, { name: "" }, txId, "In Mode C a receipt is recorded by its transaction hash.");
+      if (!t.client_wallet) return settlePage(env, { name: "" }, txId, "No client wallet is set on this transaction.");
+      const rail = railFor(t as any);
+      const shape = rail.hashProblem(hashIn);
+      if (shape) return settlePage(env, { name: "" }, txId, shape);
+      const moved = await rail.verify(env, hashIn, { to: t.client_wallet, amountMinor });
+      if (!moved) return settlePage(env, { name: "" }, txId, "Could not reach the chain to check that hash. Try again.");
+      if (!moved.ok) return settlePage(env, { name: "" }, txId,
+        moved.problem === "pending" ? "That transaction has not been included in a block yet. Wait and try again."
+        : `That transaction does not pay ${format(amountMinor, t.decimals_in)} ${t.currency_in} to the client wallet${moved.problem ? ` (${moved.problem})` : ""}.`);
+      const { results: sw } = await env.DB.prepare(
+        "SELECT address FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL AND proved_at IS NOT NULL").bind(txId).all<any>();
+      const fromOk = !moved.from || (sw ?? []).some((w: any) => String(w.address).toLowerCase() === String(moved.from).toLowerCase());
+      if (!fromOk) return settlePage(env, { name: "" }, txId,
+        `That transaction came from ${moved.from}, which is not one of the sender's proved wallets. Schedule 3 requires receipt from the whitelisted source wallet; ask the sender to prove it, or return the funds.`);
+      preVerified = { block: moved.block, sources: moved.sources };
+    }
     const result = await recordCustody(env, actor, txId, {
       holder, event: "received", amountMinor,
       currency: t.currency_in, decimals: t.decimals_in, occurredAt: on,
-      txHash: String(f.get("tx_hash") ?? "").trim() || null, chainId: t.chain_id,
+      txHash: hashIn, chainId: t.chain_id, preVerified,
       note: String(f.get("note") ?? "").trim() || undefined,
       file: asFile, evidenceKind: "receipt_advice",
     });
@@ -2452,6 +2556,18 @@ async function chainSettingsPanel(env: Env, t: Record<string, any>): Promise<str
               `<span class="mono">${esc(DEFAULT_TOKENS[1].usdc)}</span>). On any other network type it, ` +
               `because the same token has a different address on every chain.`}</p>
         </div>
+        <fieldset style="margin:12px 0"><legend>Who executes the payments${tip("Mode C, as the Agreement describes: the sender sends the assets to our client wallet and we pay everyone from it, each payment signed by staff from the wallet's key and verified on the chain. Or the sender executes every payment from their own proved wallet and nothing is held by us. The default for new transactions is set on the Fiat page.")}</legend>
+          <label style="display:block"><input type="radio" name="execution" value="client_wallet"${(t.execution ?? "sender") === "client_wallet" ? " checked" : ""}> Mode C — into ThePaymaster's client wallet, paid out by us</label>
+          <label style="display:block"><input type="radio" name="execution" value="sender"${(t.execution ?? "sender") === "sender" ? " checked" : ""}> The sender executes from their own wallet</label>
+          <label style="margin-top:8px">Client wallet (Mode C)
+            <select name="client_wallet" id="cwsel">
+              <option value="">The rail's registered client wallet</option>
+              ${house.filter((w) => w.role === "client").map((w) => `<option value="${esc(w.id)}" data-rail="${esc(w.rail)}"${
+                t.client_wallet && w.address.toLowerCase() === String(t.client_wallet).toLowerCase() ? " selected" : ""}>${esc(w.label)} — ${esc(w.address)}${w.proved_at ? "" : " (control not yet proved)"}</option>`).join("")}
+            </select></label>
+          ${t.execution === "client_wallet" && t.client_wallet ? `<p class="muted" style="margin:4px 0 0">Currently <span class="mono">${esc(t.client_wallet)}</span>. <a href="/t/${esc(t.id)}/distribute">Distribute from it</a> once the funds are recorded as received.</p>`
+            : t.execution === "client_wallet" ? '<p class="bad" style="margin:4px 0 0">No client wallet registered for this rail yet — add one on the Wallets page.</p>' : ""}
+        </fieldset>
         <label>Our fee goes to${t.fee_wallet
           ? "" : ' <span class="bad">— not set</span>'}${tip("One of ThePaymaster's registered wallets, from the Wallets page. Addresses cannot be typed here: the list is the only source, so a wrong character in a fee address is not possible on a transaction.")}
           <select name="fee_wallet" id="feesel">
@@ -2468,15 +2584,18 @@ async function chainSettingsPanel(env: Env, t: Record<string, any>): Promise<str
       <script>
       (function () {
         var sel = document.getElementById("railsel"), row = document.getElementById("tokenrow");
-        var fee = document.getElementById("feesel");
+        var fee = document.getElementById("feesel"), cw = document.getElementById("cwsel");
         function filterFee() {
           var railKey = sel.value;
-          for (var i = 0; i < fee.options.length; i++) {
-            var opt = fee.options[i];
-            if (!opt.dataset.rail) continue;
-            opt.hidden = railKey && opt.dataset.rail !== railKey;
-            if (opt.hidden && opt.selected) fee.selectedIndex = 0;
-          }
+          [fee, cw].forEach(function (box) {
+            if (!box) return;
+            for (var i = 0; i < box.options.length; i++) {
+              var opt = box.options[i];
+              if (!opt.dataset.rail) continue;
+              opt.hidden = railKey && opt.dataset.rail !== railKey;
+              if (opt.hidden && opt.selected) box.selectedIndex = 0;
+            }
+          });
         }
         sel.addEventListener("change", function () {
           var o = sel.options[sel.selectedIndex];

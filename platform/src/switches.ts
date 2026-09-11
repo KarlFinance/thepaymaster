@@ -43,3 +43,16 @@ export async function fiatMode(env: Env): Promise<FiatMode> {
   const v = await get(env, "fiat_mode");
   return (FIAT_MODES.some((m) => m.key === v) ? v : "manual") as FiatMode;
 }
+
+export type CryptoExecution = "sender" | "client_wallet";
+export const CRYPTO_MODES: { key: CryptoExecution; label: string; detail: string }[] = [
+  { key: "client_wallet", label: "Crypto — Mode C: into our client wallet, paid out by us",
+    detail: "As the Sender's Paymaster Agreement describes: the sender sends the assets to a registered ThePaymaster client wallet (a reference transaction first, then the balance); a member of staff confirms each receipt by its hash; staff pay every recipient and our fee from the client wallet, each payment signed from the wallet that holds its key and verified on the chain." },
+  { key: "sender", label: "Crypto — the sender executes from their own wallet",
+    detail: "The sender reviews every recipient and amount on one screen and signs each payment (or one batch) from a wallet they have proved. Our fee is one line of the same distribution. Nothing is ever held by ThePaymaster." },
+];
+/** Which route a new crypto-to-crypto transaction starts on. Changed per transaction under Chain settings. */
+export async function cryptoExecution(env: Env): Promise<CryptoExecution> {
+  const v = await get(env, "crypto_execution");
+  return v === "sender" ? "sender" : "client_wallet";
+}

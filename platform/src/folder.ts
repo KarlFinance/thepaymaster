@@ -227,7 +227,9 @@ export function statementPdf(d: FolderData, opts: { watermark?: string | null } 
         `. A certification is issued only when nothing is outstanding.`],
     ["Basis", `ThePaymaster® acted exclusively as the sender's agent under a distinct agency appointment for this ` +
       `transaction (Commercial Agent Exemption, paragraph 2(b), Schedule 1, Payment Services Regulations 2017). ` +
-      (tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts
+      (tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts && tx.execution === "client_wallet"
+        ? "The digital assets were received from the sender's proved wallet into a client wallet controlled by ThePaymaster Ltd, held on trust for the sender and used for nothing else, and paid from it to each recipient's proved wallet; every receipt and payment is verified on the public ledger by its transaction hash."
+        : tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts
         ? "The payments were executed by the sender from the sender's own wallet directly to each recipient; at no point were the funds held by ThePaymaster Ltd."
         : tx.inbound === "fiat" && tx.outbound === "fiat" && tx.fiat_payer === "sender"
         ? "The payments were made by the sender from the sender's own bank account directly to each recipient, under references issued by ThePaymaster and reconciled against the sender's bank statement; at no point were the funds held by ThePaymaster Ltd or in any account it operates."

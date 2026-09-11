@@ -342,6 +342,22 @@ export async function assess(env: Env, transactionId: string,
     });
   }
 
+  // --- Mode C: our client wallet is registered and proved -------------------
+  if (t.inbound === "crypto" && t.outbound === "crypto" && !t.converts && t.execution === "client_wallet") {
+    const rail = railFor(t);
+    const cw = t.client_wallet ? await isHouse(env, rail.key, t.client_wallet) : null;
+    checks.push({
+      key: "client_wallet",
+      label: "The client wallet is one of ours and its control is proved",
+      met: Boolean(cw && cw.role === "client" && cw.proved_at),
+      detail: !t.client_wallet ? "No client wallet chosen under Chain settings"
+        : !cw ? `${String(t.client_wallet)} is not a registered client wallet on this rail`
+        : cw.role !== "client" ? `${cw.label} is a fee wallet, not a client wallet`
+        : !cw.proved_at ? `${cw.label} — control not yet proved on the Wallets page`
+        : cw.label,
+    });
+  }
+
   // --- the agreements ------------------------------------------------------
   // Skipped only when the agreements module itself is asking for the
   // arithmetic, which is how it fills the schedules.

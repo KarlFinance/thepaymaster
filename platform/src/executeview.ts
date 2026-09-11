@@ -65,7 +65,8 @@ function lineRow(l: Line, p: Plan): string {
   </tr>`;
 }
 
-export function executeBody(p: Plan, txId: string, notice: string): string {
+export function executeBody(p: Plan, txId: string, notice: string, base = `/d/${txId}/send`): string {
+  const modeC = p.execution === "client_wallet";
   const outstanding = p.lines.filter((l) => !l.paid);
   const done = p.lines.length - outstanding.length;
 
@@ -104,7 +105,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
             <th class="num">For gas</th><th>Control</th></tr>
         ${funders || `<tr><td colspan="4" class="muted">No sending wallet yet.</td></tr>`}
       </table>
-      <p class="muted">You may send from more than one wallet. There is no need
+      <p class="muted">${modeC ? "ThePaymaster's client wallet for this transaction, holding the sender's funds on trust until they are paid out. Sign each payment from the wallet that holds its key." : "You may send from more than one wallet. There is no need"}
         to move funds into a single one first — each payment is its own
         transaction, and consolidating first adds a hop to explain later.</p>
     </div>
@@ -128,7 +129,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
         asked to type any of them.</p>
     </div>
 
-    <form method="post" id="record" action="/d/${esc(txId)}/send">
+    <form method="post" id="record" action="${esc(base)}">
       <input type="hidden" name="leg" id="leg">
       <input type="hidden" name="kind" id="kind">
       <input type="hidden" name="tx_hash" id="hash">
@@ -144,7 +145,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
         hash here. It is checked against the chain in exactly the same way —
         the token's own record of the transfer has to show the right amount
         reaching the right address, whatever sent it.</p>
-      <form method="post" action="/d/${esc(txId)}/send">
+      <form method="post" action="${esc(base)}">
         <label for="whichleg">Which payment</label>
         <select id="whichleg" name="leg" required>
           ${outstanding.map((l) => `<option value="${esc(l.participationId ?? "fee")}"
@@ -168,7 +169,7 @@ export function executeBody(p: Plan, txId: string, notice: string): string {
     <script>
     (function () {
       var wallet = window.railWallet;
-      var base = "/d/${esc(txId)}/send";
+      var base = ${JSON.stringify(base)};
       var hint = ${JSON.stringify(p.rail.browser.walletHint)};
 
       async function sign(button, kind) {
@@ -454,14 +455,17 @@ export async function recordLeg(env: Env, actor: Actor, txId: string,
   }
 
   const result = await record(env, actor, txId, {
-    holder: "none",
+    holder: p.execution === "client_wallet" ? "thepaymaster_wallet" : "none",
     event: legId === "fee" ? "fee_taken" : "sent",
     amountMinor: line.amountMinor,
     currency: p.currency,
     decimals: p.decimals,
     occurredAt: new Date().toISOString().replace("T", " ").slice(0, 19),
     txHash, chainId: p.chainId,
-    note: `${line.name} — sent by the sender`,
+    // Verified above through the rail, whatever the chain; the custody record
+    // must not re-check it as if every chain spoke Ethereum's JSON-RPC.
+    preVerified: { block: moved.block, sources: moved.sources },
+    note: p.execution === "client_wallet" ? `${line.name} — paid by ThePaymaster from the client wallet` : `${line.name} — sent by the sender`,
   });
   if (typeof result === "object") return result.problem;
 

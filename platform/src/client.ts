@@ -435,6 +435,41 @@ export async function clientStartOwn(env: Env, request: Request): Promise<Respon
 
 /** The sender asks to run a finished distribution again. */
 /**
+ * Mode C: the sender sends the digital assets to ThePaymaster's client wallet.
+ * A reference transaction of one unit first, then the balance, both from a
+ * wallet they have proved — Schedule 3 of the Agreement, on one card.
+ */
+function senderModeCCard(part: any, txId: string, rail: Rail, error: string, note: string): string {
+  const err = error ? `<div class="err">${esc(error)}</div>` : "";
+  const good = note ? `<div class="good">${esc(note)}</div>` : "";
+  const amount = `${format(part.gross_expected_minor ?? 0, part.decimals_in)} ${esc(part.currency_in)}`;
+  const dust = `${format(rail.dustMinor(), rail.decimals)} ${esc(rail.symbol)}`;
+  if (!part.client_wallet) {
+    return `<div class="card now"><h2>Send to us</h2>${err}${good}
+      <p>We are preparing the client wallet for this distribution. You will be emailed the address here, in your account, and asked to verify it by telephone before sending anything. Nothing is sent by email.</p></div>`;
+  }
+  return `<div class="card now"><h2>Send ${amount} to ThePaymaster's client wallet</h2>${err}${good}
+    <p>Send from a wallet you have proved above, in two steps, as the Agreement sets out:</p>
+    <ol>
+      <li><b>A reference transaction of ${dust}</b> to the address below. We confirm it has arrived.</li>
+      <li><b>Then the balance</b>, so that the total is ${amount}.</li>
+    </ol>
+    <p class="mono" style="word-break:break-all;background:#F5F7FA;padding:10px 12px;border-radius:6px">${esc(part.client_wallet)}</p>
+    <p class="muted">Telephone us on +44 20 7088 8267 to verify this address before your first transfer. We never change a wallet address by email or message.
+      The wallet is ${esc(rail.name)}; assets sent on any other network cannot be recovered.</p>
+    ${part.sender_sent_at
+      ? `<p class="muted">You told us it was sent${part.sender_sent_at !== "now" ? ` on ${esc(String(part.sender_sent_at).slice(0, 16))}` : ""}. We are confirming each transaction on the chain.</p>`
+      : `<form method="post" action="/d/${esc(txId)}/sent" style="margin-top:12px">
+          <label for="hs">Transaction hashes (the reference transaction and the balance)</label>
+          <input id="hs" name="hashes" placeholder="0x…, 0x…" spellcheck="false" autocomplete="off">
+          <label for="sn">Anything we should know (optional)</label>
+          <input id="sn" name="note" maxlength="500">
+          <div class="row"><button class="go">I have sent it</button></div>
+          <p class="muted">We verify each hash on the chain against this wallet and your proved sending wallet, then record the receipt.</p>
+        </form>`}</div>`;
+}
+
+/**
  * What a fiat sender sees when it is time to pay.
  *
  * Through the mandated account: one payment to us, with the reference. Paying
@@ -933,9 +968,11 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
     }) ?? "";
     if (!error) bankNote = "Signed. Your copy is in your folder, and the record carries the hash of what you signed.";
   }
-  if (request.method === "POST" && canPrepare && postPath.endsWith("/sent") && part.role === "sender" && part.inbound === "fiat") {
+  if (request.method === "POST" && canPrepare && postPath.endsWith("/sent") && part.role === "sender"
+      && (part.inbound === "fiat" || part.execution === "client_wallet")) {
     const f = await request.formData();
-    const note = String(f.get("note") ?? "").trim().slice(0, 500);
+    const hashes = String(f.get("hashes") ?? "").trim().slice(0, 400);
+    const note = [String(f.get("note") ?? "").trim().slice(0, 500), hashes ? `hashes: ${hashes}` : ""].filter(Boolean).join(" — ");
     if (!part.sender_sent_at) {
       await update(env.DB, actor, "transaction.sender_sent", "transactions", txId,
         { sender_sent_at: new Date().toISOString().replace("T", " ").slice(0, 19), sender_sent_note: note || null },
@@ -943,7 +980,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       await staffSenderSaysSent(env, actor, txId, note);
       part.sender_sent_at = "now";
     }
-    bankNote = "Thank you. We will confirm here as soon as it reaches the client account.";
+    bankNote = `Thank you. We will confirm here as soon as it reaches the ${part.execution === "client_wallet" ? "client wallet — each hash is verified on the chain" : "client account"}.`;
   }
   if (request.method === "POST" && canPrepare && postPath.endsWith("/received") && part.role === "recipient") {
     const paidRow = await env.DB.prepare(
@@ -1046,7 +1083,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
   const out = await outcome(env, txId);
   const progress = part.role === "sender" ? await recipientProgress(env, txId) : [];
   const agreement = await agreementStatus(env, txId, principalId);
-  const receivedAny = part.inbound === "fiat" && Boolean(await env.DB.prepare(
+  const receivedAny = (part.inbound === "fiat" || part.execution === "client_wallet") && Boolean(await env.DB.prepare(
     "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'received' LIMIT 1").bind(txId).first());
   const myPart = part.role === "recipient" ? await env.DB.prepare(
     "SELECT receipt_confirmed_at FROM participations WHERE id = ?").bind(part.participation_id).first<any>() : null;
@@ -1060,6 +1097,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         cleared, submittedAt: party?.kyc_submitted_at ?? null, wallets: sending,
         recipients: progress, status: part.status,
         agreement: agreement?.state, senderSentAt: part.sender_sent_at ?? null, received: receivedAny,
+        modeC: part.execution === "client_wallet",
         // Paying directly, the sender's job includes our fee: "Pay" is not done until it is on the statement.
         allPaid: out.allPaid && (!paysDirect(part) || Boolean(await env.DB.prepare(
           "SELECT 1 FROM custody_events WHERE transaction_id = ? AND event = 'fee_taken' LIMIT 1").bind(txId).first())),
@@ -1140,6 +1178,7 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
         return await senderWallets(env, part, sending, error, errorWallet, rail);
       case "send":
         if (part.inbound === "fiat") return await senderPayCard(env, part, txId, error, bankNote);
+        if (part.execution === "client_wallet") return senderModeCCard(part, txId, rail, error, bankNote);
         return `<div class="card now"><h2>Ready to send</h2>
           <p>Everyone is verified, every address is proved, screened and locked,
              and the amounts add up. You will see every recipient, their full

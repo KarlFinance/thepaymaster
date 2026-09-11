@@ -79,6 +79,8 @@ export interface Plan {
   funders: Funder[];
   /** Reasons the whole distribution should not begin. */
   blocking: string[];
+  /** Who signs the payments: the sender from their wallet, or ThePaymaster from its client wallet (Mode C). */
+  execution: "sender" | "client_wallet";
 }
 
 /** Gas for one ERC-20 transfer, generously. USDT is heavier than most. */
@@ -106,9 +108,11 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
   const raw: Leg[] = await payoutLegs(env, txId);
   const blocking: string[] = [];
 
-  if (holderFor(t) !== "none") {
-    blocking.push("This transaction is not one the sender executes on chain.");
+  const modeC = t.execution === "client_wallet";
+  if (!["none", "thepaymaster_wallet"].includes(holderFor(t))) {
+    blocking.push("This transaction is not one that is executed on chain.");
   }
+  if (modeC && !t.client_wallet) blocking.push("No client wallet is set on this transaction.");
   if (!t.fee_wallet) blocking.push("No fee wallet is set on this transaction.");
 
   // The readiness gate says a transaction *may* be sent; a person moving it to
@@ -211,9 +215,19 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
   }
 
   // --- can the sending wallets actually cover it ---------------------------
-  const { results: sw } = await env.DB.prepare(
-    "SELECT address, label, proved_at FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL")
-    .bind(txId).all<any>();
+  // In Mode C the only wallet that pays is our client wallet, and it must have
+  // been recorded as receiving the sender's funds first.
+  const { results: sw } = modeC
+    ? { results: t.client_wallet ? [{ address: t.client_wallet, label: "ThePaymaster client wallet",
+        proved_at: (await env.DB.prepare("SELECT proved_at FROM house_wallets WHERE address = ? AND retired_at IS NULL").bind(t.client_wallet).first<any>())?.proved_at ?? null }] : [] }
+    : await env.DB.prepare(
+        "SELECT address, label, proved_at FROM sending_wallets WHERE transaction_id = ? AND removed_at IS NULL")
+        .bind(txId).all<any>();
+  if (modeC) {
+    const got = await env.DB.prepare(
+      "SELECT coalesce(sum(amount_minor), 0) AS n FROM custody_events WHERE transaction_id = ? AND event = 'received'").bind(txId).first<any>();
+    if (!(got?.n > 0)) blocking.push("The sender's funds have not been recorded as received into the client wallet.");
+  }
 
   const funders: Funder[] = await Promise.all((sw ?? []).map(async (w: any) => {
     const [bal, gas] = await Promise.all([
@@ -239,9 +253,9 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
       "release it; you will get an email the moment you can send.");
   }
 
-  if (!funders.length) blocking.push("No sending wallet has been proved.");
+  if (!funders.length) blocking.push(modeC ? "No client wallet is set." : "No sending wallet has been proved.");
   if (funders.length && funders.every((f) => !f.proved)) {
-    blocking.push("No sending wallet has been proved by signature.");
+    blocking.push(modeC ? "Control of the client wallet has not been proved on the Wallets page." : "No sending wallet has been proved by signature.");
   }
 
   const held = funders.reduce((sum, f) => sum + (f.tokenMinor ?? 0n), 0n);
@@ -254,6 +268,7 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
     ready: blocking.length === 0 && outstanding.every((l) => l.problems.length === 0),
     chainId, token, decimals, currency,
     lines, totalMinor, funders, blocking,
+    execution: modeC ? "client_wallet" : "sender",
   };
 }
 

@@ -209,9 +209,11 @@ export function senderJourney(o: {
   paysDirect?: boolean;
   /** The Sender's Paymaster Agreement. */
   agreement?: "unsigned" | "signed" | "stale";
-  /** Manual fiat: the sender has told us the money has gone, and whether we have confirmed it. */
+  /** Manual fiat, or Mode C: the sender has told us the money has gone, and whether we have confirmed it. */
   senderSentAt?: string | null;
   received?: boolean;
+  /** Mode C: the sender sends to our client wallet and we pay out; their step is to send, ours to distribute. */
+  modeC?: boolean;
 }): Step[] {
   const steps: Step[] = [];
 
@@ -255,13 +257,14 @@ export function senderJourney(o: {
     summary: `${done} of ${n} ready — waiting on them, not on you` });
 
   const canSend = o.status === "ready" || o.status === "settling";
-  const sendLabel = o.paysDirect || !o.onChain ? "Pay" : "Send";
+  const sendLabel = o.paysDirect || !o.onChain ? "Pay" : o.modeC ? "Send to us" : "Send";
+  const viaUs = !o.onChain || o.modeC;
   if (o.allPaid) steps.push({ key: "send", label: sendLabel, state: "done",
     summary: o.onChain ? "Every payment confirmed on the chain" : "Every payment confirmed" });
-  else if (!o.onChain && o.senderSentAt && !o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
-    summary: `You told us it was sent on ${day(o.senderSentAt)}. We are confirming receipt into the client account.` });
-  else if (!o.onChain && o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
-    summary: "Received into the client account. We are paying your recipients; each confirms when it arrives." });
+  else if (viaUs && o.senderSentAt && !o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
+    summary: `You told us it was sent on ${day(o.senderSentAt)}. We are confirming receipt into the ${o.modeC ? "client wallet" : "client account"}.` });
+  else if (viaUs && o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
+    summary: `Received into the ${o.modeC ? "client wallet" : "client account"}. We are paying your recipients${o.modeC ? "; each payment is verified on the chain" : "; each confirms when it arrives"}.` });
   else if (canSend && verified && walletsDone && agreed) steps.push({ key: "send", label: sendLabel, state: "now" });
   else if (ready && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: "We are checking the gate. You will get an email when you can send." });

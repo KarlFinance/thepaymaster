@@ -27,7 +27,7 @@ import { assess } from "./readiness.ts";
 import { store, DocumentProblem } from "./documents.ts";
 import { txHashProblem, receipt as txReceipt } from "./chain.ts";
 
-export type Holder = "client" | "thepaymaster_hsbc" | "otc_desk" | "none";
+export type Holder = "client" | "thepaymaster_hsbc" | "thepaymaster_wallet" | "otc_desk" | "none";
 export type Event = "received" | "converted" | "sent" | "fee_taken" | "returned";
 
 export interface Leg {
@@ -46,8 +46,11 @@ export interface Leg {
 }
 
 /** Where funds sit for each type, so the record says which was actually used. */
-export function holderFor(t: { inbound: string; outbound: string; converts: number; fiat_payer?: string | null }): Holder {
-  if (t.inbound === "crypto" && t.outbound === "crypto" && !t.converts) return "none";
+export function holderFor(t: { inbound: string; outbound: string; converts: number; fiat_payer?: string | null; execution?: string | null }): Holder {
+  if (t.inbound === "crypto" && t.outbound === "crypto" && !t.converts) {
+    // Mode C: received into one of our client wallets, paid out from it.
+    return t.execution === "client_wallet" ? "thepaymaster_wallet" : "none";
+  }
   // Fiat the sender pays out themselves never leaves their own bank until it
   // reaches each recipient: the holder throughout is the client.
   if (t.inbound === "fiat" && t.outbound === "fiat" && t.fiat_payer === "sender") return "client";
@@ -84,13 +87,19 @@ export async function record(env: Env, actor: Actor, transactionId: string, opts
   /** For a crypto leg the evidence is a hash, checked against the chain. */
   txHash?: string | null;
   chainId?: number | null;
+  /** The caller already verified the hash through the transaction's rail (Bitcoin, Tron…); skip the EVM receipt check. */
+  preVerified?: { block: number | null; sources: number } | null;
 }): Promise<string | { problem: string }> {
   let evidenceId: string | null = null;
   let block: number | null = null;
   let verifiedAt: string | null = null;
   let sources = 0;
 
-  if (opts.txHash) {
+  if (opts.txHash && opts.preVerified) {
+    block = opts.preVerified.block;
+    sources = opts.preVerified.sources;
+    verifiedAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  } else if (opts.txHash) {
     const shape = txHashProblem(opts.txHash);
     if (shape) return { problem: shape };
     if (!opts.chainId) return { problem: "No chain recorded on this transaction." };
