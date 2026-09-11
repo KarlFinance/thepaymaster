@@ -159,6 +159,7 @@ export function nav(current: string, who: string): string {
       ${item("/chain", "Chain")}
       ${item("/providers", "Providers")}
       ${item("/fiat", "Fiat")}
+      ${item("/wallets", "Wallets")}
       ${item("/badges", "Badges")}
       ${item("/help", "Help")}
     </nav>

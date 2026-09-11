@@ -57,6 +57,8 @@ import { sendPenny, pennyReference, importStatement, reconcile as reconcileBank,
          expected as bankExpected, paymentsCsv, linesFor as bankLines, paysDirect, accountFromVar } from "./bank.ts";
 import { forTransaction as agreementsFor, VERSION as AGREEMENT_VERSION } from "./agreements.ts";
 import { fiatMode, FIAT_MODES, set as setSwitch, type FiatMode } from "./switches.ts";
+import { list as houseWallets, forRail as houseForRail, feeWalletFor, add as addHouseWallet, retire as retireHouseWallet,
+         challenge as houseChallenge, prove as proveHouseWallet, RAIL_LABEL } from "./housewallets.ts";
 import { agreementRequested, fundsReceived, paymentMade } from "./notify.ts";
 
 /** The PDFs we hand to clients, by the name they are served under. */
@@ -242,6 +244,7 @@ export default {
       }
       if (url.pathname === "/badges") return badgesPage(env, admin, actor, request);
       if (url.pathname === "/fiat") return fiatPage(env, admin, actor, request);
+      if (url.pathname === "/wallets") return walletsPage(env, admin, actor, request);
       if (url.pathname.startsWith("/p/")) {
         const pid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/decide") && request.method === "POST") {
@@ -1009,7 +1012,7 @@ async function detail(env: Env, admin: { name: string }, txId: string,
       </form>
     </details>
     ${mandatePanel(t.id, liveMandate, pastMandates)}
-    ${isOnChain(t as any) ? chainSettingsPanel(t) : ""}
+    ${isOnChain(t as any) ? await chainSettingsPanel(env, t) : ""}
     <div class="panel"><table>
       ${kv("Type", esc(typeName(t as any)) + (isOnChain(t as any) ? ' <span class="tag chain">sender executes on-chain</span>' : ' <span class="tag">we settle manually</span>'))}
       ${kv("Status", `<span class="tag">${esc(t.status)}</span>`)}
@@ -1207,11 +1210,15 @@ async function setChainSettings(env: Env, actor: Actor, txId: string,
     if (!n.ok) return detail(env, { name: "" }, txId, `token address: ${n.why}`);
     tokenOk = n.address;
   }
+  // The fee wallet comes from the registry, never from a typed address. An
+  // empty choice takes the rail's default (the proved one, else the first).
   let feeOk: string | null = null;
   if (fee) {
-    const n = rail.normalise(fee);
-    if (!n.ok) return detail(env, { name: "" }, txId, `fee wallet: ${n.why}`);
-    feeOk = n.address;
+    const house = (await houseForRail(env, key, "fee")).find((w) => w.id === fee || w.address.toLowerCase() === fee.toLowerCase());
+    if (!house) return detail(env, { name: "" }, txId, "The fee wallet must be one of ThePaymaster's registered wallets for this rail. Add it on the Wallets page first.");
+    feeOk = house.address;
+  } else {
+    feeOk = (await feeWalletFor(env, key))?.address ?? null;
   }
 
   await update(env.DB, actor, "transaction.chain_set", "transactions", txId, {
@@ -2063,6 +2070,67 @@ async function fiatChecklist(env: Env, t: any, items: Awaited<ReturnType<typeof 
   </ol>`;
 }
 
+/** ThePaymaster's own wallets: the registry a transaction's fee wallet is chosen from. */
+async function walletsPage(env: Env, admin: { name: string; role?: string }, actor: Actor, request: Request): Promise<Response> {
+  let note = "", error = "", message = "";
+  if (request.method === "POST") {
+    const f = await request.formData();
+    const action = String(f.get("action") ?? "");
+    if (action === "add") {
+      const r = await addHouseWallet(env, actor, { label: String(f.get("label") ?? ""), role: String(f.get("role")) === "client" ? "client" : "fee",
+        rail: String(f.get("rail") ?? ""), address: String(f.get("address") ?? "") });
+      if (typeof r === "object") error = r.problem; else note = "Wallet added. Prove control of it below before it is used.";
+    } else if (action === "retire") {
+      if (admin.role !== "owner") error = "Only an owner can retire a wallet.";
+      else error = (await retireHouseWallet(env, actor, String(f.get("wallet") ?? ""), String(f.get("reason") ?? ""))) ?? "";
+      if (!error) note = "Wallet retired. It stays in the record; open transactions using it are listed in the audit line.";
+    } else if (action === "challenge") {
+      const r = await houseChallenge(env, actor, String(f.get("wallet") ?? ""));
+      if ("problem" in r) error = r.problem; else message = r.message;
+    } else if (action === "prove") {
+      error = (await proveHouseWallet(env, actor, String(f.get("wallet") ?? ""), String(f.get("signature") ?? ""))) ?? "";
+      if (!error) note = "Control proved. The signature is on the record.";
+    }
+  }
+  const wallets = await houseWallets(env, { includeRetired: true });
+  const rows = wallets.map((w) => `<tr${w.retired_at ? ' class="muted"' : ""}>
+    <td><b>${esc(w.label)}</b><div class="muted log">${esc(RAIL_LABEL(w.rail))} · ${w.role === "fee" ? "fee wallet" : "client wallet (Mode C)"}</div></td>
+    <td class="mono" style="font-size:12.5px;word-break:break-all">${esc(w.address)}</td>
+    <td>${w.retired_at ? `<span class="tag">retired ${esc(String(w.retired_at).slice(0, 10))}</span><div class="muted log">${esc(w.retired_reason ?? "")}</div>`
+        : w.proved_at ? `<span class="good">Control proved</span><div class="muted log">${esc(String(w.proved_at).slice(0, 16))}</div>`
+        : `<span class="warn">Not yet proved</span>
+           <form method="post" action="/wallets" style="margin-top:6px"><input type="hidden" name="action" value="challenge"><input type="hidden" name="wallet" value="${esc(w.id)}"><button class="plain small">Show the message to sign</button></form>
+           <form method="post" action="/wallets" class="row" style="margin-top:6px;gap:6px"><input type="hidden" name="action" value="prove"><input type="hidden" name="wallet" value="${esc(w.id)}">
+             <input name="signature" placeholder="Paste the signature" style="max-width:260px" required><button class="plain small">Record it</button></form>`}</td>
+    <td>${w.retired_at || admin.role !== "owner" ? "" : `<form method="post" action="/wallets" class="row" style="gap:6px"><input type="hidden" name="action" value="retire"><input type="hidden" name="wallet" value="${esc(w.id)}">
+        <input name="reason" placeholder="Why" style="max-width:180px" required><button class="plain small">Retire</button></form>`}</td></tr>`).join("");
+  return page("Wallets", `
+    <h1>ThePaymaster's wallets</h1>
+    ${error ? `<div class="err">${esc(error)}</div>` : ""}${note ? `<div class="good">${esc(note)}</div>` : ""}
+    ${message ? `<div class="panel"><h2 style="margin-top:0">Sign this message from the wallet</h2>
+      <p class="muted">In the wallet that holds the key, sign exactly this text (Sign message / personal_sign for Ethereum; BIP-322 or legacy signmessage for Bitcoin), then paste the signature into the wallet's row below. The private key never leaves the wallet.</p>
+      <pre class="wording" style="white-space:pre-wrap">${esc(message)}</pre></div>` : ""}
+    <div class="panel">
+      <p class="muted" style="margin-top:0">The registry every transaction's fee wallet is chosen from. Addresses are never typed into a transaction${tip("A wrong character in a fee address on one transaction loses that fee. Here the address is entered once, checked against the rail, proved by a signature from its own key, and reviewed by two people. A transaction can only pick from this list. Retiring keeps the row and says why; nothing is deleted.")}.
+        Control is proved by a signature from the wallet's own key, as we ask of every recipient. Private keys never come near the platform.</p>
+      <table><tr><th>Wallet</th><th>Address</th><th>Control</th><th></th></tr>${rows || '<tr><td colspan="4" class="muted">None yet.</td></tr>'}</table>
+    </div>
+    <div class="panel">
+      <h2 style="margin-top:0">Add a wallet</h2>
+      <form method="post" action="/wallets">
+        <input type="hidden" name="action" value="add">
+        <label>Label <input name="label" placeholder="ThePaymaster fee wallet — USDC on Ethereum" required></label>
+        <div class="row" style="gap:14px">
+          <label>Role <select name="role"><option value="fee">Fee wallet — where the 1% lands</option><option value="client">Client wallet — Mode C receiving (not yet in use)</option></select></label>
+          <label>Rail <select name="rail" required>${RAILS.map((r) => `<option value="${r.key}">${esc(r.label)}</option>`).join("")}</select></label>
+        </div>
+        <label>Address <input name="address" size="60" spellcheck="false" placeholder="0x… or bc1…" required></label>
+        <div class="row"><button class="go">Add to the registry</button></div>
+        <p class="muted">Checked against the rail's address rules when you save; then prove control from the wallet itself. Retiring a wallet needs an owner login.</p>
+      </form>
+    </div>`, { nav: nav("/wallets", admin.name) });
+}
+
 /** Fiat Transactions: which fiat mode is on, and every fiat transaction with where it has got to. */
 async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request: Request): Promise<Response> {
   let note = "", error = "";
@@ -2337,8 +2405,9 @@ async function txDocuments(env: Env, txId: string): Promise<string> {
  * address nobody reviews. The fee address is checked against the rail chosen,
  * so a Bitcoin fee cannot be pointed at an Ethereum address or the reverse.
  */
-function chainSettingsPanel(t: Record<string, any>): string {
+async function chainSettingsPanel(env: Env, t: Record<string, any>): Promise<string> {
   const rail = railFor(t as any);
+  const house = await houseWallets(env);
   const chosen = t.rail || (t.chain_id ? `eth:${t.chain_id}:usdt` : "");
   const choice = railChoice(chosen);
   const needsToken = choice ? choice.needsToken : true;
@@ -2380,22 +2449,37 @@ function chainSettingsPanel(t: Record<string, any>): string {
               `different address on every network.`}</p>
         </div>
         <label>Our fee goes to${t.fee_wallet
-          ? "" : ' <span class="bad">— not set</span>'}
-          <input name="fee_wallet" size="46" placeholder="${isEth ? "0x…" : "bc1…"}" spellcheck="false"
-                 value="${esc(t.fee_wallet ?? "")}" required></label>
-        <p class="muted" style="margin:4px 0 0">Must be an address on the rail chosen above;
-          it is checked when you save.</p>
+          ? "" : ' <span class="bad">— not set</span>'}${tip("One of ThePaymaster's registered wallets, from the Wallets page. Addresses cannot be typed here: the list is the only source, so a wrong character in a fee address is not possible on a transaction.")}
+          <select name="fee_wallet" id="feesel">
+            <option value="">The rail's default wallet</option>
+            ${house.filter((w) => w.role === "fee").map((w) => `<option value="${esc(w.id)}" data-rail="${esc(w.rail)}"${
+              t.fee_wallet && w.address.toLowerCase() === String(t.fee_wallet).toLowerCase() ? " selected" : ""}>${esc(w.label)} — ${esc(w.address)}${w.proved_at ? "" : " (control not yet proved)"}</option>`).join("")}
+          </select></label>
+        <p class="muted" style="margin:4px 0 0">${t.fee_wallet
+          ? `Currently <span class="mono">${esc(t.fee_wallet)}</span>.`
+          : `Not set. Saving with “the rail's default” picks the registered fee wallet for the rail you choose.`}
+          ${isEth ? "" : ""}Missing a wallet? <a href="/wallets">Add it on the Wallets page</a>.</p>
         <button type="submit">Save chain settings</button>
       </form>
       <script>
       (function () {
         var sel = document.getElementById("railsel"), row = document.getElementById("tokenrow");
-        var fee = document.querySelector('input[name="fee_wallet"]');
+        var fee = document.getElementById("feesel");
+        function filterFee() {
+          var railKey = sel.value;
+          for (var i = 0; i < fee.options.length; i++) {
+            var opt = fee.options[i];
+            if (!opt.dataset.rail) continue;
+            opt.hidden = railKey && opt.dataset.rail !== railKey;
+            if (opt.hidden && opt.selected) fee.selectedIndex = 0;
+          }
+        }
         sel.addEventListener("change", function () {
           var o = sel.options[sel.selectedIndex];
           row.hidden = o.dataset.token !== "1";
-          fee.placeholder = /^btc:/.test(o.value) ? "bc1…" : "0x…";
+          filterFee();
         });
+        filterFee();
       })();
       </script>
 

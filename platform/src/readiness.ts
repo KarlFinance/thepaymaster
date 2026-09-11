@@ -17,6 +17,7 @@ import { standingCheck } from "./screening.ts";
 import { CHAINS } from "./chain.ts";
 import { railFor } from "./rail.ts";
 import { forTransaction as agreementsFor } from "./agreements.ts";
+import { isHouse } from "./housewallets.ts";
 import { standing as standingScreen } from "./walletscreen.ts";
 import { proved as provedAddress } from "./attest.ts";
 
@@ -236,13 +237,18 @@ export async function assess(env: Env, transactionId: string,
     // Without one, the 1% has nowhere to go. Skipping the check when the field
     // is empty would let a transaction reach "ready" with no fee destination
     // at all, which is exactly the case worth catching.
+    // And it must be one of ours, from the Wallets page — an address typed into
+    // a transaction is an address nobody reviewed.
+    const house = await isHouse(env, rail.key, t.fee_wallet);
     checks.push({
       key: "fee_destination",
-      label: "Our fee has a destination",
-      met: Boolean(t.fee_wallet),
-      detail: t.fee_wallet
-        ? String(t.fee_wallet)
-        : "No fee wallet set on this transaction. Set one under Chain settings.",
+      label: "Our fee goes to a registered ThePaymaster wallet",
+      met: Boolean(t.fee_wallet) && Boolean(house),
+      detail: !t.fee_wallet
+        ? "No fee wallet set on this transaction. Choose one under Chain settings."
+        : house
+          ? `${house.label}${house.proved_at ? "" : " (control not yet proved on the Wallets page)"}`
+          : `${String(t.fee_wallet)} is not a registered ThePaymaster wallet on this rail. Choose one under Chain settings.`,
     });
 
     if (addresses.length) {
