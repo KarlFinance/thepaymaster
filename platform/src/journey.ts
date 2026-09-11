@@ -275,7 +275,9 @@ export function senderJourney(o: {
   else if (viaUs && o.senderSentAt && !o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: `You told us it was sent on ${day(o.senderSentAt)}. We are confirming receipt into the ${o.modeC ? "client wallet" : "client account"}.` });
   else if (viaUs && o.received) steps.push({ key: "send", label: sendLabel, state: "wait",
-    summary: `Received into the ${o.modeC ? "client wallet" : "client account"}. We are paying your recipients${o.modeC ? "; each payment is verified on the chain" : "; each confirms when it arrives"}.` });
+    summary: o.conversion && o.conversion.state !== "done"
+      ? `Received into the ${o.modeC ? "client wallet" : "client account"}. Next the desk converts it; then your recipients are paid from what comes back.`
+      : `Received into the ${o.modeC ? "client wallet" : "client account"}. We are paying your recipients${o.modeC ? "; each payment is verified on the chain" : "; each confirms when it arrives"}.` });
   else if (canSend && verified && walletsDone && agreed) steps.push({ key: "send", label: sendLabel, state: "now" });
   else if (ready && verified && walletsDone) steps.push({ key: "send", label: sendLabel, state: "wait",
     summary: "We are checking the gate. You will get an email when you can send." });

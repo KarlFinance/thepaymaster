@@ -343,7 +343,8 @@ export async function assess(env: Env, transactionId: string,
   }
 
   // --- Mode C: our client wallet is registered and proved -------------------
-  if (t.inbound === "crypto" && t.outbound === "crypto" && !t.converts && t.execution === "client_wallet") {
+  if ((t.inbound === "crypto" && t.outbound === "crypto" && !t.converts && t.execution === "client_wallet")
+      || (t.converts && t.outbound === "crypto")) {
     const rail = railFor(t);
     const cw = t.client_wallet ? await isHouse(env, rail.key, t.client_wallet) : null;
     checks.push({

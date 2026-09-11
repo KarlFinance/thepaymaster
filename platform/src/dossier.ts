@@ -254,6 +254,11 @@ export async function facts(env: Env, txId: string): Promise<Fact[]> {
         `${g.kind === "sender_agreement" ? "Sender's Paymaster Agreement" : "Recipient's Authorisation"} ${g.version} — signed by ${g.signed_name}`,
         drop(g, ["content_json"]));
   }
+  for (const c of await q(
+    "SELECT * FROM conversions WHERE transaction_id = ?", txId)) {
+    add("08e-conversion", c.id,
+        `Conversion — ${c.direction} via ${c.desk} — ${c.cancelled_at ? "cancelled" : c.executed_at ? `${c.to_currency} ${c.to_minor} returned` : "instructed"}`, c);
+  }
   for (const b of await q(
     "SELECT * FROM bank_lines WHERE transaction_id = ?", txId)) {
     add("08c-bank-line", b.id, `Statement line — ${b.direction === "in" ? "in" : "out"} ${b.currency} — ${b.matched_what ?? "unmatched"}`, b);

@@ -227,7 +227,11 @@ export function statementPdf(d: FolderData, opts: { watermark?: string | null } 
         `. A certification is issued only when nothing is outstanding.`],
     ["Basis", `ThePaymaster® acted exclusively as the sender's agent under a distinct agency appointment for this ` +
       `transaction (Commercial Agent Exemption, paragraph 2(b), Schedule 1, Payment Services Regulations 2017). ` +
-      (tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts && tx.execution === "client_wallet"
+      (tx.converts && tx.inbound === "fiat"
+        ? "The funds were received into a client mandated account, segregated from ThePaymaster Ltd's own funds; the amount to be distributed, less ThePaymaster's fee, was converted through the OTC desk named in the record on the desk's own terms and at the desk's fee charged at source; the digital assets delivered by the desk were received into a client wallet controlled by ThePaymaster Ltd, held on trust for the sender, and paid from it to each recipient's proved wallet, every movement verified on the public ledger by its transaction hash."
+        : tx.converts && tx.inbound === "crypto"
+        ? "The digital assets were received from the sender's proved wallet into a client wallet controlled by ThePaymaster Ltd, held on trust for the sender, and sold through the OTC desk named in the record on the desk's own terms and at the desk's fee charged at source; the fiat proceeds were received into a client mandated account and paid from it to each recipient's verified bank account. This route is governed by the separate contract for it."
+        : tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts && tx.execution === "client_wallet"
         ? "The digital assets were received from the sender's proved wallet into a client wallet controlled by ThePaymaster Ltd, held on trust for the sender and used for nothing else, and paid from it to each recipient's proved wallet; every receipt and payment is verified on the public ledger by its transaction hash."
         : tx.inbound === "crypto" && tx.outbound === "crypto" && !tx.converts
         ? "The payments were executed by the sender from the sender's own wallet directly to each recipient; at no point were the funds held by ThePaymaster Ltd."

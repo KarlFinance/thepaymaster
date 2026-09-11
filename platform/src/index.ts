@@ -2667,9 +2667,12 @@ async function chainSettingsPanel(env: Env, t: Record<string, any>): Promise<str
               `<span class="mono">${esc(DEFAULT_TOKENS[1].usdc)}</span>). On any other network type it, ` +
               `because the same token has a different address on every chain.`}</p>
         </div>
-        <fieldset style="margin:12px 0"><legend>Who executes the payments${tip("Mode C, as the Agreement describes: the sender sends the assets to our client wallet and we pay everyone from it, each payment signed by staff from the wallet's key and verified on the chain. Or the sender executes every payment from their own proved wallet and nothing is held by us. The default for new transactions is set on the Fiat page.")}</legend>
+        <fieldset style="margin:12px 0"><legend>${t.converts ? "The client wallet" : "Who executes the payments"}${tip(t.converts
+            ? "A converting transaction always passes through our client wallet: the desk delivers the purchased asset into it (fiat in, crypto out), or the sender sends the asset into it for the desk to sell (crypto in, fiat out). Choose which registered client wallet on this rail."
+            : "Mode C, as the Agreement describes: the sender sends the assets to our client wallet and we pay everyone from it, each payment signed by staff from the wallet's key and verified on the chain. Or the sender executes every payment from their own proved wallet and nothing is held by us. The default for new transactions is set on the Fiat page.")}</legend>
+          ${t.converts ? `<input type="hidden" name="execution" value="client_wallet">` : `
           <label style="display:block"><input type="radio" name="execution" value="client_wallet"${(t.execution ?? "sender") === "client_wallet" ? " checked" : ""}> Mode C — into ThePaymaster's client wallet, paid out by us</label>
-          <label style="display:block"><input type="radio" name="execution" value="sender"${(t.execution ?? "sender") === "sender" ? " checked" : ""}> The sender executes from their own wallet</label>
+          <label style="display:block"><input type="radio" name="execution" value="sender"${(t.execution ?? "sender") === "sender" ? " checked" : ""}> The sender executes from their own wallet</label>`}
           <label style="margin-top:8px">Client wallet (Mode C)
             <select name="client_wallet" id="cwsel">
               <option value="">The rail's registered client wallet</option>

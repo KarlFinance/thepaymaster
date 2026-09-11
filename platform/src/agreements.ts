@@ -163,7 +163,8 @@ function fillSender(env: Env, f: Facts): Block[] {
           "Third party payer (if any)": "None. The Principal pays.",
           "Gross Amount": `${tx.currency_in} ${format(f.grossMinor, tx.decimals_in)} (${pct ? "derived from fixed Recipient entitlements" : "fixed"})`,
           "Receipt pattern": "Single receipt.",
-          "Distribution Mode(s)": `${modes.A ? TICK : BOX} Mode A (Fiat)   ${modes.B ? TICK : BOX} Mode B (Fiat with Conversion)   ${modes.C ? TICK : BOX} Mode C (Native Digital Asset)`,
+          "Distribution Mode(s)": `${modes.A ? TICK : BOX} Mode A (Fiat)   ${modes.B ? TICK : BOX} Mode B (Fiat with Conversion)   ${modes.C ? TICK : BOX} Mode C (Native Digital Asset)` +
+            (tx.inbound === "crypto" && tx.outbound === "fiat" ? "   — Digital assets in, fiat out: governed by the separate contract for that route; this Agreement's Modes do not apply." : ""),
           "Service Fee": `1% of the Gross Amount (${tx.currency_in} ${format(f.feeMinor, tx.decimals_in)}). Borne by: ${pct ? BOX : TICK} deducted from the Gross Amount pro rata across Recipients   ${pct ? TICK : BOX} paid by the Principal in addition to the Gross Amount   ${BOX} borne by named Recipient(s)`,
           "Conversion Fee (Mode B only)": modes.B || tx.converts
             ? `${(DESK.feeBps / 100).toFixed(2).replace(/\.?0+$/, "")}% of each converted amount, charged by ${DESK.name} at source and deducted from the converted amount at Conversion (clause 8.2). It is the desk's charge and is not collected by ThePaymaster. The desk's spread and network fees are costs of the Distribution.`
@@ -272,7 +273,7 @@ function fillRecipient(env: Env, f: Facts, participationId: string): Block[] | n
       if (b.text.startsWith("deducted from the gross")) b.text = `${deducted ? TICK : BOX} ${b.text}`;
       else if (b.text.startsWith("paid by the Principal")) b.text = `${deducted ? BOX : TICK} ${b.text}`;
       else if (b.text.startsWith("borne by the Recipient")) b.text = `${BOX} ${b.text.replace("[AMOUNT]", "—")}`;
-      else if (b.text.startsWith("Method A")) b.text = `${modes.A ? TICK : BOX} ${b.text.replace("[    ]%", modes.A ? "100%" : "0%").replace("[CURRENCY]", tx.currency_out)}`;
+      else if (b.text.startsWith("Method A")) { const a = tx.outbound === "fiat"; b.text = `${a ? TICK : BOX} ${b.text.replace("[    ]%", a ? "100%" : "0%").replace("[CURRENCY]", tx.currency_out)}`; }
       else if (b.text.startsWith("Method B")) b.text = `${modes.B ? TICK : BOX} ${b.text.replace("[    ]%", modes.B ? "100%" : "0%").replace("[ASSET]", tx.currency_out).replace("[NETWORK]", d?.chain ?? "—")}`;
       else if (b.text.startsWith("Method C")) b.text = `${modes.C ? TICK : BOX} ${b.text.replace("[    ]%", modes.C ? "100%" : "0%").replace("[ASSET]", tx.currency_out).replace("[NETWORK]", d?.chain ?? "—")}`;
       out.push(b); continue;
