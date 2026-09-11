@@ -19,6 +19,8 @@ import { ethereumRail } from "./rails/ethereum.ts";
 import { bitcoinRail } from "./rails/bitcoin.ts";
 import { BTC_CHAIN_ID } from "./btc.ts";
 import { bankRail } from "./rails/bank.ts";
+import { tronRail } from "./rails/tron.ts";
+import { TRON_CHAIN_ID } from "./tron.ts";
 import { DEFAULT_TOKENS } from "./chain.ts";
 
 /** What the chain knows about one address, in one pass. */
@@ -146,7 +148,9 @@ export const RAILS: RailChoice[] = [
   { key: "eth:1:usdc", label: "USDC on Ethereum", rehearsal: false, chainId: 1, needsToken: true },
   { key: "eth:1:eth", label: "Ether (ETH) on Ethereum", rehearsal: false, chainId: 1, needsToken: false },
   { key: "btc:mainnet", label: "Bitcoin", rehearsal: false, chainId: BTC_CHAIN_ID.mainnet, needsToken: false },
+  { key: "tron:mainnet:usdt", label: "USDT on Tron (TRC-20)", rehearsal: false, chainId: TRON_CHAIN_ID.mainnet, needsToken: false },
   { key: "eth:11155111:usdt", label: "USDT on Sepolia — rehearsal only", rehearsal: true, chainId: 11155111, needsToken: true },
+  { key: "tron:nile:usdt", label: "USDT on Tron Nile — rehearsal only", rehearsal: true, chainId: TRON_CHAIN_ID.nile, needsToken: false },
   { key: "btc:signet", label: "Bitcoin signet — rehearsal only", rehearsal: true, chainId: BTC_CHAIN_ID.signet, needsToken: false },
 ];
 
@@ -185,6 +189,8 @@ export function railFor(t: RailRow): Rail {
   const key = t.rail ?? (t.chain_id ? `eth:${t.chain_id}:usdt` : null);
   const b = key?.match(/^btc:(mainnet|signet|testnet)$/);
   if (b) return bitcoinRail(b[1] as "mainnet" | "signet" | "testnet");
+  const tr = key?.match(/^tron:(mainnet|nile):(\w+)$/);
+  if (tr) return tronRail(tr[1] as "mainnet" | "nile", { token: t.token_address || null, decimals: (t.decimals_out ?? 6) as number, symbol: tr[2].toUpperCase() });
   const e = key?.match(/^eth:(\d+):(\w+)$/);
   const chainId = e ? Number(e[1]) : ((t.chain_id as number) ?? 1);
   const symbol = e ? e[2].toUpperCase() : ((t.currency_out ?? t.currency_in ?? "USDT") as string);

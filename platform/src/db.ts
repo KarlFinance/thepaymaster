@@ -38,6 +38,8 @@ export interface Env {
   MANDATED_ACCOUNT?: string;
   /** HSBC API credentials — none yet; the fiat mode switch stays on manual until they exist. */
   HSBC_API_KEY?: string;
+  /** TronGrid API key. Optional; without it the public rate limit applies. */
+  TRONGRID_API_KEY?: string;
 }
 
 export interface Actor {
