@@ -68,6 +68,18 @@ ${FAVICON}
     { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
+/**
+ * What every enquirer must tick before the form will send. The wording is
+ * stored with the enquiry, so it can be quoted back. It is deliberately blunt:
+ * most wasted calls come from people who did not expect to be verified, or
+ * did not warn the people they intend to pay.
+ */
+export const ACKNOWLEDGEMENT =
+  "I understand that every ThePaymaster transaction requires the sender and every recipient to pass full " +
+  "identity verification (KYC, and KYB for companies), and that our Client Information Sheet and agreements " +
+  "apply to everyone involved. I am aware of this, and so is everyone I intend to pay. I understand that " +
+  "ThePaymaster cannot act where any party will not complete verification.";
+
 export function enquiryForm(error = "", was: Record<string, string> = {}): Response {
   const v = (k: string) => esc(was[k] ?? "");
   const cur = Object.keys(CURRENCIES)
@@ -139,6 +151,14 @@ export function enquiryForm(error = "", was: Record<string, string> = {}): Respo
       </select>
     </fieldset>
 
+    <fieldset>
+      <legend>Before you send this</legend>
+      <label class="check"><input type="checkbox" name="acknowledged" value="1" required${was.acknowledged ? " checked" : ""}>
+        <span>${esc(ACKNOWLEDGEMENT)}</span></label>
+      <p class="small" style="margin:8px 0 0 30px">This is the single most common reason a transaction stalls.
+        If anyone you intend to pay would not pass or would not agree to verification, please talk to us before sending this.</p>
+    </fieldset>
+
     <div style="position:absolute;left:-9999px" aria-hidden="true">
       <label for="website">Leave this empty</label>
       <input id="website" name="website" tabindex="-1" autocomplete="off">
@@ -166,6 +186,10 @@ export async function submitEnquiry(request: Request, env: Env,
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s("email"))) {
     return enquiryForm("That email address does not look right.", was);
+  }
+  // The browser enforces the tick; this catches anyone who bypasses the form.
+  if (!f.get("acknowledged")) {
+    return enquiryForm("Please tick to confirm you understand that every party will be verified. We cannot take an enquiry without it.", was);
   }
 
   // An unrecognised key means "not sure", which is a legitimate answer and is
@@ -195,6 +219,8 @@ export async function submitEnquiry(request: Request, env: Env,
     detail: s("detail") || null,
     source: request.headers.get("Referer") ?? null,
     status: "new",
+    acknowledged_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+    acknowledged_text: ACKNOWLEDGEMENT,
   });
 
   // After the row is safely down, and never in the way of the response: the
@@ -322,6 +348,9 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
       ${kv("Likelihood", esc(LIKELIHOOD[e.likelihood] ?? "—"))}
       ${kv("Status", `<span class="tag">${esc(e.status)}</span>`)}
       ${kv("Received", esc(e.created_at))}
+      ${kv("Verification acknowledged", e.acknowledged_at
+        ? `<span class="good">Ticked ${esc(e.acknowledged_at)}</span><div class="muted" style="font-size:12.5px;margin-top:4px">“${esc(e.acknowledged_text ?? "")}”</div>`
+        : `<span class="muted">Not asked — enquiry predates the tick</span>`)}
       ${e.source ? kv("From page", esc(e.source)) : ""}
     </table></div>
 
