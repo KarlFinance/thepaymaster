@@ -456,7 +456,8 @@ async function senderPayCard(env: Env, part: any, txId: string, error: string, n
          with the reference <b>${esc(receipt?.reference ?? part.ref)}</b>. The reference is how your money is matched
          to this distribution, so please put it exactly.</p>
       <p>${acct(accountFromVar(env.MANDATED_ACCOUNT))}</p>
-      <p class="muted">Before your first transfer, telephone us on +44 20 7088 8267 to confirm these details. We never change account details by email or message.</p>
+      <p class="muted">These are the details in our <a href="/papers/client-information-sheet.pdf" target="_blank" rel="noopener">Client Information Sheet</a>, which is also in your folder.
+         Before your first transfer, telephone us on +44 20 7088 8267 to confirm them. We never change account details by email or message.</p>
       ${receipt?.paid ? `<p class="good">Received — thank you. We are paying your recipients.</p>`
         : part.sender_sent_at ? `<p class="muted">You told us it was sent${part.sender_sent_at !== "now" ? ` on ${esc(String(part.sender_sent_at).slice(0, 16))}` : ""}. We will confirm here when it reaches the client account.</p>`
         : `<form method="post" action="/d/${esc(txId)}/sent" style="margin-top:12px">

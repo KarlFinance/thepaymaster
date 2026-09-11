@@ -27,6 +27,10 @@ bucket_name = "thepaymaster"
 # Bank accounts shown to senders, as "Name|sort code|account number|IBAN|BIC|bank".
 # Not secrets — they go on payment files — but real details belong here only
 # when Ray puts them in. Unset, the page says the details will follow by hand.
-# [vars]
-# FEE_BANK_ACCOUNT = "ThePaymaster Ltd|400515|12345678||HSBC"
-# MANDATED_ACCOUNT = "ThePaymaster Ltd Client Account|400515|87654321||HSBC"
+# MANDATED_ACCOUNT is the client funds account from the Client Information
+# Sheet (6 Sep 2026), page 4 — the one senders pay into. It appears on the
+# sender's pay card and in Schedule 5 of every Sender's Paymaster Agreement.
+# The CIS itself is served at client…/papers/client-information-sheet.pdf.
+[vars]
+MANDATED_ACCOUNT = "ThePaymaster Global Ltd|40-05-16|92786036|GB85HBUK40051692786036|HBUKGB4107E|HSBC UK"
+# FEE_BANK_ACCOUNT = "ThePaymaster Ltd|sort code|account number|IBAN|BIC|bank"   # only needed for the sender-direct mode, which is off

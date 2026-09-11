@@ -63,6 +63,7 @@ import { agreementRequested, fundsReceived, paymentMade } from "./notify.ts";
 const PAPERS = new Set([
   "distribution-without-custody.pdf",
   "sending-a-crypto-distribution.pdf",
+  "client-information-sheet.pdf",          // the CIS: company, regulatory position, client account
 ]);
 
 /**

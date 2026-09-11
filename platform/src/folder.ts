@@ -431,6 +431,14 @@ export async function folderEntries(env: Env, d: FolderData): Promise<FolderEntr
     { name: "record.pdf", data: own.pdf },
     { name: "record.json", data: enc.encode(own.json) },
   ];
+  // The sender's folder carries the Client Information Sheet they were given:
+  // the company, the regulatory position, and the client account they paid.
+  if (d.role === "sender") {
+    try {
+      const cis = await env.DOCS?.get("papers/client-information-sheet.pdf");
+      if (cis) entries.push({ name: "documents/ThePaymaster-Client-Information-Sheet.pdf", data: new Uint8Array(await cis.arrayBuffer()) });
+    } catch { /* absent until uploaded */ }
+  }
   for (const a of d.documents) {
     try {
       const obj = await env.DOCS?.get(a.r2_key);
