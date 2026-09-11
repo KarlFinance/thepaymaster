@@ -352,7 +352,10 @@ export async function prepare(env: Env, txId: string, legId: string,
   return json({
     to: line.address,
     token: p.token,
-    data: transferData(line.address, amount),
+    native: Boolean(p.rail.native),
+    // Ether by value; a token by calling its contract.
+    value: p.rail.native ? "0x" + BigInt(amount).toString(16) : "0x0",
+    data: p.rail.native ? "0x" : transferData(line.address, amount),
     amountMinor: String(amount),
     human: `${format(amount, p.decimals)} ${p.currency}`,
   });

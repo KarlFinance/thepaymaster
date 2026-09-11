@@ -32,7 +32,7 @@ import { screen as screenAddress, recordVerdict, forTransaction as screensFor,
          screenAll, nominis,
          standing as standingScreen } from "./walletscreen.ts";
 import { txHashProblem, receipt as txReceipt, explorerLink, addressLink,
-         CHAINS, USDT_MAINNET } from "./chain.ts";
+         CHAINS, USDT_MAINNET, DEFAULT_TOKENS } from "./chain.ts";
 import { arrival, legs, events as custodyEvents, settlementChecks,
          record as recordCustody, holderFor } from "./settlement.ts";
 import { forTransaction, lock as lockDestination, requestChange,
@@ -1209,6 +1209,10 @@ async function setChainSettings(env: Env, actor: Actor, txId: string,
     const n = rail.normalise(token);
     if (!n.ok) return detail(env, { name: "" }, txId, `token address: ${n.why}`);
     tokenOk = n.address;
+  } else if (choice.needsToken) {
+    // Nothing typed: the well-known contract for this asset on this chain, if there is one.
+    tokenOk = DEFAULT_TOKENS[choice.chainId]?.[key.split(":")[2]] ?? null;
+    if (!tokenOk) return detail(env, { name: "" }, txId, "Type the token's contract address for this rail; there is no default on that network.");
   }
   // The fee wallet comes from the registry, never from a typed address. An
   // empty choice takes the rail's default (the proved one, else the first).
@@ -2443,10 +2447,10 @@ async function chainSettingsPanel(env: Env, t: Record<string, any>): Promise<str
                    value="${esc(t.token_address ?? "")}"></label>
           <p class="muted" style="margin:4px 0 0">${t.token_address
             ? `Currently <span class="mono">${esc(t.token_address)}</span>.`
-            : `Nothing is set, so nothing can be sent. USDT on Ethereum is ` +
-              `<span class="mono">${esc(USDT_MAINNET)}</span> — but check it ` +
-              `against the chain you have chosen, because the same token has a ` +
-              `different address on every network.`}</p>
+            : `Leave it blank on Ethereum mainnet and the well-known contract is used (USDT ` +
+              `<span class="mono">${esc(USDT_MAINNET)}</span>, USDC ` +
+              `<span class="mono">${esc(DEFAULT_TOKENS[1].usdc)}</span>). On any other network type it, ` +
+              `because the same token has a different address on every chain.`}</p>
         </div>
         <label>Our fee goes to${t.fee_wallet
           ? "" : ' <span class="bad">— not set</span>'}${tip("One of ThePaymaster's registered wallets, from the Wallets page. Addresses cannot be typed here: the list is the only source, so a wrong character in a fee address is not possible on a transaction.")}

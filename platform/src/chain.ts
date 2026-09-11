@@ -30,6 +30,11 @@ import { type Env } from "./db.ts";
 
 /** Tether on Ethereum mainnet. Six decimals, not eighteen. */
 export const USDT_MAINNET = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+export const USDC_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+/** The token a rail defaults to on mainnet, by symbol. Other chains must be typed. */
+export const DEFAULT_TOKENS: Record<number, Record<string, string>> = {
+  1: { usdt: USDT_MAINNET, usdc: USDC_MAINNET },
+};
 
 export const CHAINS: Record<number, { name: string; rpc: string; explorer: string }> = {
   1: {
@@ -443,4 +448,44 @@ export async function transferHappened(env: Env, chainId: number, hash: string, 
     sources: heard.length, agreed: true,
     problem: one.exists ? undefined : "no such transaction",
   };
+}
+
+/**
+ * Did this transaction pay `to` exactly `amountWei` of Ether?
+ *
+ * Only a plain transfer counts — the transaction's own `to` and `value`.
+ * Ether moved inside a contract call (an internal transaction) is not seen
+ * here, deliberately: it cannot be checked from a receipt, and a sender who
+ * routes through a contract can record the payment by hand with evidence.
+ */
+export async function etherTransferHappened(env: Env, chainId: number, hash: string, want: {
+  to: string; amountWei: number | bigint;
+}): Promise<{ ok: boolean; from: string | null; block: number | null;
+              sources: number; agreed: boolean; problem?: string } | null> {
+  const to = want.to.toLowerCase();
+  const amount = BigInt(want.amountWei);
+  const answers = await Promise.all(endpoints(env, chainId).map(async (ep) => {
+    try {
+      const [t, r] = await Promise.all([
+        ask(ep.url, "eth_getTransactionByHash", [hash]),
+        ask(ep.url, "eth_getTransactionReceipt", [hash]),
+      ]);
+      if (!t) return { ep, exists: false, pending: false, ok: false, from: null as string | null, block: null as number | null };
+      if (!r) return { ep, exists: true, pending: true, ok: false, from: String(t.from ?? "") || null, block: null as number | null };
+      const succeeded = BigInt(r.status ?? "0x0") === 1n;
+      const hit = String(t.to ?? "").toLowerCase() === to && BigInt(t.value ?? "0x0") === amount;
+      return { ep, exists: true, pending: false, ok: succeeded && hit, from: String(t.from ?? "") || null,
+               block: r.blockNumber ? Number(BigInt(r.blockNumber)) : null };
+    } catch { return null; }
+  }));
+  const heard = answers.filter((a): a is NonNullable<typeof a> => a !== null);
+  if (!heard.length) return null;
+  if (heard.every((a) => !a.exists)) return { ok: false, from: null, block: null, sources: heard.length, agreed: true, problem: "no such transaction" };
+  if (heard.some((a) => a.pending)) return { ok: false, from: heard.find((a) => a.pending)!.from, block: null, sources: heard.length, agreed: true, problem: "pending" };
+  const key = (a: typeof heard[number]) => `${a.exists}|${a.ok}|${a.block}`;
+  if (new Set(heard.map(key)).size > 1) {
+    return { ok: false, from: null, block: null, sources: heard.length, agreed: false,
+      problem: heard.map((a) => `${a.ep.name}: ${a.ok ? `carries it, block ${a.block}` : "does not carry it"}`).join("; ") };
+  }
+  return { ok: heard[0].ok, from: heard[0].from, block: heard[0].block, sources: heard.length, agreed: true };
 }

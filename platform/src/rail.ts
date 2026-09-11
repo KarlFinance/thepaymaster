@@ -19,6 +19,7 @@ import { ethereumRail } from "./rails/ethereum.ts";
 import { bitcoinRail } from "./rails/bitcoin.ts";
 import { BTC_CHAIN_ID } from "./btc.ts";
 import { bankRail } from "./rails/bank.ts";
+import { DEFAULT_TOKENS } from "./chain.ts";
 
 /** What the chain knows about one address, in one pass. */
 export interface AddressReport {
@@ -81,6 +82,10 @@ export interface Rail {
   canFreeze: boolean;
   /** The integer the schema files screens and tests under. Ethereum's real id; a reserved one for Bitcoin. */
   chainId: number;
+  /** The token contract, where the asset is a token; null for a chain's own coin (Ether, Bitcoin). */
+  token?: string | null;
+  /** True when the asset is the chain's own coin rather than a token. */
+  native?: boolean;
   explorer: { tx(hash: string): string; address(a: string): string };
 
   // --- addresses -----------------------------------------------------------
@@ -138,6 +143,8 @@ export interface RailChoice { key: string; label: string; rehearsal: boolean; ch
 /** Every rail a transaction may be put on, in the order the picker shows them. */
 export const RAILS: RailChoice[] = [
   { key: "eth:1:usdt", label: "USDT on Ethereum", rehearsal: false, chainId: 1, needsToken: true },
+  { key: "eth:1:usdc", label: "USDC on Ethereum", rehearsal: false, chainId: 1, needsToken: true },
+  { key: "eth:1:eth", label: "Ether (ETH) on Ethereum", rehearsal: false, chainId: 1, needsToken: false },
   { key: "btc:mainnet", label: "Bitcoin", rehearsal: false, chainId: BTC_CHAIN_ID.mainnet, needsToken: false },
   { key: "eth:11155111:usdt", label: "USDT on Sepolia — rehearsal only", rehearsal: true, chainId: 11155111, needsToken: true },
   { key: "btc:signet", label: "Bitcoin signet — rehearsal only", rehearsal: true, chainId: BTC_CHAIN_ID.signet, needsToken: false },
@@ -179,11 +186,15 @@ export function railFor(t: RailRow): Rail {
   const b = key?.match(/^btc:(mainnet|signet|testnet)$/);
   if (b) return bitcoinRail(b[1] as "mainnet" | "signet" | "testnet");
   const e = key?.match(/^eth:(\d+):(\w+)$/);
+  const chainId = e ? Number(e[1]) : ((t.chain_id as number) ?? 1);
+  const symbol = e ? e[2].toUpperCase() : ((t.currency_out ?? t.currency_in ?? "USDT") as string);
+  const native = symbol === "ETH";
   return ethereumRail({
-    chainId: e ? Number(e[1]) : ((t.chain_id as number) ?? 1),
-    token: t.token_address || null,
-    decimals: (t.decimals_out ?? t.decimals_in ?? 6) as number,
-    symbol: e ? e[2].toUpperCase() : ((t.currency_out ?? t.currency_in ?? "USDT") as string),
+    chainId,
+    native,
+    token: native ? null : (t.token_address || DEFAULT_TOKENS[chainId]?.[symbol.toLowerCase()] || null),
+    decimals: (t.decimals_out ?? t.decimals_in ?? (native ? 18 : 6)) as number,
+    symbol,
   });
 }
 

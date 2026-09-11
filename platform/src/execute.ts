@@ -27,7 +27,7 @@ import { legs as payoutLegs, holderFor, type Leg } from "./settlement.ts";
 import { assess } from "./readiness.ts";
 import { proved as provedAddress } from "./attest.ts";
 import { railFor, type Rail } from "./rail.ts";
-import { USDT_MAINNET } from "./chain.ts";
+// (token defaults now live on the rail)
 import { standing } from "./walletscreen.ts";
 
 /**
@@ -71,7 +71,7 @@ export interface Plan {
   ready: boolean;
   rail: Rail;
   chainId: number;
-  token: string;
+  token: string | null;
   decimals: number;
   currency: string;
   lines: Line[];
@@ -98,7 +98,7 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
 
   const rail = railFor(t);
   const chainId = (t.chain_id as number) ?? 1;
-  const token = (t.token_address as string) || USDT_MAINNET;
+  const token = rail.token ?? null;
   const decimals = rail.decimals;
   const currency = rail.symbol;
 
