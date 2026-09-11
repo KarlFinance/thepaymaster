@@ -443,9 +443,13 @@ export async function clientStartOwn(env: Env, request: Request): Promise<Respon
  */
 async function senderPayCard(env: Env, part: any, txId: string, error: string, note: string): Promise<string> {
   const { items } = await bankExpected(env, txId);
+  // A UK sender wants the sort code and account number; an international one
+  // wants the IBAN and BIC. Show whichever the account has, both if both.
   const acct = (a: ReturnType<typeof accountFromVar>) => a
-    ? `<b>${esc(a.name)}</b>${a.bank ? `, ${esc(a.bank)}` : ""}<br>${a.iban ? `IBAN ${esc(a.iban)}${a.bic ? `, BIC ${esc(a.bic)}` : ""}`
-        : `Sort code ${esc(a.sortCode ?? "")}, account ${esc(a.accountNumber ?? "")}`}`
+    ? `<b>${esc(a.name)}</b>${a.bank ? `, ${esc(a.bank)}` : ""}<br>${[
+        a.sortCode && a.accountNumber ? `Sort code ${esc(a.sortCode)}, account number ${esc(a.accountNumber)}` : "",
+        a.iban ? `IBAN ${esc(a.iban)}${a.bic ? `, BIC ${esc(a.bic)}` : ""}` : "",
+      ].filter(Boolean).join("<br>")}`
     : `<span class="muted">We will send you the account details separately.</span>`;
   const err = error ? `<div class="err">${esc(error)}</div>` : "";
   const good = note ? `<div class="good">${esc(note)}</div>` : "";
