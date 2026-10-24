@@ -30,7 +30,7 @@
  * live for now, deliberately — the old page keeps working until this one has
  * been looked at properly, and then /start-transaction/ points here.
  */
-const PLATFORM_PATHS = ["/enquiry"];
+const PLATFORM_PATHS = ["/enquiry", "/distribute"];
 
 function platformOwns(pathname) {
   return PLATFORM_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));

@@ -42,6 +42,7 @@ import { claimPenny, paysDirect, expected as bankExpected, paymentsCsv, importSt
 import { status as agreementStatus, sign as agreementSign, AGREEMENT_CSS } from "./agreements.ts";
 import { latest as latestConversion, DESK } from "./conversion.ts";
 import { staffSenderSaysSent, staffRecipientConfirmed } from "./notify.ts";
+import { senderConfirmed, advance as advanceSelfServe } from "./selfserve.ts";
 import { proofForm, PROOF_CSS, challengeForDestination, proveDestination,
          removeSendingWallet,
          sendingWallets, addSendingWallet, proveSendingWallet,
@@ -361,6 +362,9 @@ export async function joinLink(env: Env, value: string, request: Request): Promi
 
   const session = await redeem(env, value, party.id, request);
   if (!session) return gone("It has already been used.");
+
+  // A self-serve sender confirming their distribution: invite everyone now.
+  if (tok.transactionId) await senderConfirmed(env, tok.transactionId, tok.participationId, new URL(request.url).origin);
 
   return new Response(null, {
     status: 302,
@@ -916,6 +920,12 @@ export async function clientDeal(env: Env, request: Request, txId: string): Prom
       ORDER BY CASE WHEN p.party_id = ? THEN 0 ELSE 1 END LIMIT 1`)
     .bind(txId, ...mine, who.partyId).first<any>();
   if (!part) return new Response("Not found", { status: 404 });
+  // A self-serve distribution moves itself on: screens, locks, ready, sealed.
+  if (part.self_serve) {
+    await advanceSelfServe(env, txId);
+    const now = await env.DB.prepare("SELECT status, updated_at FROM transactions WHERE id = ?").bind(txId).first<any>();
+    if (now) Object.assign(part, now);
+  }
   const principalId = String(part.principal_party_id);
   const memberRole: Role = (await roleFor(env, who.partyId, principalId)) ?? "viewer";
   const actingFor = principalId === who.partyId ? null
@@ -1421,6 +1431,7 @@ export async function clientSend(env: Env, request: Request,
       : await recordLeg(env, actor, txId, leg, hash);
   }
 
+  await advanceSelfServe(env, txId);   // sealed when the last payment lands, if self-serve
   const p = await plan(env, txId);
   return shell(`Send — ${part.ref}`, executeBody(p, txId, notice), who.name);
 }

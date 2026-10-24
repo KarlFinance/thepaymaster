@@ -13,6 +13,7 @@ import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
          handleSignOut, handleAccount } from "./adminauth.ts";
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
+import { startForm as startDistributionForm, startSubmit as startDistribution, selfServeOn, advance as advanceSelfServe, advanceForParty } from "./selfserve.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { submitSiteForm, formsInbox, formDetail, setFormStatus, formFile } from "./siteforms.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
@@ -111,6 +112,14 @@ export default {
       // The website's own forms post here from thepaymaster.co.uk.
       const sf = url.pathname.match(/^\/site-form\/([a-z-]+)$/);
       if (sf) return submitSiteForm(request, env, sf[1], (p) => ctx.waitUntil(p));
+
+      // A sender starting their own USDT distribution.
+      if (url.pathname === "/distribute") {
+        if (!(await selfServeOn(env))) return Response.redirect(new URL("/enquiry", request.url).toString(), 302);
+        return request.method === "POST"
+          ? startDistribution(env, request, (p) => ctx.waitUntil(p))
+          : startDistributionForm();
+      }
 
       if (url.pathname === "/enquiry") {
         return request.method === "POST"
@@ -460,6 +469,7 @@ export default {
           await recordVerdict(env, actor, screenId, {
             verdict, findings: String(f.get("findings") ?? "").trim(), months: 3,
           });
+          await advanceSelfServe(env, txId);
           return Response.redirect(new URL(`/t/${txId}`, url).toString(), 302);
         }
         if (url.pathname.endsWith("/attest") && request.method === "POST") {
@@ -1768,6 +1778,7 @@ async function kycDecide(request: Request, env: Env, actor: Actor,
     passed, ceilingMinor: ceiling, months,
     note: String(f.get("note") ?? "").trim(),
   });
+  await advanceForParty(env, partyId);
   return Response.redirect(new URL(`/p/${partyId}`, request.url).toString(), 302);
 }
 
@@ -2330,12 +2341,40 @@ async function distributePage(env: Env, admin: { name: string }, actor: Actor, r
     ${executeBody(p, txId, notice, base)}`, { nav: nav("", admin.name) });
 }
 
+/** Self-serve distributions: the switch, and every one started, with where it has got to. */
+async function selfServePanel(env: Env): Promise<string> {
+  const on = await selfServeOn(env);
+  const { results } = await env.DB.prepare(
+    `SELECT id, ref, name, status, gross_expected_minor, decimals_in, submitted_by FROM transactions
+      WHERE self_serve = 1 ORDER BY created_at DESC LIMIT 20`).all<any>();
+  const rows = (results ?? []).map((t: any) => `<tr><td><a href="/t/${esc(t.id)}">${esc(t.ref)}</a><div class="muted log">${esc(t.name)}</div></td>
+    <td>${esc(t.submitted_by ?? "")}</td><td>USDT ${t.gross_expected_minor != null ? format(t.gross_expected_minor, t.decimals_in) : "—"}</td>
+    <td><span class="tag">${esc(t.status)}</span></td></tr>`).join("");
+  return `<div class="panel">
+      <h2 style="margin-top:0">Self-serve USDT distributions${tip("A sender starts the distribution themselves at thepaymaster.co.uk/distribute and confirms by email; every recipient is invited. Wallets are screened automatically against the US Treasury sanctions list and the issuer's freeze list, addresses lock when confirmed, proved, screened and signed for, and the transaction moves to ready and seals itself. Staff are emailed only to decide each person's identity and to look at any flagged wallet.")}</h2>
+      <form method="post" action="/fiat">
+        <label style="display:block;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;margin:8px 0">
+          <input type="radio" name="self_serve" value="on"${on ? " checked" : ""}> <strong>On</strong>${on ? ' <span class="tag">on</span>' : ""}
+          <div class="muted" style="margin:4px 0 0 22px">Anyone can start one at /distribute. You decide each identity; everything else runs itself.</div></label>
+        <label style="display:block;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;margin:8px 0">
+          <input type="radio" name="self_serve" value="off"${on ? "" : " checked"}> <strong>Off</strong>${on ? "" : ' <span class="tag">on</span>'}
+          <div class="muted" style="margin:4px 0 0 22px">/distribute sends people to the enquiry form. Distributions already started carry on.</div></label>
+        <div class="row"><button class="go">Save</button></div>
+      </form>
+      ${rows ? `<table><tr><th>Ref</th><th>Sender</th><th>Gross</th><th>Status</th></tr>${rows}</table>` : `<p class="muted">None started yet.</p>`}
+    </div>`;
+}
+
 /** Fiat Transactions: which fiat mode is on, and every fiat transaction with where it has got to. */
 async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request: Request): Promise<Response> {
   let note = "", error = "";
   if (request.method === "POST") {
     const f = await request.formData();
-    if (f.get("crypto")) {
+    if (f.get("self_serve")) {
+      const want = String(f.get("self_serve")) === "off" ? "off" : "on";
+      await setSwitch(env, actor, "self_serve", want, `self-serve USDT distributions → ${want}`);
+      note = want === "on" ? "Senders can start their own USDT distributions at /distribute." : "Self-serve is off: /distribute sends people to the enquiry form.";
+    } else if (f.get("crypto")) {
       const want = String(f.get("crypto")) === "sender" ? "sender" : "client_wallet";
       await setSwitch(env, actor, "crypto_execution", want, `new crypto transactions → ${want}`);
       note = `New crypto-to-crypto transactions start as: ${CRYPTO_MODES.find((m) => m.key === want)!.label}.`;
@@ -2399,6 +2438,7 @@ async function fiatPage(env: Env, admin: { name: string }, actor: Actor, request
         <div class="row"><button class="go">Save</button></div>
       </form>
     </div>
+    ${await selfServePanel(env)}
     <div class="panel">
       <h2 style="margin-top:0">The client account</h2>
       ${acct ? `<p><b>${esc(acct.name)}</b>${acct.bank ? `, ${esc(acct.bank)}` : ""} — ${acct.iban ? `IBAN ${esc(acct.iban)}` : `sort code ${esc(acct.sortCode ?? "")}, account ${esc(acct.accountNumber ?? "")}`}</p>

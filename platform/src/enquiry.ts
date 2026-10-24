@@ -90,6 +90,7 @@ export function enquiryForm(error = "", was: Record<string, string> = {}): Respo
   <h1>Start a transaction</h1>
   <p>Tell us what you are trying to do. We will come back to you to arrange a
      short call before anything else happens.</p>
+  <p>Holding USDT to pay out to several people? <a href="/distribute" style="color:inherit;font-weight:700">Set up the distribution yourself</a>.</p>
 </div>
 <div class="shell">
   ${error ? `<div class="err">${error}</div>` : ""}
