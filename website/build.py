@@ -23,6 +23,8 @@ DIST = HERE / "dist"
 OVERLAY = HERE / "overlay"
 FUNCTIONS = HERE / "functions"
 DOMAIN = "https://thepaymaster.co.uk"
+PHONE = "+44 20 7038 6792"          # the one public number (24 Oct 2026)
+PHONE_TEL = "+442070386792"
 
 # Head links that only resolve when WordPress is answering. Left in place they
 # are forty-four pages of 404s for anything that crawls them.
@@ -54,7 +56,9 @@ HEADERS = """/*
 """
 
 # WordPress plumbing nobody should reach on a static site.
-REDIRECTS = """/wp-login.php  /  301
+REDIRECTS = """/start-transaction/  /enquiry  301
+/start-transaction  /enquiry  301
+/wp-login.php  /  301
 /feed/*  /  301
 /comments/feed/*  /  301
 /xmlrpc.php  /  301
@@ -136,6 +140,16 @@ HUBSPOT_FORM_IDS = {
 HS_V2 = re.compile(
     r'<script[^>]*js\.hsforms\.net/forms/embed/v2\.js[^>]*></script>\s*'
     r'<script>\s*hbspt\.forms\.create\(\{(?P<body>.*?)\}\);?\s*</script>', re.S)
+# Brevo's newsletter form on every page, and the three WordPress (WPForms)
+# forms. Both go: the forms are ours now, and nothing talks to WordPress.
+BREVO_FORM = re.compile(r'<div id="sib-form-container" class="sib-form-container">.*?</form>\s*</div>', re.S)
+BREVO_SCRIPT = re.compile(r'<script defer src="https://sibforms\.com/forms/end-form/build/main\.js"></script>')
+WPFORMS = re.compile(r'<div class="wpforms-container[^"]*"[^>]*id="wpforms-(?P<id>\d+)".*?</form>\s*</div>', re.S)
+WPFORMS_IDS = {"5932": "transaction-brief", "7470": "source-of-funds-verification", "7419": "ppp-stage-one-evaluation"}
+# SuiteDash embeds on the start and join pages: both render nothing any more.
+SUITEDASH = re.compile(r'<script src="https://app\.suitedash\.com/frm/(?P<k>[A-Za-z0-9]+)\.js"></script>')
+SUITEDASH_IDS = {"2uyysgNpLFJNpvTXd": "recipient-onboarding"}
+COUNTRIES_TS = HERE.parent / "platform" / "src" / "countries.ts"
 HS_V4 = re.compile(
     r'<script[^>]*js\.hsforms\.net/forms/embed/\d+\.js[^>]*></script>\s*'
     r'<div class="hs-form-frame"[^>]*data-form-id="(?P<id>[^"]+)"[^>]*></div>', re.S)
@@ -146,8 +160,41 @@ def _esc(s: str) -> str:
             .replace('"', "&quot;"))
 
 
+_COUNTRIES: list[tuple[str, str]] = []
+
+
+def countries() -> list[tuple[str, str]]:
+    if not _COUNTRIES:
+        _COUNTRIES.extend(re.findall(r'\["([A-Z]{2})", "([^"]+)"\]', COUNTRIES_TS.read_text("utf-8")))
+    return _COUNTRIES
+
+
+def _show(f: dict) -> str:
+    c = f.get("show_if")
+    if not c:
+        return ""
+    cond = (f' data-show-field="{c["field"]}"' +
+            (f' data-show-in="{_esc(json.dumps(c["in"]))}"' if "in" in c else "") +
+            (f' data-show-min="{c["min"]}"' if "min" in c else ""))
+    return cond + " hidden"
+
+
+# A few lines that show a section when its trigger is chosen, and make its
+# required fields required only while shown. Without JavaScript every section
+# shows and the server still requires only what applies.
+CONDITIONS_JS = """<script>(function(){document.querySelectorAll('form.tpm-form').forEach(function(form){
+var deps=form.querySelectorAll('[data-show-field]');if(!deps.length)return;
+function val(n){var els=form.querySelectorAll('[name="'+n+'"]');for(var i=0;i<els.length;i++){var e=els[i];
+if(e.type==='radio'||e.type==='checkbox'){if(e.checked)return e.value}else return e.value}return ''}
+function apply(){deps.forEach(function(d){var v=val(d.dataset.showField),ok;
+if(d.dataset.showIn){ok=JSON.parse(d.dataset.showIn).indexOf(v)>=0}else{ok=Number(v)>=Number(d.dataset.showMin)}
+d.hidden=!ok;d.querySelectorAll('[data-req]').forEach(function(i){i.required=ok})})}
+form.addEventListener('change',apply);apply()})})();</script>"""
+
+
 def render_form(slug: str, spec: dict) -> str:
-    out = [f'<form class="tpm-form" method="post" action="{FORM_ACTION}{slug}" '
+    compact = " tpm-compact" if spec.get("compact") else ""
+    out = [f'<form class="tpm-form{compact}" method="post" action="{FORM_ACTION}{slug}" '
            f'enctype="multipart/form-data" accept-charset="utf-8">']
     if spec.get("intro_html"):
         out.append(f'<div class="tpm-intro">{spec["intro_html"]}</div>')
@@ -155,17 +202,24 @@ def render_form(slug: str, spec: dict) -> str:
         out.append(f'<p class="tpm-intro">{_esc(spec["intro"])}</p>')
     for i, f in enumerate(spec["fields"]):
         fid = f"tpm-{slug}-{i}"
-        req = " required" if f.get("required") else ""
+        cond = _show(f)
+        # A conditional field is made required by the script only while shown.
+        req = (" data-req" if f.get("show_if") else " required") if f.get("required") else ""
+        if f["type"] == "note":
+            out.append(f'<div class="tpm-note-block"{cond}>{f.get("html", "")}</div>')
+            continue
         star = ' <span class="tpm-req">*</span>' if f.get("required") else ""
         help_ = f'<span class="tpm-help">{_esc(f["help"])}</span>' if f.get("help") else ""
         t = f["type"]
         if t in ("checkboxes", "radio"):
             kind = "checkbox" if t == "checkboxes" else "radio"
+            single = kind == "checkbox" and len(f.get("options", [])) == 1
             opts = "".join(
                 f'<label class="tpm-opt"><input type="{kind}" name="{f["name"]}" value="{_esc(o)}"'
-                f'{req if kind == "radio" and j == 0 else ""}> {_esc(o)}</label>'
+                f'{req if (kind == "radio" and j == 0) or single else ""}> {_esc(o)}</label>'
                 for j, o in enumerate(f.get("options", [])))
-            out.append(f'<fieldset class="tpm-field"><legend>{_esc(f["label"])}{star}</legend>{help_}{opts}</fieldset>')
+            legend = "" if spec.get("compact") else f'<legend>{_esc(f["label"])}{star}</legend>'
+            out.append(f'<fieldset class="tpm-field"{cond}>{legend}{help_}{opts}</fieldset>')
             continue
         label = f'<label for="{fid}">{_esc(f["label"])}{star}</label>'
         if t == "select":
@@ -175,28 +229,68 @@ def render_form(slug: str, spec: dict) -> str:
         elif t == "textarea":
             ctl = f'<textarea id="{fid}" name="{f["name"]}" rows="4"{req}></textarea>'
         elif t == "file":
-            ctl = (f'<input id="{fid}" type="file" name="files" multiple '
+            ctl = (f'<input id="{fid}" type="file" name="{f["name"]}" multiple '
                    f'accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"{req}>')
+        elif t == "country":
+            opts = '<option value="">Please select</option>' + "".join(
+                f'<option>{_esc(n)}</option>' for _, n in countries())
+            ctl = f'<select id="{fid}" name="{f["name"]}"{req}>{opts}</select>'
+        elif t == "signature":
+            ctl = f'<input id="{fid}" type="text" name="{f["name"]}" class="tpm-signature" autocomplete="name"{req}>'
+            help_ = help_ or '<span class="tpm-help">Typing your full name here is your signature. It is recorded with the date and time.</span>' 
         else:
             html_type = {"email": "email", "tel": "tel", "number": "number", "date": "date"}.get(t, "text")
             extra = ' autocomplete="email"' if t == "email" else ' autocomplete="tel"' if t == "tel" else ""
             ctl = f'<input id="{fid}" type="{html_type}" name="{f["name"]}"{extra}{req}>'
-        out.append(f'<div class="tpm-field">{label}{help_}{ctl}</div>')
+        out.append(f'<div class="tpm-field"{cond}>{label}{help_}{ctl}</div>')
     out.append('<div class="tpm-hp" aria-hidden="true"><label>Leave this empty '
                '<input name="website" tabindex="-1" autocomplete="off"></label></div>')
     if spec.get("agreement"):
         out.append(f'<p class="tpm-note">By pressing {_esc(spec["submit"])} you accept the {_esc(spec["agreement"])}.</p>')
+    if spec.get("footnote"):
+        out.append(f'<p class="tpm-note">{_esc(spec["footnote"])}</p>')
     out.append('<p class="tpm-note">Your details go only to ThePaymaster and are handled under our '
                '<a href="/privacy-policy/">privacy policy</a>.</p>')
     out.append(f'<button type="submit" class="tpm-submit">{_esc(spec["submit"])}</button></form>')
+    if any(f.get("show_if") for f in spec["fields"]):
+        out.append(CONDITIONS_JS)
     return "".join(out)
 
 
 def own_forms(text: str) -> tuple[str, int]:
-    if "hsforms" not in text:
+    if not any(k in text for k in ("hsforms", "sib-form", "wpforms-form", "suitedash.com/frm")):
         return text, 0
     specs = json.loads(FORMS_JSON.read_text("utf-8"))
     swapped = 0
+
+    def brevo(m: re.Match) -> str:
+        nonlocal swapped
+        swapped += 1
+        return render_form("newsletter", specs["newsletter"])
+
+    def wp(m: re.Match) -> str:
+        nonlocal swapped
+        slug = WPFORMS_IDS.get(m.group("id"))
+        if not slug:
+            return m.group(0)
+        swapped += 1
+        return render_form(slug, specs[slug])
+
+    text = BREVO_FORM.sub(brevo, text)
+    text = BREVO_SCRIPT.sub("", text)
+    text = WPFORMS.sub(wp, text)
+
+    def sd(m: re.Match) -> str:
+        nonlocal swapped
+        swapped += 1
+        slug = SUITEDASH_IDS.get(m.group("k"))
+        if slug:
+            return render_form(slug, specs[slug])
+        # The start page: the platform's own start form is the front door.
+        return ('<p><a class="tpm-submit" style="display:inline-block;text-decoration:none" '
+                'href="/enquiry">Start a transaction</a></p>')
+
+    text = SUITEDASH.sub(sd, text)
 
     def v2(m: re.Match) -> str:
         nonlocal swapped
@@ -225,6 +319,11 @@ def edits(text: str) -> str:
     text = TWITTER_ITEM.sub("", text)
     text = CLOUDWAYS.sub("", text)
     text = SOFIE_ITEM.sub("", text)
+    # One phone number, everywhere: the contact page's card listed two.
+    text = re.sub(r"\+44 20 7088 8267<br>\s*\+44 20 7088 8663<br>", PHONE + "<br>", text)
+    for oldnum in ("+44 20 7088 8267", "+44 20 7088 8663"):
+        text = text.replace(oldnum, PHONE)
+    text = text.replace("+442070888267", PHONE_TEL).replace("+442070888663", PHONE_TEL)
     # A stray "n" before a bullet in the Peaceful Enjoyment summary line.
     text = text.replace("interview n\u2022", "interview \u2022")
     return text
@@ -305,7 +404,7 @@ def main() -> None:
     print(f"  dist        {files} files, {size/1024/1024:.1f} MB")
     print(f"  head links  stripped from {stripped} pages")
     print(f"  overlay     linked into {linked} pages")
-    print(f"  own forms   {forms_swapped} HubSpot embeds replaced")
+    print(f"  own forms   {forms_swapped} HubSpot, Brevo and WordPress forms replaced")
     print(f"  sitemap     {len(pages)} pages")
     fns = len(list((DIST / "functions").rglob("*.js"))) if (DIST / "functions").is_dir() else 0
     print(f"  functions   {fns}")

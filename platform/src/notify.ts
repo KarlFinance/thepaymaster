@@ -242,7 +242,7 @@ export async function kycDecided(env: Env, actor: Actor, partyId: string,
         `That is usually a document we could not read, or a detail that does not`,
         `match. It is rarely anything more.`,
         ``,
-        `Please call us on +44 20 7088 8267 and we will sort it out together.`,
+        `Please call us on +44 20 7038 6792 and we will sort it out together.`,
       ].join("\n"),
       about: { kind: "parties", id: partyId },
     });
@@ -702,7 +702,7 @@ export async function roomShared(env: Env, actor: Actor, inviteId: string, url: 
         `relying on us, paste the record.json at https://client.thepaymaster.co.uk/verify-record.`,
         ``,
         `ThePaymaster Ltd, 167-169 The Fifth Floor, Great Portland Street, London W1W 5PF`,
-        `info@thepaymaster.co.uk · +44 20 7088 8267`,
+        `info@thepaymaster.co.uk · +44 20 7038 6792`,
       ].join("\n"),
       about: { kind: "room_invites", id: inviteId },
     });

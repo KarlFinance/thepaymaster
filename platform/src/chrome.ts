@@ -100,7 +100,7 @@ export function siteFoot(): string {
           <div>
             <strong>Say Hello</strong>
             <p><a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a></p>
-            <p><a href="tel:+442070888267">+44 20 7088 8267</a></p>
+            <p><a href="tel:+442070386792">+44 20 7038 6792</a></p>
             <p>ThePaymaster Ltd&reg;</p>
           </div>
         </div>

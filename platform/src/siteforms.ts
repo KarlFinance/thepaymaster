@@ -17,13 +17,27 @@ import { send, staffEmails } from "./email.ts";
 import { esc } from "./views.ts";
 import spec from "./site-forms.json" with { type: "json" };
 
-export interface FieldSpec { name: string; label: string; type: string; required: boolean; options?: string[]; help?: string }
+export interface FieldSpec {
+  name: string; label: string; type: string; required: boolean; options?: string[]; help?: string; html?: string;
+  /** Shown only when another field has one of these values, or a number at least this. */
+  show_if?: { field: string; in?: string[]; min?: number };
+}
 export interface FormSpec { title: string; page: string; submit: string; thanks: string; intro?: string; agreement?: string; fields: FieldSpec[] }
+
+/** Is this field shown, given the answers? Hidden fields are never required and never kept. */
+export function shown(fld: FieldSpec, values: Record<string, string | string[]>): boolean {
+  if (!fld.show_if) return true;
+  const v = values[fld.show_if.field];
+  const one = Array.isArray(v) ? v[0] : v;
+  if (fld.show_if.in) return fld.show_if.in.includes(String(one ?? ""));
+  if (fld.show_if.min !== undefined) return Number(one) >= fld.show_if.min;
+  return true;
+}
 export const FORMS = spec as unknown as Record<string, FormSpec>;
 
 const SITE = "https://thepaymaster.co.uk";
 const ADMIN = "https://admin.thepaymaster.co.uk";
-const MAX_FILES = 5;
+const MAX_FILES = 12;
 const MAX_BYTES = 15 * 1024 * 1024;
 const FILE_OK = /\.(pdf|jpe?g|png|heic|webp|docx?|xlsx?|txt|csv)$/i;
 const stamp = () => new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -54,17 +68,25 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
   const values: Record<string, string | string[]> = {};
   const missing: string[] = [];
   for (const fld of form.fields) {
-    if (fld.type === "file") continue;
+    if (fld.type === "file" || fld.type === "note") continue;
     if (fld.type === "checkboxes") {
-      const picked = f.getAll(fld.name).map((v) => String(v).trim()).filter((v) => (fld.options ?? []).includes(v));
-      values[fld.name] = picked;
-      if (fld.required && !picked.length) missing.push(fld.label);
+      values[fld.name] = f.getAll(fld.name).map((v) => String(v).trim()).filter((v) => (fld.options ?? []).includes(v));
       continue;
     }
     const v = String(f.get(fld.name) ?? "").trim().slice(0, fld.type === "textarea" ? 5000 : 500);
-    if (fld.options && v && !fld.options.includes(v)) { values[fld.name] = ""; }
-    else values[fld.name] = v;
-    if (fld.required && !values[fld.name]) missing.push(fld.label);
+    values[fld.name] = fld.options && v && !fld.options.includes(v) ? "" : v;
+  }
+  // Hidden sections are dropped, and only what is shown can be required.
+  for (const fld of form.fields) {
+    if (fld.type === "note") continue;
+    if (!shown(fld, values)) { delete values[fld.name]; continue; }
+    if (fld.type === "file") {
+      const has = f.getAll(fld.name).some((x) => x instanceof File && x.size > 0);
+      if (fld.required && !has) missing.push(fld.label);
+      continue;
+    }
+    const v = values[fld.name];
+    if (fld.required && (Array.isArray(v) ? !v.length : !v)) missing.push(fld.label || fld.name);
   }
   const email = String(values.email ?? "");
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) missing.push("A valid email address");
@@ -75,17 +97,19 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
   }
 
   const rowId = id("sf");
-  const files: { key: string; filename: string; bytes: number; type: string }[] = [];
-  const uploads = f.getAll("files").filter((x): x is File => x instanceof File && x.size > 0).slice(0, MAX_FILES);
-  for (const file of uploads) {
-    if (file.size > MAX_BYTES || !FILE_OK.test(file.name) || !env.DOCS) continue;
-    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80);
-    const key = `site-forms/${rowId}/${files.length + 1}-${safe}`;
-    await env.DOCS.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type || "application/octet-stream" } });
-    files.push({ key, filename: file.name.slice(0, 120), bytes: file.size, type: file.type || "" });
+  const files: { key: string; filename: string; bytes: number; type: string; field: string }[] = [];
+  for (const fld of form.fields.filter((x) => x.type === "file" && shown(x, values))) {
+    for (const file of f.getAll(fld.name).filter((x): x is File => x instanceof File && x.size > 0)) {
+      if (files.length >= MAX_FILES || file.size > MAX_BYTES || !FILE_OK.test(file.name) || !env.DOCS) continue;
+      const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80);
+      const key = `site-forms/${rowId}/${files.length + 1}-${safe}`;
+      await env.DOCS.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type || "application/octet-stream" } });
+      files.push({ key, filename: file.name.slice(0, 120), bytes: file.size, type: file.type || "", field: fld.label });
+    }
   }
 
-  const name = [values.firstname, values.lastname].filter(Boolean).join(" ") || String(values.company_name ?? values.company ?? "") || null;
+  const name = [values.firstname ?? values.sender_first, values.lastname ?? values.sender_last].filter(Boolean).join(" ")
+    || String(values.company_name ?? values.company ?? "") || null;
   const phone = String(values.phone ?? values.mobilephone ?? "") || null;
   const actor: Actor = { kind: "system", id: null, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
   const extra = form.agreement ? { agreed_to: form.agreement, agreed_at: stamp() } : {};
@@ -96,6 +120,21 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
     referer: (request.headers.get("Referer") ?? "").slice(0, 300) || null,
   }, { note: `${form.title} from ${name ?? email ?? "someone"}` });
 
+  // Every submission is also an enquiry, so everything lands in one queue.
+  const enquiryId = id("enq");
+  const detail = [`Website form: ${form.title} (${SITE}${form.page})`, "",
+    ...form.fields.filter((x) => x.type !== "file" && x.type !== "note" && values[x.name] !== undefined).map((x) => {
+      const v = values[x.name]; const text = Array.isArray(v) ? v.join(", ") : v;
+      return text ? `${x.label}: ${text}` : null;
+    }).filter(Boolean),
+    files.length ? `Files: ${files.map((x) => x.filename).join(", ")}` : "",
+    `Full record and files: ${ADMIN}/forms/${rowId}`].filter((x) => x !== null).join("\n").slice(0, 8000);
+  await insert(env.DB, actor, "enquiry.received", "enquiries", enquiryId, {
+    name: (name ?? email ?? "Website visitor").slice(0, 200), email: email || "unknown@website.form", phone,
+    whatsapp_ok: 0, detail, source: `Website form: ${form.title}`, status: "new", site_form_id: rowId,
+  }, { note: `from the ${form.title} form` });
+  await env.DB.prepare("UPDATE site_forms SET enquiry_id = ? WHERE id = ?").bind(enquiryId, rowId).run();
+
   later(notify(env, actor, rowId, slug, form, values, files, name, email, phone, extra));
   return Response.redirect(SITE + form.thanks, 303);
 }
@@ -105,7 +144,7 @@ async function notify(env: Env, actor: Actor, rowId: string, slug: string, form:
   try {
     const to = await staffEmails(env);
     if (!to.length) return;
-    const lines = form.fields.filter((f) => f.type !== "file").map((f) => {
+    const lines = form.fields.filter((f) => f.type !== "file" && f.type !== "note" && values[f.name] !== undefined).map((f) => {
       const v = values[f.name]; const text = Array.isArray(v) ? v.join(", ") : v;
       return text ? `${f.label}\n  ${String(text).replace(/\n/g, "\n  ")}` : null;
     }).filter(Boolean);
@@ -117,6 +156,7 @@ async function notify(env: Env, actor: Actor, rowId: string, slug: string, form:
         ``,
         ...lines.flatMap((l) => [l as string, ""]),
         files.length ? `Files: ${files.map((x) => `${x.filename} (${Math.round(x.bytes / 1024)}KB)`).join(", ")}\n` : "",
+        `It is also in the enquiry queue: ${ADMIN}/enquiries`,
         extra.agreed_to ? `Agreed to: ${extra.agreed_to}, at ${extra.agreed_at} UTC\n` : "",
         `Reply: ${email}${phone ? ` · ${phone}` : ""}`,
         `Record: ${ADMIN}/forms/${rowId}`,
@@ -158,7 +198,7 @@ export async function formDetail(env: Env, rowId: string): Promise<string | null
   const form = FORMS[r.form];
   const values = JSON.parse(r.fields_json || "{}");
   const files = r.files_json ? JSON.parse(r.files_json) : [];
-  const rows = (form?.fields ?? []).filter((f) => f.type !== "file").map((f) => {
+  const rows = (form?.fields ?? []).filter((f) => f.type !== "file" && f.type !== "note" && values[f.name] !== undefined).map((f) => {
     const v = values[f.name]; const text = Array.isArray(v) ? v.join(", ") : v;
     return `<tr><th style="width:40%">${esc(f.label)}</th><td style="white-space:pre-wrap">${text ? esc(String(text)) : '<span class="muted">—</span>'}</td></tr>`;
   }).join("");
@@ -170,7 +210,8 @@ export async function formDetail(env: Env, rowId: string): Promise<string | null
       <tr><th>Phone / WhatsApp</th><td>${r.phone ? `<a href="tel:${esc(String(r.phone).replace(/\s+/g, ""))}">${esc(r.phone)}</a> · <a href="https://wa.me/${esc(String(r.phone).replace(/[^0-9]/g, ""))}" target="_blank" rel="noopener">WhatsApp</a>` : "—"}</td></tr>
       ${rows}
       ${values.agreed_to ? `<tr><th>Agreed to</th><td>${esc(values.agreed_to)} — ${esc(values.agreed_at)} UTC, from ${esc(r.ip ?? "unknown")}</td></tr>` : ""}
-      ${files.length ? `<tr><th>Files</th><td>${files.map((x: any, i: number) => `<a href="/forms/${esc(r.id)}/file/${i}">${esc(x.filename)}</a> <span class="muted">(${Math.round(x.bytes / 1024)}KB)</span>`).join("<br>")}</td></tr>` : ""}
+      ${files.length ? `<tr><th>Files</th><td>${files.map((x: any, i: number) => `<a href="/forms/${esc(r.id)}/file/${i}">${esc(x.filename)}</a> <span class="muted">(${Math.round(x.bytes / 1024)}KB${x.field ? ` — ${esc(x.field)}` : ""})</span>`).join("<br>")}</td></tr>` : ""}
+      ${r.enquiry_id ? `<tr><th>Enquiry</th><td><a href="/e/${esc(r.enquiry_id)}">Open it in the enquiry queue</a> — convert it to a transaction from there</td></tr>` : ""}
     </table></div>
     <form method="post" action="/forms/${esc(r.id)}/status" class="row" style="gap:8px">
       ${STATUS.filter((s) => s !== r.status).map((s) => `<button class="${s === "contacted" ? "go" : "plain"}" name="to" value="${s}">Mark ${s}</button>`).join("")}

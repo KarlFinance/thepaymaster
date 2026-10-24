@@ -20,3 +20,17 @@
 .tpm-form .tpm-submit{margin-top:10px;background:#FF8159;color:#0C1524;border:0;border-radius:6px;padding:12px 26px;
   font-weight:700;font-size:15px;letter-spacing:.03em;cursor:pointer}
 .tpm-form .tpm-submit:hover{background:#ff9775}
+.tpm-form [hidden]{display:none!important}
+.tpm-form .tpm-note-block{margin:22px 0 10px}
+.tpm-form .tpm-note-block h3{font-size:20px;color:#0C1524;margin:0 0 6px}
+.tpm-form .tpm-signature{font-family:"Brush Script MT","Segoe Script",cursive;font-size:22px}
+/* The newsletter, in the dark footer */
+.tpm-form.tpm-compact{max-width:none;margin:0;color:#C9D1DD}
+.tpm-form.tpm-compact label,.tpm-form.tpm-compact legend{color:#fff;font-size:14px}
+.tpm-form.tpm-compact .tpm-help,.tpm-form.tpm-compact .tpm-note{color:#9AA4B2;font-size:12px}
+.tpm-form.tpm-compact .tpm-note a{color:#C9D1DD}
+.tpm-form.tpm-compact .tpm-opt{color:#C9D1DD;font-size:13px;align-items:flex-start}
+.tpm-form.tpm-compact .tpm-field{margin:0 0 10px}
+.tpm-form.tpm-compact .tpm-submit{margin-top:4px;padding:10px 22px}
+.tpm-form.tpm-compact .tpm-intro h3{color:#fff;font-size:22px;margin:0 0 4px}
+.tpm-form.tpm-compact .tpm-intro p{color:#C9D1DD;margin:0 0 12px}

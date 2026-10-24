@@ -39,56 +39,21 @@ function platformOwns(pathname) {
 /** Where the captured site is served from. */
 const PAGES = "https://thepaymaster-3b4.pages.dev";
 
-/**
- * The only name the WordPress box answers to.
- *
- * Its certificate carries thepaymaster.co.uk and nothing else, and WordPress
- * 404s any other Host. On the apex this is the hostname already, so rewriting
- * to it is a no-op and the pass-through below is the ordinary
- * fetch-goes-to-origin case. On a staging hostname it is what makes the same
- * code reach the same origin, so the WordPress half can be proven before the
- * live domain is routed anywhere.
+/*
+ * WordPress is gone (24 Oct 2026). Its three intake forms, its form endpoint
+ * and its uploads were the last paths routed to it; those forms are now the
+ * platform's own, built into the static pages, so every path is served from
+ * Pages and nothing is fetched from the old server.
  */
+
+/** The apex is the live site; any other hostname (staging) is kept out of search. */
 const CANONICAL = "thepaymaster.co.uk";
 
-/**
- * Paths WordPress still owns.
- *
- * WPForms puts a WordPress nonce in the page and checks it on submit. Nonces
- * last about a day; the ones in the capture were dead within ten hours. A
- * captured form would render perfectly and reject every submission, which is
- * worse than not having it — so these pages come from WordPress, live, along
- * with the endpoint they post to.
- *
- * They are the KYC, source-of-funds and transaction-setup intake. They are also
- * the specification for the platform meant to replace them; until that exists
- * they stay on the system that already works.
- */
-const WORDPRESS = [
-  "/form",
-  "/source-of-funds-verification",
-  "/ppp-stage-one-evaluation",
-  "/wp-admin/admin-ajax.php",
-  "/wp-content/uploads/wpforms",
-];
-
-/**
- * Keep staging out of the index.
- *
- * new.thepaymaster.co.uk serves the same pages as the live domain, which to a
- * crawler is a second copy of the whole site competing with the real one. The
- * header is added at the edge rather than in the pages, so the two hosts serve
- * identical files and there is nothing to remember to change.
- */
 function noindexIfStaging(response, url) {
   if (url.hostname === CANONICAL) return response;
   const out = new Response(response.body, response);
   out.headers.set("X-Robots-Tag", "noindex, nofollow");
   return out;
-}
-
-function wordpressOwns(pathname) {
-  return WORDPRESS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
 export default {
@@ -104,18 +69,6 @@ export default {
 
     if (platformOwns(url.pathname) && env.PLATFORM) {
       return env.PLATFORM.fetch(request);
-    }
-
-    // Straight through to the origin, Host and all.
-    if (wordpressOwns(url.pathname)) {
-      const target = new URL(url);
-      target.hostname = CANONICAL;
-      const response = await fetch(new Request(target.toString(), request));
-      // Forms carry session state; caching any of it would be a way to hand one
-      // applicant another applicant's page.
-      const out = new Response(response.body, response);
-      out.headers.set("Cache-Control", "no-store");
-      return noindexIfStaging(out, url);
     }
 
     const target = new URL(url.pathname + url.search, PAGES);

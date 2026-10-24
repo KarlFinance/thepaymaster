@@ -218,7 +218,7 @@ export function annualPdf(d: AnnualData, opts: { watermark?: string | null } = {
     pdf.row("Signed by ThePaymaster", `EIP-712 signature by ${d.attestation.attester} over (party, year, digest, issued-at)`);
     pdf.row("Signature", d.attestation.signature, { mono: true });
   }
-  pdf.para(`Check this statement, or any transaction's record, at ${VERIFY_URL}. Enquiries: info@thepaymaster.co.uk, +44 20 7088 8267.`, { size: 9, colour: MUTED });
+  pdf.para(`Check this statement, or any transaction's record, at ${VERIFY_URL}. Enquiries: info@thepaymaster.co.uk, +44 20 7038 6792.`, { size: 9, colour: MUTED });
   return pdf.bytes();
 }
 

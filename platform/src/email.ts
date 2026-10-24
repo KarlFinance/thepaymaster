@@ -48,6 +48,11 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
     return false;
   }
 
+  // A blind copy of every email to the safety mailbox (EMAIL_BCC), so nothing
+  // the platform sends can go unseen. Skipped where it is already a recipient.
+  const bcc = String((env as any).EMAIL_BCC ?? "").split(",").map((s) => s.trim())
+    .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s) && !to.map((t) => t.toLowerCase()).includes(s.toLowerCase()));
+
   try {
     const res = await fetch(ENDPOINT, {
       method: "POST",
@@ -58,6 +63,7 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
       body: JSON.stringify({
         from: FROM, to, subject: mail.subject, text: mail.text,
         reply_to: mail.replyTo ?? REPLY_TO,
+        ...(bcc.length ? { bcc } : {}),
       }),
     });
 
@@ -72,7 +78,7 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
     const body = await res.json<{ id?: string }>();
     await log(env.DB, actor, "email.sent", mail.about?.kind ?? "email",
       mail.about?.id ?? to[0],
-      { note: `"${mail.subject}" to ${to.join(", ")}`, after: { message_id: body.id } });
+      { note: `"${mail.subject}" to ${to.join(", ")}${bcc.length ? ` (copy to ${bcc.join(", ")})` : ""}`, after: { message_id: body.id } });
     return true;
   } catch (err) {
     await log(env.DB, actor, "email.failed", mail.about?.kind ?? "email",
@@ -139,7 +145,7 @@ export function enquiryAcknowledged(name: string): { subject: string; text: stri
       "Thank you — we have your enquiry and one of us will come back to you",
       "shortly to arrange a short call before anything else happens.",
       "",
-      "If it is urgent, call +44 20 7088 8267.",
+      "If it is urgent, call +44 20 7038 6792.",
       "",
       "ThePaymaster Ltd",
       "167-169 The Fifth Floor, Great Portland Street, London W1W 5PF",
@@ -162,7 +168,7 @@ export function startLink(ref: string, url: string): { subject: string; text: st
       "The link is for you alone and stops working once it has been used.",
       "",
       `Reference ${ref}`,
-      "ThePaymaster Ltd · +44 20 7088 8267",
+      "ThePaymaster Ltd · +44 20 7038 6792",
     ].join("\n"),
   };
 }
@@ -192,7 +198,7 @@ export function invite(opts: {
       "The link is for you alone and stops working once it has been used.",
       "",
       `Reference ${opts.ref}`,
-      "ThePaymaster Ltd · +44 20 7088 8267",
+      "ThePaymaster Ltd · +44 20 7038 6792",
       "",
       "We will never email you asking to change payment details. If you receive",
       "anything of the sort, it is not from us — call us on the number above.",

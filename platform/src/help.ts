@@ -196,7 +196,7 @@ export function clientHelp(): string {
 
   <h2 id="contact">Contact us</h2>
   <p>Reply to any email we have sent you, write to
-    <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>, or call +44 20 7088 8267.
+    <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>, or call +44 20 7038 6792.
     Quote your reference — it is at the top of your page.</p>
   </div>`;
 }

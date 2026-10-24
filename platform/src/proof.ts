@@ -133,7 +133,7 @@ export function proofForm(opts: {
     <summary>Nothing here is working — what now?</summary>
     <p>Tell us and we will sort it out: it is a normal thing to get stuck on.
        Email <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>
-       or call <a href="tel:+442070888267">+44 20 7088 8267</a> and we will walk
+       or call <a href="tel:+442070386792">+44 20 7038 6792</a> and we will walk
        through it with you.</p>
     <p class="muted">One thing we cannot do is skip it. Paying a wallet nobody
        has proved is how money reaches the wrong person and never comes back.</p>

@@ -152,7 +152,7 @@ function gone(reason: string): Response {
     <h1>This link no longer works</h1>
     <p class="sub">${esc(reason)}</p>
     <p>Ask us for a new one — <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>
-       or +44 20 7088 8267.</p></div>`);
+       or +44 20 7038 6792.</p></div>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +456,7 @@ function senderModeCCard(part: any, txId: string, rail: Rail, error: string, not
       <li><b>Then the balance</b>, so that the total is ${amount}.</li>
     </ol>
     <p class="mono" style="word-break:break-all;background:#F5F7FA;padding:10px 12px;border-radius:6px">${esc(part.client_wallet)}</p>
-    <p class="muted">Telephone us on +44 20 7088 8267 to verify this address before your first transfer. We never change a wallet address by email or message.
+    <p class="muted">Telephone us on +44 20 7038 6792 to verify this address before your first transfer. We never change a wallet address by email or message.
       The wallet is ${esc(rail.name)}; assets sent on any other network cannot be recovered.</p>
     ${part.sender_sent_at
       ? `<p class="muted">You told us it was sent${part.sender_sent_at !== "now" ? ` on ${esc(String(part.sender_sent_at).slice(0, 16))}` : ""}. We are confirming each transaction on the chain.</p>`
@@ -497,7 +497,7 @@ async function senderPayCard(env: Env, part: any, txId: string, error: string, n
          to this distribution, so please put it exactly.</p>
       <p>${acct(accountFromVar(env.MANDATED_ACCOUNT))}</p>
       <p class="muted">These are the details in our <a href="/papers/client-information-sheet.pdf" target="_blank" rel="noopener">Client Information Sheet</a>, which is also in your folder.
-         Before your first transfer, telephone us on +44 20 7088 8267 to confirm them. We never change account details by email or message.</p>
+         Before your first transfer, telephone us on +44 20 7038 6792 to confirm them. We never change account details by email or message.</p>
       ${receipt?.paid ? `<p class="good">Received — thank you. We are paying your recipients.</p>`
         : part.sender_sent_at ? `<p class="muted">You told us it was sent${part.sender_sent_at !== "now" ? ` on ${esc(String(part.sender_sent_at).slice(0, 16))}` : ""}. We will confirm here when it reaches the client account.</p>`
         : `<form method="post" action="/d/${esc(txId)}/sent" style="margin-top:12px">
@@ -781,7 +781,7 @@ function destinationCard(part: any, dest: any, kind: Kind, error: string,
     return `<div class="card"><h2>Payment details settled</h2>
       <pre style="white-space:pre-wrap;font:inherit;margin:0 0 10px">${esc(describe(dest))}</pre>
       <p class="muted" style="margin-bottom:0">These are locked. If anything is wrong,
-         telephone us on +44 20 7088 8267 — we will never change them on the strength
+         telephone us on +44 20 7038 6792 — we will never change them on the strength
          of an email, and neither should anyone else.</p></div>`;
   }
 

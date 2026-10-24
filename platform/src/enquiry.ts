@@ -260,7 +260,7 @@ function thanks(): Response {
   <p>We have sent you a confirmation by email. If it has not arrived within a
      few minutes, check your spam folder — and do tell us, because we would
      want to know.</p>
-  <p>If it is urgent, call <a href="tel:+442070888267">+44 20 7088 8267</a>
+  <p>If it is urgent, call <a href="tel:+442070386792">+44 20 7038 6792</a>
      or email <a href="mailto:info@thepaymaster.co.uk">info@thepaymaster.co.uk</a>.</p>
   <div class="after">
     <a class="primary" href="${SITE}/how-it-works/">How a transaction works</a>
@@ -351,7 +351,8 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
       ${kv("Verification acknowledged", e.acknowledged_at
         ? `<span class="good">Ticked ${esc(e.acknowledged_at)}</span><div class="muted" style="font-size:12.5px;margin-top:4px">“${esc(e.acknowledged_text ?? "")}”</div>`
         : `<span class="muted">Not asked — enquiry predates the tick</span>`)}
-      ${e.source ? kv("From page", esc(e.source)) : ""}
+      ${e.source ? kv("From", esc(e.source)) : ""}
+      ${e.site_form_id ? kv("Website form", `<a href="/forms/${esc(e.site_form_id)}">The full submission, with any files</a>`) : ""}
     </table></div>
 
     <h2>What they said</h2>

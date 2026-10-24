@@ -418,5 +418,1358 @@
     "required": false
    }
   ]
+ },
+ "newsletter": {
+  "title": "Newsletter sign-up",
+  "page": "/",
+  "submit": "SUBSCRIBE",
+  "thanks": "/subscribed/",
+  "compact": true,
+  "fields": [
+   {
+    "name": "email",
+    "label": "Enter your email address to subscribe",
+    "type": "email",
+    "required": true,
+    "help": "Provide your email address to subscribe. For e.g abc@xyz.com"
+   },
+   {
+    "name": "opt_in",
+    "label": "Consent",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "I agree to receive your newsletters and accept the data privacy statement."
+    ]
+   }
+  ],
+  "footnote": "You may unsubscribe at any time using the link in our newsletter.",
+  "intro_html": "<h3>Stay Updated</h3><p>Subscribe to our newsletter today!</p>"
+ },
+ "transaction-brief": {
+  "title": "Transaction brief",
+  "page": "/form/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "intro_html": "<p>Welcome to ThePaymaster! Please fill out our form below to brief us on your paymaster requirements. At the end of the form please <a href=\"https://calendly.com/ka-karl/30min\" target=\"_blank\" rel=\"noopener\">book in a call with us</a> to ensure we have fully understood the brief.</p>",
+  "fields": [
+   {
+    "name": "transaction_id",
+    "label": "Please enter a Transaction ID",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "sender_first",
+    "label": "Sender's Name — First",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "sender_last",
+    "label": "Sender's Name — Last",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Sender's Email",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "market_sector",
+    "label": "Market Sector",
+    "type": "select",
+    "required": true,
+    "options": [
+     "Real Estate",
+     "Private Placement Program",
+     "Commercial Sale",
+     "Commodities Sale",
+     "Sports Agency",
+     "Fine Arts & Rare Assets",
+     "M & A",
+     "Other"
+    ]
+   },
+   {
+    "name": "market_sector_other",
+    "label": "If \"Other\" please write the Market Sector the funds are generated from",
+    "type": "text",
+    "required": false,
+    "show_if": {
+     "field": "market_sector",
+     "in": [
+      "Other"
+     ]
+    }
+   },
+   {
+    "name": "remuneration",
+    "label": "Is the Private Placement Remuneration",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "A One-Off Payment?",
+     "A Recurring Payment?"
+    ]
+   },
+   {
+    "name": "frequency",
+    "label": "What frequency is the recurring payment?",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "Weekly",
+     "Every 10 days",
+     "Fortnightly",
+     "Monthly"
+    ],
+    "show_if": {
+     "field": "remuneration",
+     "in": [
+      "A Recurring Payment?"
+     ]
+    }
+   },
+   {
+    "name": "funds_from",
+    "label": "Are the funds coming from:",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "The Trading Platform directly",
+     "The Sender's own account"
+    ]
+   },
+   {
+    "name": "description",
+    "label": "Brief description of the project that created the funds",
+    "type": "textarea",
+    "required": true
+   },
+   {
+    "name": "sending_bank",
+    "label": "Name of Bank the money is being sent from",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "sending_bank_country",
+    "label": "The Country the Bank is located:",
+    "type": "country",
+    "required": true
+   },
+   {
+    "name": "gross_amount",
+    "label": "Total Gross Amount of the Transfer",
+    "type": "number",
+    "required": true
+   },
+   {
+    "name": "currency",
+    "label": "Currency",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "expected_date",
+    "label": "Expected date of funds transfer",
+    "type": "date",
+    "required": true
+   },
+   {
+    "name": "beneficiaries",
+    "label": "Number of Beneficiaries",
+    "type": "select",
+    "required": true,
+    "options": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5",
+     "6",
+     "7",
+     "8",
+     "9",
+     "10"
+    ]
+   },
+   {
+    "name": "b1_first",
+    "label": "Beneficiary 1 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 1
+    }
+   },
+   {
+    "name": "b1_last",
+    "label": "Beneficiary 1 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 1
+    }
+   },
+   {
+    "name": "b1_email",
+    "label": "Beneficiary 1 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 1
+    }
+   },
+   {
+    "name": "b1_bank",
+    "label": "Beneficiary 1 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 1
+    }
+   },
+   {
+    "name": "b1_bank_country",
+    "label": "Beneficiary 1 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 1
+    }
+   },
+   {
+    "name": "b2_first",
+    "label": "Beneficiary 2 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 2
+    }
+   },
+   {
+    "name": "b2_last",
+    "label": "Beneficiary 2 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 2
+    }
+   },
+   {
+    "name": "b2_email",
+    "label": "Beneficiary 2 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 2
+    }
+   },
+   {
+    "name": "b2_bank",
+    "label": "Beneficiary 2 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 2
+    }
+   },
+   {
+    "name": "b2_bank_country",
+    "label": "Beneficiary 2 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 2
+    }
+   },
+   {
+    "name": "b3_first",
+    "label": "Beneficiary 3 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 3
+    }
+   },
+   {
+    "name": "b3_last",
+    "label": "Beneficiary 3 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 3
+    }
+   },
+   {
+    "name": "b3_email",
+    "label": "Beneficiary 3 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 3
+    }
+   },
+   {
+    "name": "b3_bank",
+    "label": "Beneficiary 3 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 3
+    }
+   },
+   {
+    "name": "b3_bank_country",
+    "label": "Beneficiary 3 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 3
+    }
+   },
+   {
+    "name": "b4_first",
+    "label": "Beneficiary 4 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 4
+    }
+   },
+   {
+    "name": "b4_last",
+    "label": "Beneficiary 4 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 4
+    }
+   },
+   {
+    "name": "b4_email",
+    "label": "Beneficiary 4 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 4
+    }
+   },
+   {
+    "name": "b4_bank",
+    "label": "Beneficiary 4 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 4
+    }
+   },
+   {
+    "name": "b4_bank_country",
+    "label": "Beneficiary 4 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 4
+    }
+   },
+   {
+    "name": "b5_first",
+    "label": "Beneficiary 5 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 5
+    }
+   },
+   {
+    "name": "b5_last",
+    "label": "Beneficiary 5 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 5
+    }
+   },
+   {
+    "name": "b5_email",
+    "label": "Beneficiary 5 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 5
+    }
+   },
+   {
+    "name": "b5_bank",
+    "label": "Beneficiary 5 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 5
+    }
+   },
+   {
+    "name": "b5_bank_country",
+    "label": "Beneficiary 5 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 5
+    }
+   },
+   {
+    "name": "b6_first",
+    "label": "Beneficiary 6 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 6
+    }
+   },
+   {
+    "name": "b6_last",
+    "label": "Beneficiary 6 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 6
+    }
+   },
+   {
+    "name": "b6_email",
+    "label": "Beneficiary 6 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 6
+    }
+   },
+   {
+    "name": "b6_bank",
+    "label": "Beneficiary 6 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 6
+    }
+   },
+   {
+    "name": "b6_bank_country",
+    "label": "Beneficiary 6 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 6
+    }
+   },
+   {
+    "name": "b7_first",
+    "label": "Beneficiary 7 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 7
+    }
+   },
+   {
+    "name": "b7_last",
+    "label": "Beneficiary 7 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 7
+    }
+   },
+   {
+    "name": "b7_email",
+    "label": "Beneficiary 7 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 7
+    }
+   },
+   {
+    "name": "b7_bank",
+    "label": "Beneficiary 7 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 7
+    }
+   },
+   {
+    "name": "b7_bank_country",
+    "label": "Beneficiary 7 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 7
+    }
+   },
+   {
+    "name": "b8_first",
+    "label": "Beneficiary 8 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 8
+    }
+   },
+   {
+    "name": "b8_last",
+    "label": "Beneficiary 8 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 8
+    }
+   },
+   {
+    "name": "b8_email",
+    "label": "Beneficiary 8 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 8
+    }
+   },
+   {
+    "name": "b8_bank",
+    "label": "Beneficiary 8 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 8
+    }
+   },
+   {
+    "name": "b8_bank_country",
+    "label": "Beneficiary 8 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 8
+    }
+   },
+   {
+    "name": "b9_first",
+    "label": "Beneficiary 9 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 9
+    }
+   },
+   {
+    "name": "b9_last",
+    "label": "Beneficiary 9 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 9
+    }
+   },
+   {
+    "name": "b9_email",
+    "label": "Beneficiary 9 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 9
+    }
+   },
+   {
+    "name": "b9_bank",
+    "label": "Beneficiary 9 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 9
+    }
+   },
+   {
+    "name": "b9_bank_country",
+    "label": "Beneficiary 9 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 9
+    }
+   },
+   {
+    "name": "b10_first",
+    "label": "Beneficiary 10 Name — First",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 10
+    }
+   },
+   {
+    "name": "b10_last",
+    "label": "Beneficiary 10 Name — Last",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 10
+    }
+   },
+   {
+    "name": "b10_email",
+    "label": "Beneficiary 10 Email",
+    "type": "email",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 10
+    }
+   },
+   {
+    "name": "b10_bank",
+    "label": "Beneficiary 10 Name of receiving Bank",
+    "type": "text",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 10
+    }
+   },
+   {
+    "name": "b10_bank_country",
+    "label": "Beneficiary 10 Country Location of receiving Bank",
+    "type": "country",
+    "required": true,
+    "show_if": {
+     "field": "beneficiaries",
+     "min": 10
+    }
+   },
+   {
+    "name": "file_fee_splits",
+    "label": "Please upload any supporting documentation that shows the agreed fee splits",
+    "type": "file",
+    "required": false
+   },
+   {
+    "name": "file_background",
+    "label": "Please upload any files for background information on the project",
+    "type": "file",
+    "required": false
+   },
+   {
+    "name": "instructions",
+    "label": "Please give any special instructions you wish to give ThePaymaster team",
+    "type": "textarea",
+    "required": false
+   },
+   {
+    "name": "terms",
+    "label": "Agreement to Terms of Service",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "Click to agree to the terms"
+    ]
+   }
+  ]
+ },
+ "source-of-funds-verification": {
+  "title": "Source of funds verification",
+  "page": "/source-of-funds-verification/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "fields": [
+   {
+    "name": "firstname",
+    "label": "Full Name — First",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "Full Name — Last",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Email Address",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "for_whom",
+    "label": "Are you filling this out for yourself? Or on behalf of someone else?",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "For myself",
+     "On behalf of someone"
+    ]
+   },
+   {
+    "name": "on_behalf_of",
+    "label": "Please give the name of the person you are completing the form for",
+    "type": "text",
+    "required": false,
+    "show_if": {
+     "field": "for_whom",
+     "in": [
+      "On behalf of someone"
+     ]
+    }
+   },
+   {
+    "name": "currency",
+    "label": "What currency are the amounts being given in please?",
+    "type": "select",
+    "required": false,
+    "options": [
+     "US Dollars ($s)",
+     "Euros (€s)",
+     "GB Sterling (£s)"
+    ]
+   },
+   {
+    "name": "total",
+    "label": "Total Funds to Verify",
+    "type": "number",
+    "required": true
+   },
+   {
+    "name": "portions",
+    "label": "How Many Portions?",
+    "type": "select",
+    "required": true,
+    "options": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5"
+    ]
+   },
+   {
+    "name": "p1_heading",
+    "label": "",
+    "type": "note",
+    "html": "<strong>Portion 1</strong>",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "p1_amount",
+    "label": "Amount for Portion 1",
+    "type": "number",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "p1_percent",
+    "label": "Portion 1 - Percentage of Total",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "p1_completed",
+    "label": "Percentage Completed (P1)",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "p1_description",
+    "label": "Short Description of Portion 1",
+    "type": "textarea",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "file_p1",
+    "label": "Upload Supporting Documents for Portion 1",
+    "type": "file",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 1
+    }
+   },
+   {
+    "name": "p2_heading",
+    "label": "",
+    "type": "note",
+    "html": "<strong>Portion 2</strong>",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "p2_amount",
+    "label": "Amount for Portion 2",
+    "type": "number",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "p2_percent",
+    "label": "Portion 2 - Percentage of Total",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "p2_completed",
+    "label": "Percentage Completed (P2)",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "p2_description",
+    "label": "Short Description of Portion 2",
+    "type": "textarea",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "file_p2",
+    "label": "Upload Supporting Documents for Portion 2",
+    "type": "file",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 2
+    }
+   },
+   {
+    "name": "p3_heading",
+    "label": "",
+    "type": "note",
+    "html": "<strong>Portion 3</strong>",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "p3_amount",
+    "label": "Amount for Portion 3",
+    "type": "number",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "p3_percent",
+    "label": "Portion 3 - Percentage of Total",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "p3_completed",
+    "label": "Percentage Completed (P3)",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "p3_description",
+    "label": "Short Description of Portion 3",
+    "type": "textarea",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "file_p3",
+    "label": "Upload Supporting Documents for Portion 3",
+    "type": "file",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 3
+    }
+   },
+   {
+    "name": "p4_heading",
+    "label": "",
+    "type": "note",
+    "html": "<strong>Portion 4</strong>",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "p4_amount",
+    "label": "Amount for Portion 4",
+    "type": "number",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "p4_percent",
+    "label": "Portion 4 - Percentage of Total",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "p4_completed",
+    "label": "Percentage Completed (P4)",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "p4_description",
+    "label": "Short Description of Portion 4",
+    "type": "textarea",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "file_p4",
+    "label": "Upload Supporting Documents for Portion 4",
+    "type": "file",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 4
+    }
+   },
+   {
+    "name": "p5_heading",
+    "label": "",
+    "type": "note",
+    "html": "<strong>Portion 5</strong> — please use this, if we've got this far, to cover off all the other assets that make up the 100%. Our main focus is the majority of your assets.",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "p5_amount",
+    "label": "Amount for Portion 5",
+    "type": "number",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "p5_percent",
+    "label": "Portion 5 - Percentage of Total",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "p5_completed",
+    "label": "Percentage Completed - FINAL (P5)",
+    "type": "number",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "p5_description",
+    "label": "Short Description of Portion 5",
+    "type": "textarea",
+    "required": true,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "file_p5",
+    "label": "Upload Supporting Documents for Portion 5",
+    "type": "file",
+    "required": false,
+    "show_if": {
+     "field": "portions",
+     "min": 5
+    }
+   },
+   {
+    "name": "declaration",
+    "label": "Legal Declaration",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "I consent to having this website store my submitted information so they can respond to my inquiry."
+    ]
+   }
+  ]
+ },
+ "ppp-stage-one-evaluation": {
+  "title": "PPP stage one evaluation",
+  "page": "/ppp-stage-one-evaluation/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "fields": [
+   {
+    "name": "h_funds",
+    "label": "",
+    "type": "note",
+    "html": "<h3>Funds &amp; Bank Details</h3>",
+    "required": false
+   },
+   {
+    "name": "viewing_access",
+    "label": "Viewing Access To Bank Account - PLEASE CHECK WITH BANK",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "Yes, I can provide viewing access to the desk to check my balance whilst the trade is running."
+    ]
+   },
+   {
+    "name": "bank_name",
+    "label": "Bank Name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "bank_addr1",
+    "label": "Bank Address — Address Line 1",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "bank_addr2",
+    "label": "Bank Address — Address Line 2",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "bank_city",
+    "label": "Bank Address — City",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "bank_state",
+    "label": "Bank Address — State / Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "bank_zip",
+    "label": "Bank Address — Postal / Zip Code",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "bank_country",
+    "label": "Bank Address — Country",
+    "type": "country",
+    "required": true
+   },
+   {
+    "name": "file_bank_statement",
+    "label": "Bank Statement Of Funds (no older than 3 days from today's date and must be a .pdf directly from the bank)",
+    "type": "file",
+    "required": true
+   },
+   {
+    "name": "sow_summary",
+    "label": "Summary Of Your Source Of Wealth",
+    "type": "textarea",
+    "required": true
+   },
+   {
+    "name": "file_source_of_funds",
+    "label": "Source Of Funds",
+    "type": "file",
+    "required": true
+   },
+   {
+    "name": "h_personal",
+    "label": "",
+    "type": "note",
+    "html": "<h3>Personal Details</h3>",
+    "required": false
+   },
+   {
+    "name": "firstname",
+    "label": "Name — First",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "Name — Last",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "addr1",
+    "label": "Address — Address Line 1",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "addr2",
+    "label": "Address — Address Line 2",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "city",
+    "label": "Address — City",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "state",
+    "label": "Address — State / Province / Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "zip",
+    "label": "Address — Postal Code",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "country",
+    "label": "Address — Country",
+    "type": "country",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Email",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "phone",
+    "label": "Cell Phone",
+    "type": "tel",
+    "required": true
+   },
+   {
+    "name": "birthday",
+    "label": "Birthday",
+    "type": "date",
+    "required": true
+   },
+   {
+    "name": "h_corporate",
+    "label": "",
+    "type": "note",
+    "html": "<h3>Corporate Details (optional)</h3><p>If you are entering as a corporate entity then please enter the required details.</p>",
+    "required": false
+   },
+   {
+    "name": "company_name",
+    "label": "Company Name",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "company_registration_number",
+    "label": "Company Registration Number",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_addr1",
+    "label": "Company Address — Address Line 1",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_addr2",
+    "label": "Company Address — Address Line 2",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_city",
+    "label": "Company Address — City",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_state",
+    "label": "Company Address — State / Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_zip",
+    "label": "Company Address — Postal / Zip Code",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_country",
+    "label": "Company Address — Country",
+    "type": "country",
+    "required": false
+   },
+   {
+    "name": "ownership",
+    "label": "Ownership",
+    "type": "checkboxes",
+    "required": false,
+    "options": [
+     "I am the ultimate beneficiary owner with 100% of the company shares",
+     "I am the ultimate beneficiary owner with more than 51% of the company shares"
+    ]
+   },
+   {
+    "name": "directors",
+    "label": "Directors",
+    "type": "select",
+    "required": false,
+    "options": [
+     "I am the only director",
+     "The company has more than 1 director"
+    ]
+   },
+   {
+    "name": "control_of_funds",
+    "label": "Control Of Funds",
+    "type": "checkboxes",
+    "required": false,
+    "options": [
+     "I have complete control over the funds in the provided bank statement",
+     "I do not have complete control over the funds in the provided bank statement"
+    ]
+   },
+   {
+    "name": "signature",
+    "label": "UBO Signature — type your full name as your signature",
+    "type": "signature",
+    "required": true
+   },
+   {
+    "name": "other_info",
+    "label": "Please provide any other information.",
+    "type": "textarea",
+    "required": false
+   }
+  ]
  }
 }

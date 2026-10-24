@@ -342,7 +342,7 @@
   {
    "t": "clause",
    "n": "5.5",
-   "text": "ThePaymaster will never notify a change to Client Account or Client Wallet details by email or messaging application. Any communication purporting to do so should be treated as fraudulent and reported to ThePaymaster by telephone on +44 20 7088 8267. The Principal shall verify the Client Account or Client Wallet details by telephone call to that number before the first transfer under each Transaction Schedule, even where the details match Schedule 5."
+   "text": "ThePaymaster will never notify a change to Client Account or Client Wallet details by email or messaging application. Any communication purporting to do so should be treated as fraudulent and reported to ThePaymaster by telephone on +44 20 7038 6792. The Principal shall verify the Client Account or Client Wallet details by telephone call to that number before the first transfer under each Transaction Schedule, even where the details match Schedule 5."
   },
   {
    "t": "h2",
@@ -1288,7 +1288,7 @@
   },
   {
    "t": "p",
-   "text": "Verification. Before the first transfer under each Transaction Schedule, the Principal must confirm these details by telephone to ThePaymaster on +44 20 7088 8267. ThePaymaster will never notify a change to these details by email or messaging application. Any message doing so is fraudulent and should be reported on that number (clause 5.5)."
+   "text": "Verification. Before the first transfer under each Transaction Schedule, the Principal must confirm these details by telephone to ThePaymaster on +44 20 7038 6792. ThePaymaster will never notify a change to these details by email or messaging application. Any message doing so is fraudulent and should be reported on that number (clause 5.5)."
   }
  ],
  "recipient": [
@@ -1541,7 +1541,7 @@
   {
    "t": "clause",
    "n": "7.2",
-   "text": "ThePaymaster will not act on changes received by email, messaging application or telephone alone. The Recipient should treat any message purporting to change ThePaymaster's details, or asking the Recipient to make a payment, as fraudulent and report it to ThePaymaster on +44 20 7088 8267. ThePaymaster will never ask the Recipient to pay anything to receive its Entitlement."
+   "text": "ThePaymaster will not act on changes received by email, messaging application or telephone alone. The Recipient should treat any message purporting to change ThePaymaster's details, or asking the Recipient to make a payment, as fraudulent and report it to ThePaymaster on +44 20 7038 6792. ThePaymaster will never ask the Recipient to pay anything to receive its Entitlement."
   },
   {
    "t": "h2",

@@ -354,7 +354,7 @@ export function statementPdf(d: FolderData, opts: { watermark?: string | null } 
     { size: 9.5, after: 8 });
   pdf.para(`Issued by ThePaymaster Ltd. This document is generated from the record; a copy that has been altered will not ` +
     `agree with the root. Anyone may check this reference, the root, or the holder's record.json at ${VERIFY_URL} ` +
-    `without contacting us. Enquiries: info@thepaymaster.co.uk, +44 20 7088 8267, quoting ${ref}.`, { size: 9, colour: MUTED });
+    `without contacting us. Enquiries: info@thepaymaster.co.uk, +44 20 7038 6792, quoting ${ref}.`, { size: 9, colour: MUTED });
 
   return pdf.bytes();
 }
