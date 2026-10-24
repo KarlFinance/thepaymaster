@@ -142,7 +142,10 @@ HS_V2 = re.compile(
     r'<script>\s*hbspt\.forms\.create\(\{(?P<body>.*?)\}\);?\s*</script>', re.S)
 # Brevo's newsletter form on every page, and the three WordPress (WPForms)
 # forms. Both go: the forms are ours now, and nothing talks to WordPress.
-BREVO_FORM = re.compile(r'<div id="sib-form-container" class="sib-form-container">.*?</form>\s*</div>', re.S)
+# The container opens two divs before the form (#sib-form-container and
+# #sib-container), so both closing tags after it go too — leaving one behind
+# closed the footer's left column early and collapsed its layout.
+BREVO_FORM = re.compile(r'<div id="sib-form-container" class="sib-form-container">.*?</form>\s*</div>\s*</div>', re.S)
 BREVO_SCRIPT = re.compile(r'<script defer src="https://sibforms\.com/forms/end-form/build/main\.js"></script>')
 WPFORMS = re.compile(r'<div class="wpforms-container[^"]*"[^>]*id="wpforms-(?P<id>\d+)".*?</form>\s*</div>', re.S)
 WPFORMS_IDS = {"5932": "transaction-brief", "7470": "source-of-funds-verification", "7419": "ppp-stage-one-evaluation"}

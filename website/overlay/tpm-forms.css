@@ -34,3 +34,5 @@
 .tpm-form.tpm-compact .tpm-submit{margin-top:4px;padding:10px 22px}
 .tpm-form.tpm-compact .tpm-intro h3{color:#fff;font-size:22px;margin:0 0 4px}
 .tpm-form.tpm-compact .tpm-intro p{color:#C9D1DD;margin:0 0 12px}
+.tpm-form.tpm-compact,.tpm-form.tpm-compact *{text-align:left}
+.tpm-form.tpm-compact .tpm-submit{text-align:center}
