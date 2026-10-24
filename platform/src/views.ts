@@ -153,6 +153,7 @@ export function nav(current: string, who: string): string {
     <nav>
       ${item("/", "Pipeline")}
       ${item("/enquiries", "Enquiries")}
+      ${item("/forms", "Website forms")}
       ${item("/kyc", "Verification")}
       ${item("/new", "New transaction")}
       ${item("/log", "Audit log")}

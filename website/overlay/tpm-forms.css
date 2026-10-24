@@ -1,0 +1,22 @@
+/* The website's own forms (replacing the HubSpot embeds). Plain, legible,
+   in the site's own type and colours. */
+.tpm-form{max-width:720px;margin:0 auto;font-family:inherit;color:#4A5567}
+.tpm-form .tpm-intro{margin:0 0 22px}
+.tpm-form .tpm-intro h3{font-size:22px;margin:18px 0 8px;color:#0C1524}
+.tpm-form .tpm-intro ul{margin:8px 0 12px 20px}
+.tpm-form .tpm-field{margin:0 0 18px;border:0;padding:0}
+.tpm-form label,.tpm-form legend{display:block;font-weight:600;color:#0C1524;margin:0 0 6px;font-size:15px}
+.tpm-form .tpm-req{color:#C0392B}
+.tpm-form .tpm-help{display:block;font-size:13px;color:#6B7280;margin:-2px 0 6px;font-weight:400}
+.tpm-form input[type=text],.tpm-form input[type=email],.tpm-form input[type=tel],.tpm-form input[type=number],
+.tpm-form input[type=date],.tpm-form select,.tpm-form textarea{width:100%;box-sizing:border-box;padding:11px 12px;
+  border:1px solid #CBD2DC;border-radius:6px;background:#fff;font:inherit;font-size:15px;color:#0C1524}
+.tpm-form input:focus,.tpm-form select:focus,.tpm-form textarea:focus{outline:2px solid #FF8159;outline-offset:1px;border-color:#FF8159}
+.tpm-form input[type=file]{font-size:14px}
+.tpm-form .tpm-opt{display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0;color:#4A5567}
+.tpm-form .tpm-opt input{width:auto;margin:0}
+.tpm-form .tpm-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.tpm-form .tpm-note{font-size:13px;color:#6B7280;margin:6px 0}
+.tpm-form .tpm-submit{margin-top:10px;background:#FF8159;color:#0C1524;border:0;border-radius:6px;padding:12px 26px;
+  font-weight:700;font-size:15px;letter-spacing:.03em;cursor:pointer}
+.tpm-form .tpm-submit:hover{background:#ff9775}

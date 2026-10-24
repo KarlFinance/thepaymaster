@@ -115,6 +115,111 @@ SOFIE_ITEM = re.compile(
     r'<li[^>]*>\s*SOFie(?:\u2122|&trade;)?[^<]*recorded interview[^<]*</li>', re.S | re.I)
 
 
+# ---------------------------------------------------------------------------
+# The website's own forms, replacing the HubSpot embeds.
+#
+# Five pages embedded a HubSpot form. Each embed is swapped for a plain HTML
+# form with the same fields, labels, options and thank-you page, posting to
+# the platform, which keeps a record and emails staff. The definitions live in
+# platform/src/site-forms.json — the same file the platform validates against
+# — so the page and the server can never disagree about a field.
+# ---------------------------------------------------------------------------
+FORMS_JSON = HERE.parent / "platform" / "src" / "site-forms.json"
+FORM_ACTION = "https://client.thepaymaster.co.uk/site-form/"
+HUBSPOT_FORM_IDS = {
+    "4d6a8576-c0c2-45fa-b1e3-0862f4e89180": "briefing-evaluation",
+    "3aae0322-b41b-430c-bf26-c50ef872904b": "contact-us",
+    "4e6e7ff7-55dd-40a0-a412-a219b2dfb471": "crypto-transactions",
+    "6f79b5e6-dfc0-4cc5-aaff-2be1168953b2": "introducer-program",
+    "44b9842a-8b7a-48b5-832c-54a51ca4f2d0": "recipient-onboarding",
+}
+HS_V2 = re.compile(
+    r'<script[^>]*js\.hsforms\.net/forms/embed/v2\.js[^>]*></script>\s*'
+    r'<script>\s*hbspt\.forms\.create\(\{(?P<body>.*?)\}\);?\s*</script>', re.S)
+HS_V4 = re.compile(
+    r'<script[^>]*js\.hsforms\.net/forms/embed/\d+\.js[^>]*></script>\s*'
+    r'<div class="hs-form-frame"[^>]*data-form-id="(?P<id>[^"]+)"[^>]*></div>', re.S)
+
+
+def _esc(s: str) -> str:
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+def render_form(slug: str, spec: dict) -> str:
+    out = [f'<form class="tpm-form" method="post" action="{FORM_ACTION}{slug}" '
+           f'enctype="multipart/form-data" accept-charset="utf-8">']
+    if spec.get("intro_html"):
+        out.append(f'<div class="tpm-intro">{spec["intro_html"]}</div>')
+    elif spec.get("intro"):
+        out.append(f'<p class="tpm-intro">{_esc(spec["intro"])}</p>')
+    for i, f in enumerate(spec["fields"]):
+        fid = f"tpm-{slug}-{i}"
+        req = " required" if f.get("required") else ""
+        star = ' <span class="tpm-req">*</span>' if f.get("required") else ""
+        help_ = f'<span class="tpm-help">{_esc(f["help"])}</span>' if f.get("help") else ""
+        t = f["type"]
+        if t in ("checkboxes", "radio"):
+            kind = "checkbox" if t == "checkboxes" else "radio"
+            opts = "".join(
+                f'<label class="tpm-opt"><input type="{kind}" name="{f["name"]}" value="{_esc(o)}"'
+                f'{req if kind == "radio" and j == 0 else ""}> {_esc(o)}</label>'
+                for j, o in enumerate(f.get("options", [])))
+            out.append(f'<fieldset class="tpm-field"><legend>{_esc(f["label"])}{star}</legend>{help_}{opts}</fieldset>')
+            continue
+        label = f'<label for="{fid}">{_esc(f["label"])}{star}</label>'
+        if t == "select":
+            opts = '<option value="">Please select</option>' + "".join(
+                f'<option>{_esc(o)}</option>' for o in f.get("options", []))
+            ctl = f'<select id="{fid}" name="{f["name"]}"{req}>{opts}</select>'
+        elif t == "textarea":
+            ctl = f'<textarea id="{fid}" name="{f["name"]}" rows="4"{req}></textarea>'
+        elif t == "file":
+            ctl = (f'<input id="{fid}" type="file" name="files" multiple '
+                   f'accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"{req}>')
+        else:
+            html_type = {"email": "email", "tel": "tel", "number": "number", "date": "date"}.get(t, "text")
+            extra = ' autocomplete="email"' if t == "email" else ' autocomplete="tel"' if t == "tel" else ""
+            ctl = f'<input id="{fid}" type="{html_type}" name="{f["name"]}"{extra}{req}>'
+        out.append(f'<div class="tpm-field">{label}{help_}{ctl}</div>')
+    out.append('<div class="tpm-hp" aria-hidden="true"><label>Leave this empty '
+               '<input name="website" tabindex="-1" autocomplete="off"></label></div>')
+    if spec.get("agreement"):
+        out.append(f'<p class="tpm-note">By pressing {_esc(spec["submit"])} you accept the {_esc(spec["agreement"])}.</p>')
+    out.append('<p class="tpm-note">Your details go only to ThePaymaster and are handled under our '
+               '<a href="/privacy-policy/">privacy policy</a>.</p>')
+    out.append(f'<button type="submit" class="tpm-submit">{_esc(spec["submit"])}</button></form>')
+    return "".join(out)
+
+
+def own_forms(text: str) -> tuple[str, int]:
+    if "hsforms" not in text:
+        return text, 0
+    specs = json.loads(FORMS_JSON.read_text("utf-8"))
+    swapped = 0
+
+    def v2(m: re.Match) -> str:
+        nonlocal swapped
+        fid = re.search(r'formId:\s*"([^"]+)"', m.group("body"))
+        slug = HUBSPOT_FORM_IDS.get(fid.group(1) if fid else "")
+        if not slug:
+            return m.group(0)
+        swapped += 1
+        return render_form(slug, specs[slug])
+
+    def v4(m: re.Match) -> str:
+        nonlocal swapped
+        slug = HUBSPOT_FORM_IDS.get(m.group("id"))
+        if not slug:
+            return m.group(0)
+        swapped += 1
+        return render_form(slug, specs[slug])
+
+    text = HS_V2.sub(v2, text)
+    text = HS_V4.sub(v4, text)
+    return text, swapped
+
+
 def edits(text: str) -> str:
     text = START_BUTTON.sub(r"\1/enquiry\3", text)
     text = TWITTER_ITEM.sub("", text)
@@ -142,10 +247,13 @@ def main() -> None:
     shutil.copytree(SITE, DIST)
 
     stripped = 0
+    forms_swapped = 0
     for f in DIST.rglob("*.html"):
         text = f.read_text("utf-8", "replace")
         new = DEAD_HEAD_EXTRA.sub("", DEAD_HEAD.sub("", text))
         new = edits(new)
+        new, n = own_forms(new)
+        forms_swapped += n
         if new != text:
             f.write_text(new)
             stripped += 1
@@ -175,19 +283,29 @@ def main() -> None:
     (DIST / "_redirects").write_text(REDIRECTS)
     (DIST / "robots.txt").write_text(ROBOTS)
 
-    pages = page_list()
-    urls = "".join(
-        f"  <url><loc>{u}</loc><lastmod>{m}</lastmod></url>\n" for u, m in pages)
-    (DIST / "sitemap.xml").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        f"{urls}</urlset>\n")
+    # The page list comes from WordPress. When the WordPress box does not
+    # answer, keep the sitemap that is live now rather than failing the build.
+    try:
+        pages = page_list()
+        urls = "".join(
+            f"  <url><loc>{u}</loc><lastmod>{m}</lastmod></url>\n" for u, m in pages)
+        (DIST / "sitemap.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{urls}</urlset>\n")
+    except Exception as err:
+        live = subprocess.run(["curl", "-sS", "-m", "30", f"{DOMAIN}/sitemap.xml"],
+                              capture_output=True, text=True, check=True).stdout
+        (DIST / "sitemap.xml").write_text(live)
+        pages = re.findall(r"<loc>", live)
+        print(f"  sitemap     WordPress unreachable ({type(err).__name__}); kept the live sitemap")
 
     files = sum(1 for f in DIST.rglob("*") if f.is_file())
     size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
     print(f"  dist        {files} files, {size/1024/1024:.1f} MB")
     print(f"  head links  stripped from {stripped} pages")
     print(f"  overlay     linked into {linked} pages")
+    print(f"  own forms   {forms_swapped} HubSpot embeds replaced")
     print(f"  sitemap     {len(pages)} pages")
     fns = len(list((DIST / "functions").rglob("*.js"))) if (DIST / "functions").is_dir() else 0
     print(f"  functions   {fns}")

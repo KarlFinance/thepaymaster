@@ -1,0 +1,422 @@
+{
+ "briefing-evaluation": {
+  "title": "Briefing and evaluation",
+  "page": "/briefing-evaluation/",
+  "submit": "SUBMIT",
+  "thanks": "/onboarding/",
+  "fields": [
+   {
+    "name": "email",
+    "label": "Please enter your email address",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "firstname",
+    "label": "First name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "Last name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "mobilephone",
+    "label": "Please may we have your mobile phone number",
+    "type": "tel",
+    "required": true
+   },
+   {
+    "name": "company",
+    "label": "If relevant, please may we have your company name?",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "please_tell_us_if_you_are",
+    "label": "Please tell us if you are",
+    "type": "select",
+    "required": true,
+    "options": [
+     "The Sender",
+     "A Recipient",
+     "Authorised Third Party"
+    ]
+   },
+   {
+    "name": "please_give_a_brief_description_of_the_underlying_transactio",
+    "label": "Please give a brief description of the underlying transaction",
+    "type": "textarea",
+    "required": true
+   },
+   {
+    "name": "what_is_the_expected_amount_to_be_transferred_",
+    "label": "What is the expected amount to be transferred?",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "what_is_the_expected_transfer_date_",
+    "label": "What is the expected transfer date?",
+    "type": "date",
+    "required": true
+   },
+   {
+    "name": "how_many_recipients_will_there_be_",
+    "label": "How many recipients will there be?",
+    "type": "number",
+    "required": true
+   },
+   {
+    "name": "do_you_require_any_of_the_distributions_made_in_cryptocurren",
+    "label": "Do you require any of the distributions made in cryptocurrency?",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "name": "how_confident_are_you_that_this_will_happen_",
+    "label": "How confident are you that this will happen?",
+    "type": "radio",
+    "required": true,
+    "options": [
+     "Transaction has happened - just needs distribution",
+     "Extremely confident",
+     "Moderately Confident",
+     "Just hopeful"
+    ]
+   }
+  ],
+  "intro_html": "<h3><strong>Welcome to ThePaymaster® </strong></h3> <p>Congratulations on reaching this exciting milestone! <br>You're about to take the final step in completing your deal – distributing the agreed payments smoothly and securely.</p> <h3><strong><br>Before You Begin...</strong></h3> <p>Please confirm that your transaction meets the following criteria:</p> <ul> <li>The total transaction value is £250,000 or more (exceptions for monthly recurring deals)</li> <li>Your deal is either completed or in its final stages and funds have been verified</li> <li>Before our call we need to know the full name and email of everyone that will be on the call - no exceptions!</li> <li>All parties involved are prepared to complete our verification process</li> </ul> <p><br>If you're not quite there yet, don't worry!<br><br>Bookmark this page and return when you're ready. We're excited to work with you, but starting too early might cause unnecessary delays.</p> <p>Ready to proceed? Great! Please complete the form below.<br><br><br></p>"
+ },
+ "contact-us": {
+  "title": "Contact us",
+  "page": "/contact-us/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "fields": [
+   {
+    "name": "firstname",
+    "label": "Please give us your full name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "and Last Name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Your Email Please",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "phone",
+    "label": "Please may we have your Whatsapp number?",
+    "type": "tel",
+    "required": false,
+    "help": "Providing your WhatsApp number allows us to share updates about your enquiry directly and efficiently. Your information will be handled with care under our privacy policy."
+   },
+   {
+    "name": "nature_of_inquiry",
+    "label": "May we ask the general nature of your inquiry?",
+    "type": "select",
+    "required": false,
+    "options": [
+     "Intellectual Property",
+     "Technology",
+     "Regulatory",
+     "Social Media",
+     "General Sales Enquiry",
+     "Other"
+    ],
+    "help": "Please choose from one of the options"
+   },
+   {
+    "name": "other_detail",
+    "label": "If you replied \"other\" above please expand below:",
+    "type": "textarea",
+    "required": false
+   },
+   {
+    "name": "message",
+    "label": "Please provide a brief overview of your contact request so we can connect you with the most relevant team",
+    "type": "textarea",
+    "required": true
+   },
+   {
+    "name": "files",
+    "label": "Upload helpful files",
+    "type": "file",
+    "required": false,
+    "help": "To assist us in understanding your enquiry, you can upload supporting files. These will help us review and prepare better for our interactions. Files remain confidential and are used solely for resolving your enquiry."
+   }
+  ]
+ },
+ "crypto-transactions": {
+  "title": "Crypto transactions",
+  "page": "/crypto-transactions/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "fields": [
+   {
+    "name": "firstname",
+    "label": "Please give us your full name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "and Last Name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Your Email Please",
+    "type": "email",
+    "required": true
+   },
+   {
+    "name": "phone",
+    "label": "Please may we have your Whatsapp number?",
+    "type": "tel",
+    "required": false,
+    "help": "Providing your WhatsApp number allows us to share updates about your enquiry directly and efficiently. Your information will be handled with care under our privacy policy."
+   },
+   {
+    "name": "service_requirement",
+    "label": "Service Requirement",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "Crypto To Fiat",
+     "Fiat To Crypto",
+     "Crypto To Crypto"
+    ]
+   },
+   {
+    "name": "value_of_the_transaction__estimated_",
+    "label": "Value of the transaction (estimated)",
+    "type": "number",
+    "required": true
+   },
+   {
+    "name": "files",
+    "label": "Upload helpful files",
+    "type": "file",
+    "required": false,
+    "help": "To assist us in understanding your enquiry, you can upload supporting files. These will help us review and prepare better for our interactions. Files remain confidential and are used solely for resolving your enquiry."
+   }
+  ]
+ },
+ "introducer-program": {
+  "title": "Introducer registration",
+  "page": "/introducer-program/",
+  "submit": "I AGREE",
+  "thanks": "/introducer-thank-you/",
+  "agreement": "ThePaymaster Introducer Agreement, Version 1.0 (January 2025), as shown on the page above the form",
+  "fields": [
+   {
+    "name": "firstname",
+    "label": "Please may we have your first name?",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "And you last name?",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Your Email Address",
+    "type": "email",
+    "required": true,
+    "help": "⚠️ IMPORTANT NOTE: The email address you provide here will serve as your unique identifier for tracking your Introducer rewards.Clients must input this email when they onboard with ThePaymaster® to ensure your Introducer rewards are tracked and paid correctly.Please double-check the email for accuracy, as it is vital for your payments to be processed seamlessly."
+   },
+   {
+    "name": "phone",
+    "label": "Your Phone number",
+    "type": "tel",
+    "required": true
+   },
+   {
+    "name": "company_or_individual",
+    "label": "Are you applying as an individual or company?",
+    "type": "select",
+    "required": true,
+    "options": [
+     "Individual",
+     "Company"
+    ]
+   },
+   {
+    "name": "ind_address",
+    "label": "For Individuals: Your Residential Address",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "ind_city",
+    "label": "City",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "ind_state",
+    "label": "State/Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "ind_country",
+    "label": "Country/Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "ind_zip",
+    "label": "Postal code",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "company_name",
+    "label": "For Companies: Your Company name please",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "company_registration_number",
+    "label": "Company Registration Number",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_address",
+    "label": "Street address",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_address2",
+    "label": "Street address 2",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_city",
+    "label": "City",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_state",
+    "label": "State/Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_country",
+    "label": "Country/Region",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "co_zip",
+    "label": "Postal code",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "market_specialisation",
+    "label": "Market Specialisation",
+    "type": "checkboxes",
+    "required": true,
+    "options": [
+     "Real Estate",
+     "Private Placement Programs",
+     "Commodities",
+     "Financial Transactions",
+     "Commercial sales",
+     "Other"
+    ]
+   },
+   {
+    "name": "other_detail",
+    "label": "If you selected \"Other\" above please expand below",
+    "type": "textarea",
+    "required": false
+   }
+  ]
+ },
+ "recipient-onboarding": {
+  "title": "Recipient onboarding",
+  "page": "/recipient-onboarding/",
+  "submit": "Submit",
+  "thanks": "/thank-you/",
+  "intro": "If you are due to receive a payment through ThePaymaster®, tell us who you are and which transaction it is. We will match you to it and send you a private link to your own account, where you verify yourself and give the account you are to be paid into. Never send bank or wallet details by email.",
+  "fields": [
+   {
+    "name": "firstname",
+    "label": "First name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "lastname",
+    "label": "Last name",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "email",
+    "label": "Your email address",
+    "type": "email",
+    "required": true,
+    "help": "Your private link to your own account will be sent here."
+   },
+   {
+    "name": "phone",
+    "label": "Your WhatsApp or mobile number",
+    "type": "tel",
+    "required": false
+   },
+   {
+    "name": "company",
+    "label": "If you are receiving as a company, its name",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "sender",
+    "label": "Who is paying you? (the sender's name or company)",
+    "type": "text",
+    "required": true
+   },
+   {
+    "name": "reference",
+    "label": "Transaction reference, if you have one (TPM-…)",
+    "type": "text",
+    "required": false
+   },
+   {
+    "name": "message",
+    "label": "Anything we should know",
+    "type": "textarea",
+    "required": false
+   }
+  ]
+ }
+}

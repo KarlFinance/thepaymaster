@@ -14,6 +14,7 @@ import { currentAdmin, loginScreen, handleLogin, handleTotp, handleTotpSetup,
 import { page, nav, board, esc, type Row } from "./views.ts";
 import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
+import { submitSiteForm, formsInbox, formDetail, setFormStatus, formFile } from "./siteforms.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
          clientVerify, clientHelpPage, clientFolder, verifyRecordPage,
@@ -107,6 +108,10 @@ export default {
     try {
       // Public, and deliberately before anything else: the front door cannot
       // be behind a login.
+      // The website's own forms post here from thepaymaster.co.uk.
+      const sf = url.pathname.match(/^\/site-form\/([a-z-]+)$/);
+      if (sf) return submitSiteForm(request, env, sf[1], (p) => ctx.waitUntil(p));
+
       if (url.pathname === "/enquiry") {
         return request.method === "POST"
           ? submitEnquiry(request, env, (p) => ctx.waitUntil(p))
@@ -235,6 +240,20 @@ export default {
           : newForm(admin);
       }
       if (url.pathname === "/enquiries") return inbox(env, admin);
+      if (url.pathname === "/forms") {
+        return page("Website forms", await formsInbox(env, url.searchParams.get("show") ?? "open"), { nav: nav("/forms", admin.name) });
+      }
+      const fm = url.pathname.match(/^\/forms\/(sf_[a-z0-9]+)(?:\/(status|file\/(\d+)))?$/);
+      if (fm) {
+        if (fm[2] === "status" && request.method === "POST") {
+          const f = await request.formData();
+          await setFormStatus(env, actor, fm[1], String(f.get("to") ?? ""));
+          return Response.redirect(new URL(`/forms/${fm[1]}`, url).toString(), 303);
+        }
+        if (fm[3] !== undefined) return formFile(env, actor, fm[1], Number(fm[3]));
+        const body = await formDetail(env, fm[1]);
+        return body ? page("Website form", body, { nav: nav("/forms", admin.name) }) : new Response("Not found", { status: 404 });
+      }
       if (url.pathname.startsWith("/e/")) {
         const eid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/status") && request.method === "POST") {
@@ -554,6 +573,9 @@ async function attention(env: Env): Promise<string> {
     items.push(`<li><a href="${href}">${what}</a>${when
       ? `<span class="muted"> — ${esc(String(when).slice(0, 16))}</span>` : ""}</li>`);
   for (const e of enquiries) li(`/e/${e.id}`, `New enquiry from <b>${esc(e.name)}</b>`, e.created_at);
+  const { results: newForms } = await env.DB.prepare(
+    "SELECT id, form, name, email, created_at FROM site_forms WHERE status = 'new' ORDER BY created_at").all<any>();
+  for (const s of newForms ?? []) li(`/forms/${s.id}`, `Website form (${esc(s.form.replace(/-/g, " "))}) from <b>${esc(s.name ?? s.email ?? "someone")}</b>`, s.created_at);
   for (const p of kyc) li(`/p/${p.id}`, `Decide <b>${esc(p.display_name)}</b>'s verification`, p.kyc_submitted_at);
   for (const t of toRelease) li(`/t/${t.id}`, `Release <b>${esc(t.ref)}</b> — the sender has submitted it`, t.submitted_at);
   for (const d of cantSign) li(`/t/${d.tx}`, `Review <b>${esc(d.display_name)}</b>'s address on ${esc(d.ref)} — they cannot sign from it`, d.proof_unavailable_at);
