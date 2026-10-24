@@ -18,6 +18,7 @@ import { CHAINS } from "./chain.ts";
 import { railFor } from "./rail.ts";
 import { forTransaction as agreementsFor } from "./agreements.ts";
 import { isHouse } from "./housewallets.ts";
+import { gbpValue } from "./valuation.ts";
 import { standing as standingScreen } from "./walletscreen.ts";
 import { proved as provedAddress } from "./attest.ts";
 
@@ -115,6 +116,8 @@ export async function assess(env: Env, transactionId: string,
 
   // --- everybody is verified, to a level that covers this ------------------
   const gross = settlement?.grossMinor ?? t.gross_expected_minor ?? null;
+  // Ceilings are in GBP pence; the transaction is in its own currency and decimals.
+  const grossGbp = gross !== null ? await gbpValue(env, t.currency_in, gross, t.decimals_in) : null;
   const unverified: string[] = [];
   const underCeiling: string[] = [];
   for (const p of parties) {
@@ -125,10 +128,13 @@ export async function assess(env: Env, transactionId: string,
       continue;
     }
     // A clearance for fifty thousand is not a clearance for five million.
-    if (standing.band_ceiling_minor !== null && gross !== null
-        && gross > standing.band_ceiling_minor) {
-      underCeiling.push(
-        `${p.display_name} (cleared to ${format(standing.band_ceiling_minor, 2)})`);
+    if (standing.band_ceiling_minor !== null && gross !== null) {
+      if (!grossGbp) {
+        underCeiling.push(`${p.display_name} (cleared to £${format(standing.band_ceiling_minor, 2)}; could not value ${t.currency_in} in pounds — check by hand)`);
+      } else if (grossGbp.minor > standing.band_ceiling_minor) {
+        underCeiling.push(
+          `${p.display_name} (cleared to £${format(standing.band_ceiling_minor, 2)}; this is about £${format(grossGbp.minor, 2)}, ${grossGbp.basis})`);
+      }
     }
   }
   checks.push({

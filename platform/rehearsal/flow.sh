@@ -28,7 +28,7 @@ CHAIN_ID=11155111
 # The mock USDT deployed on Sepolia for this rehearsal. It reproduces the real
 # token's awkwardness — no return value, a blacklist — so the platform meets
 # the same behaviour it will meet on mainnet.
-TOKEN=${TOKEN:-$(cat /tmp/flow-token.txt 2>/dev/null)}
+TOKEN=${TOKEN:-$(cat /tmp/flow-token.txt 2>/dev/null || echo 0x2a35E1b121B3E231ED824C5b4e31FC40167385D8)}
 CHAIN=../rehearsal/chain.mjs
 FEE_WALLET=0x048B3C145F05Fef0e2f837A5207bd912EdFf7e5e
 SENDER_EMAIL=sender@example.invalid
@@ -111,11 +111,16 @@ TX=$(sql "SELECT id FROM transactions ORDER BY rowid DESC LIMIT 1")
 REF=$(sql "SELECT ref FROM transactions WHERE id='$TX'")
 ok "created $REF ($TX)"
 
+# The route this rehearses: the sender pays every line from their own wallet.
+# The fee wallet must be one of ours in the registry; this one is the Sepolia
+# rehearsal fee wallet, registered by migration 0034.
 CODE=$(curl -s -b "$ADMIN" -o /dev/null -w "%{http_code}" -X POST "$BASE/t/$TX/chain" \
-  --data-urlencode "chain_id=$CHAIN_ID" \
+  --data-urlencode "rail=eth:$CHAIN_ID:usdt" \
   --data-urlencode "token_address=$TOKEN" \
+  --data-urlencode "execution=sender" \
   --data-urlencode "fee_wallet=$FEE_WALLET")
 check "$CODE" "302" "chain settings saved"
+check "$(sql "SELECT execution FROM transactions WHERE id='$TX'")" "sender" "the sender executes"
 check "$(sql "SELECT chain_id FROM transactions WHERE id='$TX'")" "$CHAIN_ID" "chain recorded"
 check "$(sql "SELECT fee_wallet FROM transactions WHERE id='$TX'")" "$FEE_WALLET" "fee wallet recorded"
 
@@ -259,8 +264,12 @@ say "8. Staff check each party and record the verdict"
 for PARTY in $(npx wrangler d1 execute thepaymaster --local --json --command \
   "SELECT DISTINCT party_id FROM participations WHERE transaction_id='$TX'" 2>/dev/null \
   | python3 -c "import json,sys;print(' '.join(r['party_id'] for r in json.load(sys.stdin)[0]['results']))"); do
+  # Cleared to £2,000. The distribution is about 1,010 USDT, so this must pass
+  # once the comparison is in pounds — it failed before, when USDT's six
+  # decimals were compared with pence and 1,010 USDT read as £10,101,010.
   curl -s -b "$ADMIN" -o /dev/null -X POST "$BASE/p/$PARTY/decide" \
     --data-urlencode "passed=1" --data-urlencode "months=12" \
+    --data-urlencode "ceiling=2000.00" \
     --data-urlencode "note=Checked at Themis, rehearsal"
 done
 # Distinct parties, not verification rows: the same person keeps their party
@@ -403,6 +412,31 @@ LOCKED=$(sql "SELECT count(*) FROM destinations WHERE status='locked' AND partic
 check "$LOCKED" "3" "all three addresses locked"
 
 # ---------------------------------------------------------------------------
+say "13b. Everybody signs their agreement"
+# ---------------------------------------------------------------------------
+# Each party reads the document generated for them from the record and signs
+# it by typing their name. The signature is over the hash of the exact text,
+# which the page carries in the form; a stale hash would be refused.
+agree() {  # cookie value, typed name, who
+  curl -s "${CLIENT[@]}" -H "Cookie: tpm_client=$1" -o /tmp/ag.html "$BASE/d/$TX"
+  local h; h=$(python3 -c "
+import re; m=re.search(r'name=\"hash\" value=\"([0-9a-f]{64})\"', open('/tmp/ag.html').read()); print(m.group(1) if m else '')")
+  if [ -z "$h" ]; then bad "$3 was offered no agreement to sign"; return; fi
+  curl -s "${CLIENT[@]}" -H "Cookie: tpm_client=$1" -o /tmp/ag2.html -X POST "$BASE/d/$TX/agreement" \
+    --data-urlencode "hash=$h" --data-urlencode "typed_name=$2"
+  local party; party=$(sql "SELECT id FROM parties WHERE display_name='$2' ORDER BY rowid DESC LIMIT 1")
+  local n; n=$(sql "SELECT count(*) FROM agreements WHERE transaction_id='$TX' AND content_hash='$h'")
+  if [ "$n" = "1" ]; then ok "$3 signed"; else bad "$3's signature was not recorded"; fi
+}
+agree "$SCOOKIE" "Marina Vasquez" "the sender (Sender's Paymaster Agreement)"
+for PID in $PIDS; do
+  NAME=$(sql "SELECT y.display_name FROM participations p JOIN parties y ON y.id=p.party_id WHERE p.id='$PID'")
+  agree "$(cat /tmp/flow-cookie-$PID)" "$NAME" "$NAME (Recipient's Authorisation)"
+done
+check "$(sql "SELECT count(*) FROM agreements WHERE transaction_id='$TX'")" "4" "four agreements on the record"
+check "$(sql "SELECT count(*) FROM artefacts WHERE transaction_id='$TX' AND kind='agreement'")" "4" "four signed PDFs stored"
+
+# ---------------------------------------------------------------------------
 say "14. The sender is funded, and the chain checks come alive"
 # ---------------------------------------------------------------------------
 NEED=$(sql "SELECT gross_expected_minor FROM transactions WHERE id='$TX'")
@@ -468,11 +502,18 @@ for LEG in $LEGS; do
 done
 
 # ---------------------------------------------------------------------------
-say "16. The sender pays every line"
+say "16. The sender pays our fee first, then every recipient"
 # ---------------------------------------------------------------------------
-for LEG in $LEGS; do
+FIRST=$(echo $PIDS | cut -d' ' -f1)
+OUT=$(leg_send "$FIRST" payment)
+case "$OUT" in
+  "REFUSED Waiting for ThePaymaster's fee"*) ok "a recipient payment is refused before our fee lands" ;;
+  *) bad "a recipient payment was not held back for the fee — $OUT" ;;
+esac
+for LEG in fee $PIDS; do
   OUT=$(leg_send "$LEG" payment) && ok "paid $LEG — $OUT" || bad "paid $LEG — $OUT"
 done
+check "$(sql "SELECT status FROM transactions WHERE id='$TX'")" "settled" "the transaction settled itself when the last payment landed"
 
 # ---------------------------------------------------------------------------
 say "17. What the chain actually holds now"

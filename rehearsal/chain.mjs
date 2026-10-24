@@ -41,12 +41,22 @@ async function rpc(method, params) {
 async function send({ to, data, gas }) {
   const block = await rpc("eth_getBlockByNumber", ["latest", false]);
   const base = BigInt(block.baseFeePerGas ?? "0x3b9aca00");
+  // Ask the network rather than guess. A fixed 120,000 gas ran out once the
+  // mock token's first transfer to a fresh address cost ~146,000, and a fixed
+  // 1.5 gwei tip was a thousand times the going rate and drained the test ETH.
+  let tip = 10_000_000n;                                  // 0.01 gwei floor
+  try { const t = BigInt(await rpc("eth_maxPriorityFeePerGas", [])); if (t > tip) tip = t; } catch {}
+  let limit = BigInt(gas);
+  try {
+    const est = BigInt(await rpc("eth_estimateGas", [{ from: ME, to, data }]));
+    limit = est + est / 4n;                               // a quarter's headroom
+  } catch { /* fall back to the caller's figure */ }
   const tx = FeeMarketEIP1559Transaction.fromTxData({
     chainId: 11155111n,
     nonce: BigInt(await rpc("eth_getTransactionCount", [ME, "pending"])),
-    maxPriorityFeePerGas: 1_500_000_000n,
-    maxFeePerGas: base * 2n + 1_500_000_000n,
-    gasLimit: BigInt(gas), to, value: 0n, data,
+    maxPriorityFeePerGas: tip,
+    maxFeePerGas: base * 2n + tip,
+    gasLimit: limit, to, value: 0n, data,
   }, { common }).sign(priv);
 
   const hash = await rpc("eth_sendRawTransaction", ["0x" + hex(tx.serialize())]);

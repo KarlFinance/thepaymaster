@@ -9,7 +9,7 @@
 import { type Env, type Actor, id, update, canMove } from "./db.ts";
 import { esc } from "./views.ts";
 import { format } from "./money.ts";
-import { plan, transferData, gasNeeded,
+import { plan, transferData, gasNeeded, FEE_FIRST, testOnlyGate,
          type Plan, type Line } from "./execute.ts";
 import { record } from "./settlement.ts";
 import { paymentLanded } from "./notify.ts";
@@ -36,7 +36,7 @@ function lineRow(l: Line, p: Plan): string {
 
   // Everything except the missing test payment. A line whose only outstanding
   // item is the test must still be able to run the test.
-  const otherProblems = l.problems.filter((x) => !x.startsWith("No test payment"));
+  const otherProblems = l.problems.filter((x) => !testOnlyGate(x));
   const untested = !l.testedHash;
   const blocked = otherProblems.length > 0 || p.blocking.length > 0 || untested;
   return `<tr>
@@ -124,7 +124,9 @@ export function executeBody(p: Plan, txId: string, notice: string, base = `/d/${
         first, and the chain is checked for its arrival. Every other check tells
         us an address ought to work; only this one shows that it does. The real
         payment unlocks once the test has landed.</p>
-      <p class="muted">Our fee is a payment like any other and is shown in full.
+      <p class="muted"><strong>Our fee is paid first.</strong> The recipients' payments unlock once it has
+        landed and been checked on the chain. Test payments to every address can go ahead before it.
+        Our fee is a payment like any other and is shown in full.
         Addresses were supplied and proved by their own owners; you are not
         asked to type any of them.</p>
     </div>
@@ -337,9 +339,10 @@ export async function prepare(env: Env, txId: string, legId: string,
 
   const testing = kind === "test";
 
-  // A missing test payment blocks the real payment, but not the test itself.
+  // A missing test payment, or our fee not yet landed, blocks the real
+  // payment but not the test itself.
   const problems = testing
-    ? line.problems.filter((x) => !x.startsWith("No test payment"))
+    ? line.problems.filter((x) => !testOnlyGate(x))
     : line.problems;
   if (problems.length) return json({ problem: problems.join(" ") });
   if (line.paid) return json({ problem: "That payment is already recorded." });
@@ -513,9 +516,15 @@ export { plan, transferData };
 function batchLines(p: Plan, kind: string): { lines: Line[]; skipped: string[] } {
   const testing = kind === "test";
   const lines: Line[] = [], skipped: string[] = [];
+  // One transaction that pays our fee alongside everyone pays it at the same
+  // instant, so the fee-first hold does not apply inside a batch that carries it.
+  const fee = p.lines.find((l) => l.participationId === null);
+  const feeInBatch = !testing && Boolean(fee && !fee.paid && fee.address && fee.testedHash
+    && fee.problems.filter((x) => !testOnlyGate(x)).length === 0);
   for (const l of p.lines) {
     if (l.paid || !l.address) continue;
-    const problems = testing ? l.problems.filter((x) => !x.startsWith("No test payment")) : l.problems;
+    const problems = testing ? l.problems.filter((x) => !testOnlyGate(x))
+      : feeInBatch ? l.problems.filter((x) => !x.startsWith(FEE_FIRST)) : l.problems;
     if (testing && l.testedHash) { skipped.push(`${l.name}: already tested`); continue; }
     if (!testing && !l.testedHash) { skipped.push(`${l.name}: no test payment yet`); continue; }
     if (problems.length) { skipped.push(`${l.name}: ${problems.join("; ")}`); continue; }

@@ -44,6 +44,17 @@ export const SCREEN_FRESH_DAYS = 7;
 /** Kept for callers that still import it; the rail is the authority. */
 export const DUST_MINOR = 1;
 
+/**
+ * Our fee is paid before anyone else. On a route where the sender makes the
+ * payments, nothing else would stop them paying every recipient and never
+ * sending ours; this way the recipients' payments unlock only once the fee
+ * has landed and been checked. Test payments are not held back by it.
+ */
+export const FEE_FIRST = "Waiting for ThePaymaster's fee to land first";
+/** Problems that hold back the real payment but not the one-unit test. */
+export const testOnlyGate = (problem: string) =>
+  problem.startsWith("No test payment") || problem.startsWith(FEE_FIRST);
+
 export interface Line {
   participationId: string | null;   // null for our fee
   name: string;
@@ -217,6 +228,16 @@ export async function plan(env: Env, txId: string): Promise<Plan> {
     line.testedHash = hit?.tx_hash ?? null;
     if (!line.paid && !line.testedHash) {
       line.problems.push("No test payment has reached this address yet");
+    }
+  }
+
+  // --- our fee first ------------------------------------------------------------
+  const feeLine = lines.find((l) => l.participationId === null);
+  if (feeLine && !feeLine.paid) {
+    for (const l of lines) {
+      if (l.participationId !== null && !l.paid) {
+        l.problems.push(`${FEE_FIRST} — this payment unlocks when it has.`);
+      }
     }
   }
 
