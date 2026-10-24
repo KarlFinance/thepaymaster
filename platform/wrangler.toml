@@ -32,5 +32,8 @@ bucket_name = "thepaymaster"
 # sender's pay card and in Schedule 5 of every Sender's Paymaster Agreement.
 # The CIS itself is served at client…/papers/client-information-sheet.pdf.
 [vars]
+# Who receives staff alerts (new enquiries, payments to confirm, signatures).
+# Comma-separated. Remove the line to send to every active admin again.
+STAFF_NOTIFY = "rl@thepaymaster.co.uk"
 MANDATED_ACCOUNT = "ThePaymaster Global Ltd|40-05-16|92786036|GB85HBUK40051692786036|HBUKGB4107E|HSBC UK"
 # FEE_BANK_ACCOUNT = "ThePaymaster Ltd|sort code|account number|IBAN|BIC|bank"   # only needed for the sender-direct mode, which is off

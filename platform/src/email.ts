@@ -83,7 +83,15 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
 }
 
 /** Everyone who should hear about a new enquiry. */
+/**
+ * Who on our side is told when something needs a person. STAFF_NOTIFY in
+ * wrangler.toml, comma-separated, decides it when set; otherwise every active
+ * admin. Kept separate from logins, so someone can sign in without receiving
+ * every alert.
+ */
 export async function staffEmails(env: Env): Promise<string[]> {
+  const fixed = String((env as any).STAFF_NOTIFY ?? "").split(",").map((s) => s.trim()).filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+  if (fixed.length) return fixed;
   const { results } = await env.DB.prepare(
     "SELECT email FROM admins WHERE active = 1").all<{ email: string }>();
   return (results ?? []).map((r) => r.email);
