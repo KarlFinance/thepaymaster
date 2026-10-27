@@ -69,6 +69,7 @@ session() {
 say "1. A stranger sends an enquiry"
 # ---------------------------------------------------------------------------
 CODE=$(curl -s -o /tmp/f.html -w "%{http_code}" -X POST "$BASE/enquiry" \
+  --data-urlencode "cf-turnstile-response=XXXX.DUMMY.TOKEN.XXXX" \
   --data-urlencode "name=Marina Vasquez" \
   --data-urlencode "email=marina@example.invalid" \
   --data-urlencode "phone=+44 7700 900123" \

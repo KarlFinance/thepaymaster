@@ -16,6 +16,10 @@ export interface Env {
   /** Local development only — see the hostname guard where it is read. */
   DEV_ADMIN_EMAIL?: string;
   CLIENT_BASE?: string;
+  /** Cloudflare Turnstile: the secret (a Worker secret), the widget's site key and the hostnames forms may come from. */
+  TURNSTILE_SECRET?: string;
+  TURNSTILE_SITEKEY?: string;
+  TURNSTILE_HOSTNAMES?: string;
   /** Document storage. Absent until R2 is switched on for the account. */
   DOCS?: R2Bucket;
   /** The key that signs seals (EIP-712). Absent: seals are unsigned, and say so. */

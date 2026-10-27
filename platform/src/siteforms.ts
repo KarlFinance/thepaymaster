@@ -13,6 +13,7 @@
  */
 
 import { type Env, type Actor, id, insert, update, log } from "./db.ts";
+import { human, HUMAN_CHECK_FAILED } from "./turnstile.ts";
 import { send, staffEmails } from "./email.ts";
 import { esc } from "./views.ts";
 import spec from "./site-forms.json" with { type: "json" };
@@ -64,6 +65,12 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
 
   // A bot fills every field it can see. This one is hidden from people.
   if (String(f.get("website") ?? "").trim()) return Response.redirect(SITE + form.thanks, 303);
+
+  // And a person proves they are one, with Cloudflare Turnstile, before anything is kept.
+  if (!(await human(env, request, f, slug))) {
+    return page("Please try again", `<h1>Please try again</h1><p>${HUMAN_CHECK_FAILED}</p>
+      <p><a href="javascript:history.back()">Go back to the form</a> — what you typed should still be there.</p>`, 400);
+  }
 
   const values: Record<string, string | string[]> = {};
   const missing: string[] = [];

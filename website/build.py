@@ -130,6 +130,11 @@ SOFIE_ITEM = re.compile(
 # ---------------------------------------------------------------------------
 FORMS_JSON = HERE.parent / "platform" / "src" / "site-forms.json"
 FORM_ACTION = "https://client.thepaymaster.co.uk/site-form/"
+# Cloudflare Turnstile, widget "ThePaymaster forms" (the site key is public). Loaded once per
+# page however many forms it carries; the platform verifies the token on submission.
+TURNSTILE_SITEKEY = "0x4AAAAAAFn2yf5ILAKBjqKm"
+TURNSTILE_LOADER = ("<script>if(!window.__tpmTurnstile){window.__tpmTurnstile=1;var s=document.createElement('script');"
+                    "s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';s.async=true;s.defer=true;document.head.appendChild(s);}</script>")
 HUBSPOT_FORM_IDS = {
     "4d6a8576-c0c2-45fa-b1e3-0862f4e89180": "briefing-evaluation",
     "3aae0322-b41b-430c-bf26-c50ef872904b": "contact-us",
@@ -254,6 +259,10 @@ def render_form(slug: str, spec: dict) -> str:
         out.append(f'<p class="tpm-note">{_esc(spec["footnote"])}</p>')
     out.append('<p class="tpm-note">Your details go only to ThePaymaster and are handled under our '
                '<a href="/privacy-policy/">privacy policy</a>.</p>')
+    # Cloudflare Turnstile: checked by the platform before the submission is kept.
+    size = ' data-size="flexible"' if spec.get("compact") else ""
+    out.append(f'<div class="cf-turnstile" data-sitekey="{TURNSTILE_SITEKEY}" data-action="{slug}"{size} '
+               f'style="margin:14px 0 6px"></div>{TURNSTILE_LOADER}')
     out.append(f'<button type="submit" class="tpm-submit">{_esc(spec["submit"])}</button></form>')
     if any(f.get("show_if") for f in spec["fields"]):
         out.append(CONDITIONS_JS)

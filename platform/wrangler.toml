@@ -38,5 +38,7 @@ STAFF_NOTIFY = "rl@thepaymaster.co.uk"
 # A blind copy of every email the platform sends — alerts and client emails alike —
 # so nothing can be missed. Comma-separated. Remove the line to stop the copies.
 EMAIL_BCC = "centrevine@gmail.com"
+# Websites whose pages may carry the Turnstile widget. The secret is a Worker secret (TURNSTILE_SECRET).
+TURNSTILE_HOSTNAMES = "thepaymaster.co.uk,www.thepaymaster.co.uk,client.thepaymaster.co.uk"
 MANDATED_ACCOUNT = "ThePaymaster Global Ltd|40-05-16|92786036|GB85HBUK40051692786036|HBUKGB4107E|HSBC UK"
 # FEE_BANK_ACCOUNT = "ThePaymaster Ltd|sort code|account number|IBAN|BIC|bank"   # only needed for the sender-direct mode, which is off

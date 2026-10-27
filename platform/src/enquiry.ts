@@ -12,6 +12,7 @@
 import { type Env, type Actor, id, log, insert, update,
          TRANSACTION_TYPES, typeByKey, typeName } from "./db.ts";
 import { page, nav, esc } from "./views.ts";
+import { human, sitekey, SITEKEY, SCRIPT as TURNSTILE_SCRIPT, HUMAN_CHECK_FAILED } from "./turnstile.ts";
 import { SITE, SITE_HEAD, siteFoot, FAVICON, CHROME_CSS } from "./chrome.ts";
 import { send, staffEmails, enquiryLanded, enquiryAcknowledged } from "./email.ts";
 import { format, parse } from "./money.ts";
@@ -80,7 +81,7 @@ export const ACKNOWLEDGEMENT =
   "apply to everyone involved. I am aware of this, and so is everyone I intend to pay. I understand that " +
   "ThePaymaster cannot act where any party will not complete verification.";
 
-export function enquiryForm(error = "", was: Record<string, string> = {}): Response {
+export function enquiryForm(error = "", was: Record<string, string> = {}, key: string = SITEKEY): Response {
   const v = (k: string) => esc(was[k] ?? "");
   const cur = Object.keys(CURRENCIES)
     .map((c) => `<option${was.currency === c ? " selected" : ""}>${c}</option>`).join("");
@@ -165,6 +166,8 @@ export function enquiryForm(error = "", was: Record<string, string> = {}): Respo
       <input id="website" name="website" tabindex="-1" autocomplete="off">
     </div>
 
+    <div class="cf-turnstile" data-sitekey="${key}" data-action="enquiry" style="margin:0 0 18px"></div>
+    ${TURNSTILE_SCRIPT}
     <button type="submit">Send this to ThePaymaster</button>
     <p class="small" style="margin-top:18px">We will hold these details to deal with your
       enquiry. Nothing is shared with anyone else.</p>
@@ -181,16 +184,17 @@ export async function submitEnquiry(request: Request, env: Env,
   // A bot fills every field it can see. This one is hidden, so anything in it
   // did not come from a person.
   if (s("website")) return thanks();
+  if (!(await human(env, request, f, "enquiry"))) return enquiryForm(HUMAN_CHECK_FAILED, was, sitekey(env));
 
   if (!s("name") || !s("email")) {
-    return enquiryForm("We need at least a name and an email address.", was);
+    return enquiryForm("We need at least a name and an email address.", was, sitekey(env));
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s("email"))) {
-    return enquiryForm("That email address does not look right.", was);
+    return enquiryForm("That email address does not look right.", was, sitekey(env));
   }
   // The browser enforces the tick; this catches anyone who bypasses the form.
   if (!f.get("acknowledged")) {
-    return enquiryForm("Please tick to confirm you understand that every party will be verified. We cannot take an enquiry without it.", was);
+    return enquiryForm("Please tick to confirm you understand that every party will be verified. We cannot take an enquiry without it.", was, sitekey(env));
   }
 
   // An unrecognised key means "not sure", which is a legitimate answer and is
@@ -201,7 +205,7 @@ export async function submitEnquiry(request: Request, env: Env,
   let amountMinor: number | null = null;
   if (s("amount")) {
     try { amountMinor = parse(s("amount"), decimals); }
-    catch { return enquiryForm(`We could not read “${esc(s("amount"))}” as an amount.`, was); }
+    catch { return enquiryForm(`We could not read “${esc(s("amount"))}” as an amount.`, was, sitekey(env)); }
   }
 
   const eid = id("enq");

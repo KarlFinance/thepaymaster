@@ -33,6 +33,7 @@ import { seal, seals } from "./dossier.ts";
 import { readyToSend, recipientsInvited, sealed as sealedNotify } from "./notify.ts";
 import { get as getSetting } from "./switches.ts";
 import { ACKNOWLEDGEMENT } from "./enquiry.ts";
+import { human, sitekey, SITEKEY, SCRIPT as TURNSTILE_SCRIPT, HUMAN_CHECK_FAILED } from "./turnstile.ts";
 
 const SYSTEM: Actor = { kind: "system", id: null };
 const ADMIN = "https://admin.thepaymaster.co.uk";
@@ -81,7 +82,7 @@ function page(title: string, body: string, status = 200): Response {
 <style>${CSS}</style></head><body><main>${body}</main></body></html>`, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-export function startForm(error = "", was: Record<string, string> = {}): Response {
+export function startForm(error = "", was: Record<string, string> = {}, key: string = SITEKEY): Response {
   const v = (k: string) => esc(was[k] ?? "");
   const rows = Array.from({ length: MAX_RECIPIENTS }, (_, i) => `
     <div class="row">
@@ -118,6 +119,8 @@ export function startForm(error = "", was: Record<string, string> = {}): Respons
       ${rows}
       <label class="check"><input type="checkbox" name="acknowledged" value="1" required${was.acknowledged ? " checked" : ""}> <span>${esc(ACKNOWLEDGEMENT)}</span></label>
       <div class="hp" aria-hidden="true"><input name="website" tabindex="-1" autocomplete="off"></div>
+      <div class="cf-turnstile" data-sitekey="${key}" data-action="distribute" style="margin-top:18px"></div>
+      ${TURNSTILE_SCRIPT}
       <button type="submit">Start the distribution</button>
       <p class="muted">We email you a link to confirm. Nobody else hears from us until you have.</p>
     </form>`);
@@ -137,34 +140,35 @@ export async function startSubmit(env: Env, request: Request, later: (p: Promise
   const s = (k: string) => String(f.get(k) ?? "").trim();
   const was = Object.fromEntries([...f.entries()].map(([k, v]) => [k, String(v)]));
   if (s("website")) return page("Thank you", "<h1>Thank you</h1><p>Please check your email.</p>");
+  if (!(await human(env, request, f, "distribute"))) return startForm(HUMAN_CHECK_FAILED, was, sitekey(env));
   const email = s("sender_email").toLowerCase();
-  if (!s("sender_name") || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return startForm("Your name and a valid email are needed.", was);
-  if (!s("name") || !s("detail")) return startForm("Give the distribution a name and say what it is for.", was);
-  if (!f.get("acknowledged")) return startForm("Please tick to confirm you understand that every party will be verified.", was);
+  if (!s("sender_name") || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return startForm("Your name and a valid email are needed.", was, sitekey(env));
+  if (!s("name") || !s("detail")) return startForm("Give the distribution a name and say what it is for.", was, sitekey(env));
+  if (!f.get("acknowledged")) return startForm("Please tick to confirm you understand that every party will be verified.", was, sitekey(env));
   let gross: number;
-  try { gross = parse(s("gross"), 6); } catch { return startForm(`We could not read "${s("gross")}" as an amount.`, was); }
-  if (gross <= 0) return startForm("Enter the total you will send.", was);
+  try { gross = parse(s("gross"), 6); } catch { return startForm(`We could not read "${s("gross")}" as an amount.`, was, sitekey(env)); }
+  if (gross <= 0) return startForm("Enter the total you will send.", was, sitekey(env));
 
   const recipients: { name: string; email: string; bps: number }[] = [];
   for (let i = 0; i < MAX_RECIPIENTS; i++) {
     const n = s(`rname${i}`), e = s(`remail${i}`).toLowerCase(), sh = s(`rshare${i}`);
     if (!n && !e && !sh) continue;
-    if (!n || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !sh) return startForm(`Recipient ${i + 1} needs a name, a valid email and a share.`, was);
+    if (!n || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !sh) return startForm(`Recipient ${i + 1} needs a name, a valid email and a share.`, was, sitekey(env));
     let bps: number;
-    try { bps = parse(sh.replace("%", ""), 2); } catch { return startForm(`Recipient ${i + 1}'s share "${sh}" is not a number.`, was); }
-    if (bps <= 0) return startForm(`Recipient ${i + 1}'s share must be more than zero.`, was);
-    if (e === email) return startForm("You cannot be a recipient of your own distribution.", was);
-    if (recipients.some((r) => r.email === e)) return startForm(`${e} is listed twice.`, was);
+    try { bps = parse(sh.replace("%", ""), 2); } catch { return startForm(`Recipient ${i + 1}'s share "${sh}" is not a number.`, was, sitekey(env)); }
+    if (bps <= 0) return startForm(`Recipient ${i + 1}'s share must be more than zero.`, was, sitekey(env));
+    if (e === email) return startForm("You cannot be a recipient of your own distribution.", was, sitekey(env));
+    if (recipients.some((r) => r.email === e)) return startForm(`${e} is listed twice.`, was, sitekey(env));
     recipients.push({ name: n, email: e, bps });
   }
-  if (!recipients.length) return startForm("Add at least one recipient.", was);
+  if (!recipients.length) return startForm("Add at least one recipient.", was, sitekey(env));
   const total = recipients.reduce((a, r) => a + r.bps, 0);
-  if (total !== 10000) return startForm(`The shares add up to ${format(total, 2)}%. They must add up to 100.`, was);
+  if (total !== 10000) return startForm(`The shares add up to ${format(total, 2)}%. They must add up to 100.`, was, sitekey(env));
 
   // A little restraint: a link to start a distribution is not a way to email strangers in bulk.
   const recent = await env.DB.prepare(
     `SELECT count(*) AS n FROM transactions WHERE self_serve = 1 AND submitted_by = ? AND created_at > datetime('now','-1 day')`).bind(email).first<any>();
-  if ((recent?.n ?? 0) >= 3) return startForm("You have started several distributions today. Please contact us and we will help.", was);
+  if ((recent?.n ?? 0) >= 3) return startForm("You have started several distributions today. Please contact us and we will help.", was, sitekey(env));
 
   const actor: Actor = { kind: "system", id: null, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
   const rail = await selfServeRail(env);

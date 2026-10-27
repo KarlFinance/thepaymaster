@@ -84,6 +84,7 @@ say "1. The sender starts the distribution on the public page"
 # ---------------------------------------------------------------------------
 check "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/distribute")" "200" "the start page opens"
 CODE=$(curl -s -o /tmp/ss.html -w "%{http_code}" -X POST "$BASE/distribute" \
+  --data-urlencode "cf-turnstile-response=XXXX.DUMMY.TOKEN.XXXX" \
   --data-urlencode "sender_name=Tomas Okafor" --data-urlencode "sender_email=$SENDER_EMAIL" \
   --data-urlencode "sender_phone=+44 7700 900456" \
   --data-urlencode "name=Self-serve rehearsal $SUFFIX" \
@@ -107,8 +108,18 @@ check "$(sql "SELECT count(*) FROM tokens WHERE transaction_id='$TX' AND purpose
 STAFFMAIL=$(sql "SELECT count(*) FROM audit_log WHERE entity_id='$TX' AND note LIKE '%new self-serve distribution%'")
 [ "${STAFFMAIL:-0}" -ge 1 ] && ok "staff were emailed about it" || bad "no staff email logged"
 
+echo "  — a submission without the human check is refused"
+curl -s -o /tmp/ss3.html -X POST "$BASE/distribute" \
+  --data-urlencode "sender_name=Bot" --data-urlencode "sender_email=bot-$SUFFIX@example.invalid" \
+  --data-urlencode "name=x" --data-urlencode "detail=x" --data-urlencode "gross=100" \
+  --data-urlencode "rname0=A" --data-urlencode "remail0=a2-$SUFFIX@example.invalid" --data-urlencode "rshare0=100" \
+  --data-urlencode "acknowledged=1"
+grep -q "could not confirm this came from a person" /tmp/ss3.html && ok "no Turnstile token, no distribution" || bad "a tokenless submission was not refused"
+check "$(sql "SELECT count(*) FROM parties WHERE email='bot-$SUFFIX@example.invalid'")" "0" "nothing was saved for it"
+
 echo "  — a bad split is refused"
 curl -s -o /tmp/ss2.html -X POST "$BASE/distribute" \
+  --data-urlencode "cf-turnstile-response=XXXX.DUMMY.TOKEN.XXXX" \
   --data-urlencode "sender_name=X" --data-urlencode "sender_email=x-$SUFFIX@example.invalid" \
   --data-urlencode "name=x" --data-urlencode "detail=x" --data-urlencode "gross=100" \
   --data-urlencode "rname0=A" --data-urlencode "remail0=a-$SUFFIX@example.invalid" --data-urlencode "rshare0=60" \
