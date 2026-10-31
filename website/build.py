@@ -336,6 +336,15 @@ def edits(text: str) -> str:
     for oldnum in ("+44 20 7088 8267", "+44 20 7088 8663"):
         text = text.replace(oldnum, PHONE)
     text = text.replace("+442070888267", PHONE_TEL).replace("+442070888663", PHONE_TEL)
+    # The old HubSpot chat box (with its tracking and cookie banner) — gone, 31 Oct 2026.
+    text = re.sub(r"<script async defer id='hs-script-loader' src=\"https://js\.hs-scripts\.com/[^\"]*\"></script>", "", text)
+    text = text.replace("<link rel='dns-prefetch' href='//js.hs-scripts.com' />", "")
+    # Google reCAPTCHA and the Brevo newsletter's leftovers: the forms use Turnstile now.
+    text = re.sub(r'<script[^>]*src="https://www\.google\.com/recaptcha/api\.js[^"]*"[^>]*></script>', "", text)
+    text = re.sub(r'<script id="wpforms-recaptcha-js-after">.*?</script>', "", text, flags=re.S)
+    text = text.replace('<link rel="stylesheet" href="https://sibforms.com/forms/end-form/build/sib-styles.css">', "")
+    # WhatsApp bottom right, where the chat box was.
+    text = text.replace('class="joinchat joinchat--left"', 'class="joinchat joinchat--right"')
     # A stray "n" before a bullet in the Peaceful Enjoyment summary line.
     text = text.replace("interview n\u2022", "interview \u2022")
     return text

@@ -54,3 +54,8 @@ ol.ekit-breadcrumb > li.brd_sep .separate_icon {
    Measured from the live page rather than guessed. */
 .ekit_social_media a { color: #fff; }
 .ekit_social_media a:hover { color: #FF8159; }
+
+/* WhatsApp sits bottom right now (31 Oct 2026), so the cookie "Manage consent"
+   tab moves to the bottom left, where WhatsApp used to be, instead of sliding
+   up underneath it. */
+.cmplz-manage-consent { right: auto !important; left: 40px !important; }
