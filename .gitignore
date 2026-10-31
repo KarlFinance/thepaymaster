@@ -6,3 +6,4 @@ platform/admin-credentials.txt
 
 # Client documents for reference — identity and company records, never to be committed
 context/
+backups/
