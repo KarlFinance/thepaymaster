@@ -20,6 +20,8 @@ export interface Env {
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITEKEY?: string;
   TURNSTILE_HOSTNAMES?: string;
+  /** Read-only Cloudflare API token (Account + Zone Analytics: Read) for the Traffic page's history. */
+  CF_ANALYTICS_TOKEN?: string;
   /** Document storage. Absent until R2 is switched on for the account. */
   DOCS?: R2Bucket;
   /** The key that signs seals (EIP-712). Absent: seals are unsigned, and say so. */

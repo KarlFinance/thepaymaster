@@ -33,6 +33,7 @@ import { seal, seals } from "./dossier.ts";
 import { readyToSend, recipientsInvited, sealed as sealedNotify } from "./notify.ts";
 import { get as getSetting } from "./switches.ts";
 import { ACKNOWLEDGEMENT } from "./enquiry.ts";
+import { visitorId } from "./traffic.ts";
 import { human, sitekey, SITEKEY, SCRIPT as TURNSTILE_SCRIPT, HUMAN_CHECK_FAILED } from "./turnstile.ts";
 
 const SYSTEM: Actor = { kind: "system", id: null };
@@ -198,6 +199,7 @@ export async function startSubmit(env: Env, request: Request, later: (p: Promise
     amount_minor: gross, currency: "USDT", inbound: "crypto", outbound: "crypto", converts: 0,
     detail: `Self-serve distribution ${ref}: ${s("name")}\n${s("detail")}\n\n` + recipients.map((r) => `${r.name} <${r.email}> ${format(r.bps, 2)}%`).join("\n"),
     source: "Self-serve distribution", status: "converted", transaction_id: txId,
+    visitor: await visitorId(env, request),
     acknowledged_at: stamp(), acknowledged_text: ACKNOWLEDGEMENT,
   });
 

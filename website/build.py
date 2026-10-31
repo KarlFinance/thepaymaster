@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import html
 import shutil
 import subprocess
 from pathlib import Path
@@ -343,6 +344,9 @@ def edits(text: str) -> str:
     text = re.sub(r'<script[^>]*src="https://www\.google\.com/recaptcha/api\.js[^"]*"[^>]*></script>', "", text)
     text = re.sub(r'<script id="wpforms-recaptcha-js-after">.*?</script>', "", text, flags=re.S)
     text = text.replace('<link rel="stylesheet" href="https://sibforms.com/forms/end-form/build/sib-styles.css">', "")
+    # Site Kit's "Sign in with Google" for WordPress logins: there is no WordPress to log into.
+    text = text.replace('<script src="https://accounts.google.com/gsi/client"></script>', "")
+    text = re.sub(r'<script data-siwg-config="[^"]*" src="/wp-content/plugins/google-site-kit/[^"]*"[^>]*></script>', "", text)
     # WhatsApp bottom right, where the chat box was.
     text = text.replace('class="joinchat joinchat--left"', 'class="joinchat joinchat--right"')
     # A stray "n" before a bullet in the Peaceful Enjoyment summary line.
@@ -361,6 +365,101 @@ def page_list() -> list[tuple[str, str]]:
                   if p.get("status", "publish") == "publish")
 
 
+# ---------------------------------------------------------------------------
+# Search: titles, descriptions, sharing tags, canonical addresses, noindex and
+# structured data, from seo.json. Pages not listed keep what they had.
+# ---------------------------------------------------------------------------
+SEO = json.loads((HERE / "seo.json").read_text())
+
+
+def _attr(s: str) -> str:
+    return html.escape(s, quote=True)
+
+
+def page_url(f: Path) -> str:
+    rel = f.relative_to(DIST).as_posix()
+    return "/" if rel == "index.html" else "/" + rel[: -len("index.html")]
+
+
+def faq_jsonld(text: str) -> str | None:
+    cards = re.findall(r'<span class="ekit-accordion-title">(.*?)</span>.*?<div class="elementskit-card-body[^"]*">(.*?)</div>\s*</div>\s*</div>', text, re.S)
+    clean = lambda v: re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", v))).strip().replace(" ®", "®")
+    items = [{"@type": "Question", "name": clean(q), "acceptedAnswer": {"@type": "Answer", "text": clean(a)}} for q, a in cards if clean(q) and clean(a)]
+    if not items:
+        return None
+    return json.dumps({"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": items}, ensure_ascii=False)
+
+
+def org_jsonld() -> str:
+    s = SEO["site"]
+    return json.dumps({
+        "@context": "https://schema.org", "@type": "FinancialService",
+        "@id": s["url"] + "/#organization",
+        "name": s["name"], "legalName": s["legalName"], "url": s["url"] + "/",
+        "logo": s["logo"], "image": s["image"], "telephone": s["telephone"],
+        "description": SEO["pages"]["/"]["description"],
+        "address": {"@type": "PostalAddress", "streetAddress": s["street"], "addressLocality": s["city"],
+                    "postalCode": s["postcode"], "addressCountry": s["country"]},
+        "areaServed": "Worldwide", "priceRange": "1% of the distribution",
+        "identifier": {"@type": "PropertyValue", "propertyID": "Companies House", "value": s["companyNumber"]},
+    }, ensure_ascii=False)
+
+
+def seo(f: Path, text: str) -> str:
+    url = page_url(f)
+    meta = SEO["pages"].get(url)
+    if meta is None or "</head>" not in text:
+        return text
+    full = SEO["site"]["url"] + url
+    head = []
+    # Absolute canonical, replacing WordPress's relative one.
+    text = re.sub(r'<link rel="canonical"[^>]*>\s*', "", text)
+    head.append(f'<link rel="canonical" href="{full}">')
+    if meta.get("noindex"):
+        text = re.sub(r"<meta name='robots' content='[^']*' />", "", text)
+        head.append('<meta name="robots" content="noindex, follow">')
+    else:
+        title = meta["title"]
+        desc = meta["description"]
+        text = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", text, count=1, flags=re.S)
+        text = re.sub(r'<meta name="description"[^>]*>\s*', "", text)
+        head += [
+            f'<meta name="description" content="{_attr(desc)}">',
+            '<meta property="og:type" content="website">',
+            f'<meta property="og:site_name" content="ThePaymaster®">',
+            f'<meta property="og:title" content="{_attr(title)}">',
+            f'<meta property="og:description" content="{_attr(desc)}">',
+            f'<meta property="og:url" content="{full}">',
+            f'<meta property="og:image" content="{SEO["site"]["image"]}">',
+            '<meta property="og:locale" content="en_GB">',
+            '<meta name="twitter:card" content="summary">',
+            f'<meta name="twitter:title" content="{_attr(title)}">',
+            f'<meta name="twitter:description" content="{_attr(desc)}">',
+        ]
+        if url == "/":
+            head.append(f'<script type="application/ld+json">{org_jsonld()}</script>')
+        if url == "/faqs/":
+            faq = faq_jsonld(text)
+            if faq:
+                head.append(f'<script type="application/ld+json">{faq}</script>')
+    # A decorative loading spinner needs an empty alt, so screen readers skip it.
+    text = re.sub(r'(<img\b(?![^>]*\balt=)[^>]*spinner\.png[^>]*?)(\s*/?>)', r'\1 alt=""\2', text)
+    return text.replace("</head>", "".join(head) + "</head>", 1)
+
+
+def sitemap() -> int:
+    """Every page that is meant to be found, from the build itself."""
+    from datetime import date
+    today = date.today().isoformat()
+    urls = sorted(u for u, m in SEO["pages"].items() if not m.get("noindex"))
+    urls += ["/enquiry", "/distribute"]
+    body = "".join(f"  <url><loc>{SEO['site']['url']}{u}</loc><lastmod>{today}</lastmod></url>\n" for u in urls)
+    (DIST / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                                      f"{body}</urlset>\n")
+    return len(urls)
+
+
 def main() -> None:
     if DIST.exists():
         shutil.rmtree(DIST)
@@ -374,6 +473,7 @@ def main() -> None:
         new = edits(new)
         new, n = own_forms(new)
         forms_swapped += n
+        new = seo(f, new)
         if new != text:
             f.write_text(new)
             stripped += 1
@@ -403,22 +503,9 @@ def main() -> None:
     (DIST / "_redirects").write_text(REDIRECTS)
     (DIST / "robots.txt").write_text(ROBOTS)
 
-    # The page list comes from WordPress. When the WordPress box does not
-    # answer, keep the sitemap that is live now rather than failing the build.
-    try:
-        pages = page_list()
-        urls = "".join(
-            f"  <url><loc>{u}</loc><lastmod>{m}</lastmod></url>\n" for u, m in pages)
-        (DIST / "sitemap.xml").write_text(
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            f"{urls}</urlset>\n")
-    except Exception as err:
-        live = subprocess.run(["curl", "-sS", "-m", "30", f"{DOMAIN}/sitemap.xml"],
-                              capture_output=True, text=True, check=True).stdout
-        (DIST / "sitemap.xml").write_text(live)
-        pages = re.findall(r"<loc>", live)
-        print(f"  sitemap     WordPress unreachable ({type(err).__name__}); kept the live sitemap")
+    # Built from seo.json, never copied from the live site: copying it once
+    # republished a Worker error page as the sitemap for weeks.
+    pages = range(sitemap())
 
     files = sum(1 for f in DIST.rglob("*") if f.is_file())
     size = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())

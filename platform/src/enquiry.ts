@@ -12,6 +12,7 @@
 import { type Env, type Actor, id, log, insert, update,
          TRANSACTION_TYPES, typeByKey, typeName } from "./db.ts";
 import { page, nav, esc } from "./views.ts";
+import { visitorId } from "./traffic.ts";
 import { human, sitekey, SITEKEY, SCRIPT as TURNSTILE_SCRIPT, HUMAN_CHECK_FAILED } from "./turnstile.ts";
 import { SITE, SITE_HEAD, siteFoot, FAVICON, CHROME_CSS } from "./chrome.ts";
 import { send, staffEmails, enquiryLanded, enquiryAcknowledged } from "./email.ts";
@@ -224,6 +225,7 @@ export async function submitEnquiry(request: Request, env: Env,
     detail: s("detail") || null,
     source: request.headers.get("Referer") ?? null,
     status: "new",
+    visitor: await visitorId(env, request),
     acknowledged_at: new Date().toISOString().replace("T", " ").slice(0, 19),
     acknowledged_text: ACKNOWLEDGEMENT,
   });

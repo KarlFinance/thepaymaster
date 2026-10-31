@@ -1,0 +1,149 @@
+{
+  "_comment": "Search metadata per page, applied by build.py. title: the <title> and og:title. description: the meta description Google shows under the result (aim 120-160 characters). Pages in noindex are kept on the site but asked to stay out of search results: thank-you pages, empty placeholders, and pages that are only for invited clients.",
+  "site": {
+    "name": "ThePaymaster",
+    "url": "https://thepaymaster.co.uk",
+    "logo": "https://thepaymaster.co.uk/wp-content/uploads/2025/05/Thepaymaster-logo-300x100-1.png",
+    "image": "https://thepaymaster.co.uk/wp-content/uploads/2025/05/Thepaymaster-logo-300x100-1.png",
+    "telephone": "+44 20 7038 6792",
+    "street": "167-169 Great Portland Street, Fifth Floor",
+    "city": "London",
+    "postcode": "W1W 5PF",
+    "country": "GB",
+    "legalName": "ThePaymaster Limited",
+    "companyNumber": "15991850"
+  },
+  "pages": {
+    "/": {
+      "title": "ThePaymaster® – Online Paymaster Service for High-Value Payment Distributions",
+      "description": "The first online paymaster platform. We verify every party and distribute profit shares and commissions in fiat or crypto, for a single 1% fee, from London."
+    },
+    "/about-us/": {
+      "title": "About ThePaymaster® – The First Online Paymaster Platform",
+      "description": "ThePaymaster handles profit shares and commission payments for intermediaries in high-value deals, with verified parties and a sealed record of every payment."
+    },
+    "/how-it-works/": {
+      "title": "How Our Paymaster Service Works – ThePaymaster®",
+      "description": "From a 30-minute briefing to verified payouts: how ThePaymaster onboards senders and recipients, checks every party and distributes funds step by step."
+    },
+    "/why-choose-us/": {
+      "title": "Why Choose ThePaymaster® – Fast, Transparent Paymaster Payments",
+      "description": "High-value paymaster payments without the delays, paperwork or opaque fees. One 1% fee, every party verified, and an independent record for each recipient."
+    },
+    "/crypto-transactions/": {
+      "title": "Crypto Paymaster Services – USDT and Fiat Payouts | ThePaymaster®",
+      "description": "Distribute crypto or fiat to multiple recipients with full verification. Large USDT payouts, a regulated OTC desk partner, and every payment checked on-chain."
+    },
+    "/faqs/": {
+      "title": "Paymaster FAQs – Fees, Process, Security | ThePaymaster®",
+      "description": "Answers to common questions about ThePaymaster: how the paymaster service works, the 1% fee, verification, security, the introducer programme and coverage."
+    },
+    "/contact-us/": {
+      "title": "Contact ThePaymaster® – London Paymaster Service",
+      "description": "Talk to ThePaymaster about a high-value payment distribution. Call +44 20 7038 6792 or send us your enquiry from our office on Great Portland Street, London."
+    },
+    "/introducer-program/": {
+      "title": "Introducer Programme – Earn Lifetime Rewards | ThePaymaster®",
+      "description": "Refer clients who need a paymaster and earn ongoing rewards on every transaction they complete. Read the introducer agreement and register online."
+    },
+    "/tax-advisory-service/": {
+      "title": "Tax Advisory for High-Net-Worth Individuals | ThePaymaster®",
+      "description": "Tax advisory services for high-net-worth individuals and families, in partnership with 50 International: global asset review, planning and compliance."
+    },
+    "/peaceful-enjoyment/": {
+      "title": "Peaceful Enjoyment™ – A Living Compliance Dossier | ThePaymaster®",
+      "description": "Peaceful Enjoyment turns compliance into an asset: a living dossier of your financial story, with evidence, to speed up onboarding with banks and brokers."
+    },
+    "/source-of-funds-verification/": {
+      "title": "Source of Funds Verification with SOFie™ | ThePaymaster®",
+      "description": "SOFie, our Source Of Funds Intelligent Evaluation, simplifies source-of-funds checks for high-value transactions. Start your verification online."
+    },
+    "/briefing-evaluation/": {
+      "title": "Briefing and Evaluation – Start Your Distribution | ThePaymaster®",
+      "description": "Ready to distribute the payments from a completed deal? Check your transaction meets our criteria and brief ThePaymaster in a few minutes."
+    },
+    "/recipient-onboarding/": {
+      "title": "Recipient Onboarding – Receive a Payment | ThePaymaster®",
+      "description": "Due to receive a payment through ThePaymaster? Tell us who you are and which transaction it is, and we will send you a private link to your own account."
+    },
+    "/join-transaction/": {
+      "title": "Join a Transaction as a Recipient | ThePaymaster®",
+      "description": "Joining a transaction as a recipient? Give us your details and the transaction, and we will match you to it and send your private onboarding link."
+    },
+    "/form/": {
+      "title": "Transaction Brief – Tell Us Your Paymaster Requirements | ThePaymaster®",
+      "description": "Brief ThePaymaster on your payment distribution: the sender, the market sector, the amounts and the recipients. We will then arrange a short call."
+    },
+    "/regulatory-framework/": {
+      "title": "Regulatory Framework – Compliance at ThePaymaster®",
+      "description": "How ThePaymaster combines innovation with regulatory compliance across fiat and digital asset payment distributions, including verification and screening."
+    },
+    "/anti-money-laundering-statement/": {
+      "title": "Anti-Money Laundering Statement | ThePaymaster®",
+      "description": "ThePaymaster's commitment to preventing financial crime: identity verification, source-of-funds checks and screening on every high-value payment."
+    },
+    "/anti-bribery-corruption-policy/": {
+      "title": "Anti-Bribery & Corruption Policy | ThePaymaster®",
+      "description": "ThePaymaster's zero-tolerance approach to bribery and corruption, and the standards of integrity we hold ourselves and our partners to."
+    },
+    "/complaints-policy/": {
+      "title": "Complaints Policy | ThePaymaster®",
+      "description": "How to raise a concern with ThePaymaster, how we handle complaints, and the timescales we work to in resolving them."
+    },
+    "/customer-relations-charter/": {
+      "title": "Customer Relations Charter | ThePaymaster®",
+      "description": "Our promise to every client: the standards of service, communication and care you can expect from ThePaymaster on each payment distribution."
+    },
+    "/intellectual-property-statement/": {
+      "title": "Intellectual Property Statement | ThePaymaster®",
+      "description": "ThePaymaster's intellectual property: our trademarks, patent applications and the technology behind our online paymaster platform."
+    },
+    "/modern-slavery-human-trafficking-statement/": {
+      "title": "Modern Slavery & Human Trafficking Statement | ThePaymaster®",
+      "description": "ThePaymaster Limited's zero-tolerance statement on modern slavery and human trafficking, and how we guard against them in our operations and partners."
+    },
+    "/privacy-policy/": {
+      "title": "Privacy Policy | ThePaymaster®",
+      "description": "How ThePaymaster collects, uses and protects your personal data when you use our website and our paymaster services."
+    },
+    "/cookie-policy/": {
+      "title": "Cookie Policy | ThePaymaster®",
+      "description": "How and why ThePaymaster uses cookies and similar technologies on thepaymaster.co.uk, and how to manage your preferences."
+    },
+    "/cookie-policy-uk/": {
+      "title": "Cookie Policy (UK) | ThePaymaster®",
+      "description": "The full list of cookies used on thepaymaster.co.uk, what each one does and how long it lasts, for visitors in the United Kingdom."
+    },
+    "/sustainability-carbon-neutral-policy/": {
+      "title": "Sustainability & Carbon Neutral Policy | ThePaymaster®",
+      "description": "How ThePaymaster reduces the environmental cost of high-value payments by replacing paper-heavy processes with a digital paymaster platform."
+    },
+    "/terms-conditions/": {
+      "title": "Terms & Conditions | ThePaymaster®",
+      "description": "The terms and conditions for using the ThePaymaster website. ThePaymaster Limited, company number 15991850."
+    },
+    "/training-development-policy/": {
+      "title": "Training & Development Policy | ThePaymaster®",
+      "description": "How ThePaymaster trains and develops its people to keep high standards of expertise and judgement in high-value paymaster services."
+    },
+    "/trust-security-policy/": {
+      "title": "Trust & Security Policy | ThePaymaster®",
+      "description": "How ThePaymaster protects every high-value transaction: verification, secure accounts, locked payment details and an independent record of each payment."
+    },
+    "/agent-registration/": { "noindex": true },
+    "/booking-confirmation/": { "noindex": true },
+    "/introducer-thank-you/": { "noindex": true },
+    "/onboarding/": { "noindex": true },
+    "/subscribed/": { "noindex": true },
+    "/thank-you/": { "noindex": true },
+    "/blog/": { "noindex": true },
+    "/book-call/": { "noindex": true },
+    "/sofie-interview/": { "noindex": true },
+    "/sofie-ai-introduction/": { "noindex": true },
+    "/verified-wallet/": { "noindex": true },
+    "/start-transaction/": { "noindex": true },
+    "/ppp-stage-one-evaluation/": { "noindex": true },
+    "/ppp-stage-two-evaluation/": { "noindex": true },
+    "/wgp-pre-qualification/": { "noindex": true }
+  }
+}

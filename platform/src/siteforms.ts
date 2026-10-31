@@ -14,6 +14,7 @@
 
 import { type Env, type Actor, id, insert, update, log } from "./db.ts";
 import { human, HUMAN_CHECK_FAILED } from "./turnstile.ts";
+import { visitorId } from "./traffic.ts";
 import { send, staffEmails } from "./email.ts";
 import { esc } from "./views.ts";
 import spec from "./site-forms.json" with { type: "json" };
@@ -119,12 +120,15 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
     || String(values.company_name ?? values.company ?? "") || null;
   const phone = String(values.phone ?? values.mobilephone ?? "") || null;
   const actor: Actor = { kind: "system", id: null, ip: request.headers.get("CF-Connecting-IP") ?? undefined };
+  // The same visitor id the site's traffic log uses, so this can be traced to the visit behind it.
+  const visitor = await visitorId(env, request);
   const extra = form.agreement ? { agreed_to: form.agreement, agreed_at: stamp() } : {};
   await insert(env.DB, actor, "site_form.received", "site_forms", rowId, {
     form: slug, name, email: email || null, phone,
     fields_json: JSON.stringify({ ...values, ...extra }), files_json: files.length ? JSON.stringify(files) : null,
     ip: actor.ip ?? null, agent: (request.headers.get("User-Agent") ?? "").slice(0, 200) || null,
     referer: (request.headers.get("Referer") ?? "").slice(0, 300) || null,
+    visitor,
   }, { note: `${form.title} from ${name ?? email ?? "someone"}` });
 
   // Every submission is also an enquiry, so everything lands in one queue.
@@ -138,7 +142,7 @@ export async function submitSiteForm(request: Request, env: Env, slug: string, l
     `Full record and files: ${ADMIN}/forms/${rowId}`].filter((x) => x !== null).join("\n").slice(0, 8000);
   await insert(env.DB, actor, "enquiry.received", "enquiries", enquiryId, {
     name: (name ?? email ?? "Website visitor").slice(0, 200), email: email || "unknown@website.form", phone,
-    whatsapp_ok: 0, detail, source: `Website form: ${form.title}`, status: "new", site_form_id: rowId,
+    whatsapp_ok: 0, detail, source: `Website form: ${form.title}`, status: "new", site_form_id: rowId, visitor,
   }, { note: `from the ${form.title} form` });
   await env.DB.prepare("UPDATE site_forms SET enquiry_id = ? WHERE id = ?").bind(enquiryId, rowId).run();
 

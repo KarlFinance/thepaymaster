@@ -13,3 +13,10 @@ workers_dev = false
 [[services]]
 binding = "PLATFORM"
 service = "thepaymaster-platform"
+
+# Traffic: the router writes one row per page view into the platform's own
+# database (traffic_hits), and the admin's Traffic page reads it.
+[[d1_databases]]
+binding = "DB"
+database_name = "thepaymaster"
+database_id = "d6439bf3-f101-4169-b21a-49e7dc6ea0cf"

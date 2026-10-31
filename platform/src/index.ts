@@ -15,6 +15,7 @@ import { page, nav, board, esc, type Row } from "./views.ts";
 import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { startForm as startDistributionForm, startSubmit as startDistribution, selfServeOn, advance as advanceSelfServe, advanceForParty } from "./selfserve.ts";
 import { sitekey } from "./turnstile.ts";
+import { trafficPage } from "./traffic.ts";
 import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
 import { submitSiteForm, formsInbox, formDetail, setFormStatus, formFile } from "./siteforms.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
@@ -277,6 +278,7 @@ export default {
       }
       if (url.pathname === "/badges") return badgesPage(env, admin, actor, request);
       if (url.pathname === "/fiat") return fiatPage(env, admin, actor, request);
+      if (url.pathname === "/traffic") return trafficPage(env, admin, url);
       if (url.pathname === "/wallets") return walletsPage(env, admin, actor, request);
       if (url.pathname.startsWith("/p/")) {
         const pid = url.pathname.slice(3).split("/")[0];
