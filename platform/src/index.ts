@@ -16,7 +16,7 @@ import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { startForm as startDistributionForm, startSubmit as startDistribution, selfServeOn, advance as advanceSelfServe, advanceForParty } from "./selfserve.ts";
 import { sitekey } from "./turnstile.ts";
 import { trafficPage } from "./traffic.ts";
-import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus, deleteEnquiries, deleteSiteForms } from "./enquiry.ts";
+import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus, deleteEnquiries, deleteSiteForms, emailEnquirer } from "./enquiry.ts";
 import { submitSiteForm, formsInbox, formDetail, setFormStatus, formFile } from "./siteforms.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
@@ -293,11 +293,15 @@ export default {
         if (url.pathname.endsWith("/status") && request.method === "POST") {
           return enquiryStatus(request, env, actor, eid, () => nextRef(env.DB));
         }
+        if (url.pathname.endsWith("/email") && request.method === "POST") {
+          return emailEnquirer(request, env, actor, admin, eid);
+        }
         if (url.pathname.endsWith("/delete") && request.method === "POST") {
           const r = await deleteEnquiries(env, actor, [eid]);
           return Response.redirect(new URL(`/enquiries?deleted=${r.deleted}&kept=${r.refused.length}`, url).toString(), 303);
         }
-        return enquiryDetail(env, admin, eid);
+        return enquiryDetail(env, admin, eid, url.searchParams.get("sent")
+          ? `<div class="good" style="max-width:900px">Sent. Their reply will come to ${esc(admin.email)}.</div>` : "");
       }
       if (url.pathname === "/kyc") return kycQueue(env, admin);
       if (url.pathname === "/help") {

@@ -323,7 +323,7 @@ export async function inbox(env: Env, admin: { name: string }, notice = ""): Pro
     </div>`, { nav: nav("/enquiries", admin.name) });
 }
 
-export async function enquiryDetail(env: Env, admin: { name: string }, eid: string): Promise<Response> {
+export async function enquiryDetail(env: Env, admin: { name: string; email?: string }, eid: string, flash = ""): Promise<Response> {
   const e = await env.DB.prepare("SELECT * FROM enquiries WHERE id = ?")
     .bind(eid).first<Record<string, any>>();
   if (!e) return new Response("Not found", { status: 404 });
@@ -351,7 +351,10 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
           <button class="go" name="to" value="converted">Create transaction from this</button>
         </div></form>`;
 
+  const emailBox = await replyBox(env, admin, e);
+
   return page(e.name, `<h1>${esc(e.name)}</h1>
+    ${flash}
     <div class="panel"><table>
       ${kv("Email", `<a href="mailto:${esc(e.email)}">${esc(e.email)}</a>`)}
       ${kv("Phone", e.phone ? `${esc(e.phone)} — ${wa}` : "—")}
@@ -379,6 +382,8 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
     <div class="panel"><p style="white-space:pre-wrap;margin:0">${esc(e.detail ?? "—")}</p>
       <p class="muted" style="margin-bottom:0">Captured as written and never edited —
         this is the first entry in the dossier.</p></div>
+
+    ${emailBox}
 
     <h2>Move it on</h2>
     <div class="panel">${actions}</div>
@@ -522,4 +527,92 @@ export async function deleteSiteForms(env: Env, actor: Actor, formIds: string[])
     deleted++;
   }
   return { deleted, refused };
+}
+
+
+// ---------------------------------------------------------------------------
+// The first reply: from the person who sends it, so the conversation carries
+// on in their own mailbox
+// ---------------------------------------------------------------------------
+
+const firstName = (name: string) => (name ?? "").trim().split(/\s+/)[0] || "there";
+const canEmail = (email: string | null | undefined) => Boolean(email) && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email)) && !/@website\.form$/.test(String(email));
+
+export function replyDraft(e: Record<string, any>, admin: { name: string }): { subject: string; text: string } {
+  const what = e.source === "Self-serve distribution" ? " about your USDT distribution"
+    : /Website form: (.+)/.test(e.source ?? "") ? ` through our ${String(e.source).replace("Website form: ", "").toLowerCase()} form` : "";
+  return {
+    subject: "Your enquiry to ThePaymaster",
+    text: [
+      `Dear ${firstName(e.name)},`,
+      ``,
+      `Thank you for getting in touch with ThePaymaster${what}. I would be glad to help.`,
+      ``,
+      `So that we understand exactly what you need, could you tell me a little more about the transaction: roughly the amount, how many people are to be paid, and when you expect the funds to be available?`,
+      ``,
+      `If it is easier to talk it through, we can arrange a short call. Just reply with a couple of times that suit you.`,
+      ``,
+      `Kind regards,`,
+      ``,
+      admin.name || "ThePaymaster",
+      `ThePaymaster`,
+      `+44 20 7038 6792`,
+      `thepaymaster.co.uk`,
+    ].join("\n"),
+  };
+}
+
+async function replyBox(env: Env, admin: { name: string; email?: string }, e: Record<string, any>): Promise<string> {
+  if (!canEmail(e.email)) {
+    return `<h2>Email them</h2><div class="panel"><p class="muted" style="margin:0">There is no usable email address on this enquiry.</p></div>`;
+  }
+  const { results: sent } = await env.DB.prepare(
+    `SELECT at, actor_id, after_json FROM audit_log WHERE entity_kind = 'enquiries' AND entity_id = ? AND action = 'enquiry.emailed' ORDER BY id DESC`).bind(e.id).all<any>();
+  const d = replyDraft(e, admin);
+  const history = (sent ?? []).map((r: any) => {
+    const m = JSON.parse(r.after_json || "{}");
+    return `<details style="margin:6px 0"><summary><b>${esc(m.subject ?? "")}</b> <span class="muted">— ${esc(String(r.at).slice(0, 16))} UTC, from ${esc(m.from ?? "")}</span></summary>
+      <p style="white-space:pre-wrap;margin:8px 0 0;font-size:14px">${esc(m.text ?? "")}</p></details>`;
+  }).join("");
+  const me = admin.email ?? "you";
+  return `<h2>Email them</h2>
+    <div class="panel">
+      ${history ? `<p style="margin-top:0"><b>Already emailed</b></p>${history}<hr style="border:0;border-top:1px solid var(--rule);margin:14px 0">` : ""}
+      <form method="post" action="/e/${esc(e.id)}/email" onsubmit="return confirm('Send this to ${esc(e.email)}?')">
+        <label for="subject">Subject</label>
+        <input id="subject" name="subject" value="${esc(d.subject)}" maxlength="200" required>
+        <label for="text">Message</label>
+        <textarea id="text" name="text" rows="16" maxlength="8000" required style="font:inherit;font-size:14.5px;line-height:1.5">${esc(d.text)}</textarea>
+        <div class="row" style="align-items:center;gap:12px;margin-top:12px">
+          <button class="go" type="submit">Send to ${esc(e.email)}</button>
+        </div>
+        <p class="muted" style="margin-bottom:0">Sent as <b>${esc(admin.name)} | ThePaymaster</b>, copied to <b>${esc(me)}</b>, with replies going to <b>${esc(me)}</b>. When they answer, carry on from your own mailbox; the thread is already there. Sending marks the enquiry as contacted.</p>
+      </form>
+    </div>`;
+}
+
+export async function emailEnquirer(request: Request, env: Env, actor: Actor, admin: { name: string; email: string }, eid: string): Promise<Response> {
+  const f = await request.formData();
+  const subject = String(f.get("subject") ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, 200);
+  const text = String(f.get("text") ?? "").replace(/\r\n/g, "\n").trim().slice(0, 8000);
+  const e = await env.DB.prepare("SELECT * FROM enquiries WHERE id = ?").bind(eid).first<Record<string, any>>();
+  if (!e) return new Response("Not found", { status: 404 });
+  const fail = (why: string) => enquiryDetail(env, admin, eid, `<div class="err" style="max-width:900px">${esc(why)}</div>`);
+  if (!canEmail(e.email)) return fail("There is no usable email address on this enquiry.");
+  if (!subject || !text) return fail("Write a subject and a message.");
+  const fromName = `${admin.name} | ThePaymaster`;
+  const fromLocal = admin.email.split("@")[0];
+  const ok = await send(env, actor, {
+    to: e.email, cc: [admin.email], replyTo: admin.email, fromName, fromLocal,
+    subject, text, about: { kind: "enquiries", id: eid },
+  });
+  if (!ok) return fail("The email could not be sent. Nothing was recorded as sent; the reason is in the History below. Try again in a minute.");
+  await log(env.DB, actor, "enquiry.emailed", "enquiries", eid, {
+    after: { to: e.email, from: `${fromName} <${fromLocal}@send.thepaymaster.co.uk>`, cc: admin.email, reply_to: admin.email, subject, text },
+    note: `emailed ${e.email}: "${subject}"`,
+  });
+  if (e.status === "new") {
+    await update(env.DB, actor, "enquiry.contacted", "enquiries", eid, { status: "contacted" }, { status: e.status }, { note: "first email sent" });
+  }
+  return Response.redirect(new URL(`/e/${eid}?sent=1`, request.url).toString(), 303);
 }

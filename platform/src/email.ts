@@ -35,6 +35,11 @@ export interface Mail {
   /** Plain text. Everything here reads fine without markup. */
   text: string;
   replyTo?: string;
+  /** Copied in, visibly: a person's own address on a reply they send, so the thread is in their mailbox too. */
+  cc?: string[];
+  /** A person sending as themselves, e.g. "Ray Lovell | ThePaymaster" and "rl": sent from rl@send.thepaymaster.co.uk. */
+  fromName?: string;
+  fromLocal?: string;
   /** What this send is about, for the log and for the dossier. */
   about?: { kind: string; id: string };
 }
@@ -51,7 +56,11 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
   // A blind copy of every email to the safety mailbox (EMAIL_BCC), so nothing
   // the platform sends can go unseen. Skipped where it is already a recipient.
   const bcc = String((env as any).EMAIL_BCC ?? "").split(",").map((s) => s.trim())
-    .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s) && !to.map((t) => t.toLowerCase()).includes(s.toLowerCase()));
+    .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s) && ![...to, ...(mail.cc ?? [])].map((t) => t.toLowerCase()).includes(s.toLowerCase()));
+  // The verified sending domain is send.thepaymaster.co.uk; a person's name and mailbox part go on it.
+  const local = (mail.fromLocal ?? "").toLowerCase().replace(/[^a-z0-9._-]/g, "");
+  const from = mail.fromName && local
+    ? `${mail.fromName.replace(/[<>"\r\n]/g, "")} <${local}@send.thepaymaster.co.uk>` : FROM;
 
   try {
     const res = await fetch(ENDPOINT, {
@@ -61,8 +70,9 @@ export async function send(env: Env, actor: Actor, mail: Mail): Promise<boolean>
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: FROM, to, subject: mail.subject, text: mail.text,
+        from, to, subject: mail.subject, text: mail.text,
         reply_to: mail.replyTo ?? REPLY_TO,
+        ...(mail.cc?.length ? { cc: mail.cc } : {}),
         ...(bcc.length ? { bcc } : {}),
       }),
     });
