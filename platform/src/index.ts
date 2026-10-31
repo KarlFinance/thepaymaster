@@ -16,7 +16,7 @@ import { dossierPage, sealNow, anchorNow } from "./dossierview.ts";
 import { startForm as startDistributionForm, startSubmit as startDistribution, selfServeOn, advance as advanceSelfServe, advanceForParty } from "./selfserve.ts";
 import { sitekey } from "./turnstile.ts";
 import { trafficPage } from "./traffic.ts";
-import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus } from "./enquiry.ts";
+import { enquiryForm, submitEnquiry, inbox, enquiryDetail, enquiryStatus, deleteEnquiries, deleteSiteForms } from "./enquiry.ts";
 import { submitSiteForm, formsInbox, formDetail, setFormStatus, formFile } from "./siteforms.ts";
 import { startPage, startSubmit, joinLink, signOut, clientHome, clientDeal, clientPayments, clientAgreementPdf,
          clientRecord, clientSend, requestReturn, followReturn, clientMandate,
@@ -87,6 +87,15 @@ const PAPERS = new Set([
 const ADMIN_HOST = "admin.thepaymaster.co.uk";
 const LOCAL_ADMIN_HOST = "127.0.0.1";
 const CLIENT_BASE = "https://client.thepaymaster.co.uk";
+
+/** "3 deleted permanently", after a delete. */
+function deletedNotice(url: URL): string {
+  const d = Number(url.searchParams.get("deleted")), k = Number(url.searchParams.get("kept"));
+  if (!url.searchParams.has("deleted")) return "";
+  const parts = [`${d} deleted permanently.`];
+  if (k) parts.push(`${k} kept: ${k === 1 ? "it became a transaction and is" : "they became transactions and are"} part of that record.`);
+  return `<div class="${k && !d ? "err" : "good"}" style="max-width:900px;margin-bottom:14px">${parts.join(" ")}</div>`;
+}
 
 /** Where client links point. Overridden locally so the loop can be walked. */
 function clientBase(env: Env, url: URL): string {
@@ -250,12 +259,26 @@ export default {
           ? createTransaction(request, env, actor, admin)
           : newForm(admin);
       }
-      if (url.pathname === "/enquiries") return inbox(env, admin);
-      if (url.pathname === "/forms") {
-        return page("Website forms", await formsInbox(env, url.searchParams.get("show") ?? "open"), { nav: nav("/forms", admin.name) });
+      if (url.pathname === "/enquiries") return inbox(env, admin, deletedNotice(url));
+      if (url.pathname === "/enquiries/delete" && request.method === "POST") {
+        const f = await request.formData();
+        const r = await deleteEnquiries(env, actor, f.getAll("id").map(String));
+        return Response.redirect(new URL(`/enquiries?deleted=${r.deleted}&kept=${r.refused.length}`, url).toString(), 303);
       }
-      const fm = url.pathname.match(/^\/forms\/(sf_[a-z0-9]+)(?:\/(status|file\/(\d+)))?$/);
+      if (url.pathname === "/forms") {
+        return page("Website forms", await formsInbox(env, url.searchParams.get("show") ?? "open", deletedNotice(url)), { nav: nav("/forms", admin.name) });
+      }
+      if (url.pathname === "/forms/delete" && request.method === "POST") {
+        const f = await request.formData();
+        const r = await deleteSiteForms(env, actor, f.getAll("id").map(String));
+        return Response.redirect(new URL(`/forms?deleted=${r.deleted}&kept=${r.refused.length}`, url).toString(), 303);
+      }
+      const fm = url.pathname.match(/^\/forms\/(sf_[a-z0-9]+)(?:\/(status|delete|file\/(\d+)))?$/);
       if (fm) {
+        if (fm[2] === "delete" && request.method === "POST") {
+          const r = await deleteSiteForms(env, actor, [fm[1]]);
+          return Response.redirect(new URL(`/forms?deleted=${r.deleted}&kept=${r.refused.length}`, url).toString(), 303);
+        }
         if (fm[2] === "status" && request.method === "POST") {
           const f = await request.formData();
           await setFormStatus(env, actor, fm[1], String(f.get("to") ?? ""));
@@ -269,6 +292,10 @@ export default {
         const eid = url.pathname.slice(3).split("/")[0];
         if (url.pathname.endsWith("/status") && request.method === "POST") {
           return enquiryStatus(request, env, actor, eid, () => nextRef(env.DB));
+        }
+        if (url.pathname.endsWith("/delete") && request.method === "POST") {
+          const r = await deleteEnquiries(env, actor, [eid]);
+          return Response.redirect(new URL(`/enquiries?deleted=${r.deleted}&kept=${r.refused.length}`, url).toString(), 303);
         }
         return enquiryDetail(env, admin, eid);
       }

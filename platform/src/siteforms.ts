@@ -184,7 +184,7 @@ async function notify(env: Env, actor: Actor, rowId: string, slug: string, form:
 
 const STATUS = ["new", "contacted", "closed", "spam"] as const;
 
-export async function formsInbox(env: Env, show: string): Promise<string> {
+export async function formsInbox(env: Env, show: string, notice = ""): Promise<string> {
   const filter = STATUS.includes(show as any) ? show : "open";
   const where = filter === "open" ? "status IN ('new','contacted')" : "status = ?";
   const stmt = env.DB.prepare(`SELECT id, form, name, email, phone, status, created_at FROM site_forms WHERE ${where} ORDER BY created_at DESC LIMIT 200`);
@@ -195,11 +195,20 @@ export async function formsInbox(env: Env, show: string): Promise<string> {
   return `<h1>Website forms</h1>
     <p class="muted">Every submission from the forms on thepaymaster.co.uk. You are emailed each one; this is the record.</p>
     <p>${tab("open", `Open (${n("new") + n("contacted")})`)}${tab("new", `New (${n("new")})`)}${tab("contacted", `Contacted (${n("contacted")})`)}${tab("closed", `Closed (${n("closed")})`)}${tab("spam", `Spam (${n("spam")})`)}</p>
-    ${(results ?? []).length ? `<table><tr><th>When</th><th>Form</th><th>Who</th><th>Status</th></tr>
-      ${(results ?? []).map((r: any) => `<tr><td class="muted">${esc(String(r.created_at).slice(0, 16))}</td>
+    ${notice}
+    ${(results ?? []).length ? `<form method="post" action="/forms/delete" id="bulk"><table><tr><th><input type="checkbox" id="all" aria-label="Select all"></th><th>When</th><th>Form</th><th>Who</th><th>Status</th></tr>
+      ${(results ?? []).map((r: any) => `<tr><td><input type="checkbox" name="id" value="${esc(r.id)}" aria-label="Select"></td><td class="muted">${esc(String(r.created_at).slice(0, 16))}</td>
         <td>${esc(FORMS[r.form]?.title ?? r.form)}</td>
         <td><a href="/forms/${esc(r.id)}">${esc(r.name ?? r.email ?? "—")}</a><div class="muted log">${esc(r.email ?? "")}${r.phone ? ` · ${esc(r.phone)}` : ""}</div></td>
-        <td><span class="tag">${esc(r.status)}</span></td></tr>`).join("")}</table>`
+        <td><span class="tag">${esc(r.status)}</span></td></tr>`).join("")}</table>
+      <div class="row" style="margin-top:14px;gap:10px;align-items:center">
+        <button class="plain" type="submit" id="del" disabled>Delete selected permanently</button>
+        <span class="muted">Deletes each submission, its enquiry and any files, for good.</span></div></form>
+      <script>(function(){var f=document.getElementById("bulk"),all=document.getElementById("all"),b=document.getElementById("del");
+        function sync(){var n=f.querySelectorAll('input[name="id"]:checked').length;b.disabled=!n;b.textContent=n?"Delete "+n+" permanently":"Delete selected permanently"}
+        all.addEventListener("change",function(){f.querySelectorAll('input[name="id"]').forEach(function(x){x.checked=all.checked});sync()});
+        f.addEventListener("change",sync);
+        f.addEventListener("submit",function(ev){var n=f.querySelectorAll('input[name="id"]:checked').length;if(!confirm("Delete "+n+" submission"+(n===1?"":"s")+" permanently? This cannot be undone."))ev.preventDefault()});})();</script>`
       : `<p class="muted">Nothing here.</p>`}`;
 }
 
@@ -227,6 +236,9 @@ export async function formDetail(env: Env, rowId: string): Promise<string | null
     <form method="post" action="/forms/${esc(r.id)}/status" class="row" style="gap:8px">
       ${STATUS.filter((s) => s !== r.status).map((s) => `<button class="${s === "contacted" ? "go" : "plain"}" name="to" value="${s}">Mark ${s}</button>`).join("")}
     </form>
+    <form method="post" action="/forms/${esc(r.id)}/delete" style="margin-top:22px" onsubmit="return confirm('Delete this submission permanently? This cannot be undone.')">
+      <button class="plain" type="submit">Delete permanently</button>
+      <span class="muted">Removes this submission${r.enquiry_id ? ", its enquiry" : ""} and any files for good.</span></form>
     <p class="muted" style="font-size:13px">From ${esc(r.ip ?? "—")} · ${esc(r.agent ?? "")}${r.referer ? ` · ${esc(r.referer)}` : ""}</p>`;
 }
 

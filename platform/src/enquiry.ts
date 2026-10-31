@@ -280,7 +280,7 @@ function thanks(): Response {
 // Admin
 // ---------------------------------------------------------------------------
 
-export async function inbox(env: Env, admin: { name: string }): Promise<Response> {
+export async function inbox(env: Env, admin: { name: string }, notice = ""): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT id, name, email, amount_minor, currency, expected_on, likelihood,
             contact_pref, whatsapp_ok, status, created_at, transaction_id
@@ -292,6 +292,7 @@ export async function inbox(env: Env, admin: { name: string }): Promise<Response
     const amount = e.amount_minor
       ? `${esc(e.currency)} ${format(e.amount_minor, CURRENCIES[e.currency] ?? 2)}` : "—";
     return `<tr>
+      <td>${e.transaction_id ? `<span class="muted" title="Became a transaction; kept with its record">—</span>` : `<input type="checkbox" name="id" value="${esc(e.id)}" aria-label="Select ${esc(e.name)}">`}</td>
       <td><a href="/e/${esc(e.id)}">${esc(e.name)}</a><div class="muted">${esc(e.email)}</div></td>
       <td>${amount}</td>
       <td>${esc(e.expected_on ?? "—")}</td>
@@ -302,9 +303,21 @@ export async function inbox(env: Env, admin: { name: string }): Promise<Response
   }).join("");
 
   return page("Enquiries", `<h1>Enquiries</h1>
+    ${notice}
     <div class="panel" style="max-width:none">
-      ${rows ? `<table><tr><th>Who</th><th>Amount</th><th>Expected</th><th>Likelihood</th>
-        <th>Contact</th><th>Status</th><th>Received</th></tr>${rows}</table>`
+      ${rows ? `<form method="post" action="/enquiries/delete" id="bulk">
+        <table><tr><th><input type="checkbox" id="all" aria-label="Select all"></th><th>Who</th><th>Amount</th><th>Expected</th><th>Likelihood</th>
+        <th>Contact</th><th>Status</th><th>Received</th></tr>${rows}</table>
+        <div class="row" style="margin-top:14px;gap:10px;align-items:center">
+          <button class="plain" type="submit" id="del" disabled>Delete selected permanently</button>
+          <span class="muted">Deletes the enquiry, its website form and any files, for good. Enquiries that became transactions are kept.</span>
+        </div></form>
+        <script>(function(){var f=document.getElementById("bulk"),all=document.getElementById("all"),b=document.getElementById("del");
+          function boxes(){return f.querySelectorAll('input[name="id"]')}
+          function sync(){var n=f.querySelectorAll('input[name="id"]:checked').length;b.disabled=!n;b.textContent=n?"Delete "+n+" permanently":"Delete selected permanently"}
+          all.addEventListener("change",function(){boxes().forEach(function(x){x.checked=all.checked});sync()});
+          f.addEventListener("change",sync);
+          f.addEventListener("submit",function(ev){var n=f.querySelectorAll('input[name="id"]:checked').length;if(!confirm("Delete "+n+" enquir"+(n===1?"y":"ies")+" permanently? This cannot be undone."))ev.preventDefault()});})();</script>`
       : `<p class="muted">Nothing yet. The form is at
          <a href="/enquiry">/enquiry</a>.</p>`}
     </div>`, { nav: nav("/enquiries", admin.name) });
@@ -370,6 +383,11 @@ export async function enquiryDetail(env: Env, admin: { name: string }, eid: stri
     <h2>Move it on</h2>
     <div class="panel">${actions}</div>
 
+    ${e.transaction_id ? "" : `<h2>Delete</h2>
+    <div class="panel"><form method="post" action="/e/${esc(e.id)}/delete" onsubmit="return confirm('Delete this enquiry permanently? This cannot be undone.')">
+      <p style="margin-top:0">For spam and dead enquiries. Deletes this enquiry${e.site_form_id ? ", its website form submission and any files" : ""} for good. The audit log keeps one line saying it was deleted, and by whom.</p>
+      <button class="plain" type="submit">Delete permanently</button></form></div>`}
+
     <h2>History</h2>
     <div class="panel"><table class="log">
       ${(trail ?? []).map((t) => `<tr><td>${esc(t.at)}</td><td>${esc(t.action)}</td>
@@ -424,4 +442,84 @@ export async function enquiryStatus(request: Request, env: Env, actor: Actor,
     { status: e.status }, { note: note || undefined });
 
   return Response.redirect(new URL(`/t/${txId}`, request.url).toString(), 302);
+}
+
+// ---------------------------------------------------------------------------
+// Deleting enquiries for good
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete enquiries permanently: the enquiry, the website-form submission
+ * behind it, and any files that came with it.
+ *
+ * An enquiry that became a transaction is refused: it is the first entry in
+ * that transaction's sealed record. Each deletion and its audit entry are one
+ * batch, as every change here is; the audit log keeps a line saying the
+ * enquiry existed and who deleted it, and is itself never edited.
+ */
+export async function deleteEnquiries(env: Env, actor: Actor, ids: string[]): Promise<{ deleted: number; refused: string[] }> {
+  let deleted = 0;
+  const refused: string[] = [];
+  const audit = (action: string, kind: string, id: string, note: string) => env.DB.prepare(
+    `INSERT INTO audit_log (actor_kind, actor_id, action, entity_kind, entity_id, before_json, after_json, ip, note)
+     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)`).bind(actor.kind, actor.id, action, kind, id, actor.ip ?? null, note);
+  for (const eid of [...new Set(ids)].slice(0, 500)) {
+    const e = await env.DB.prepare("SELECT id, name, email, source, transaction_id, site_form_id, created_at FROM enquiries WHERE id = ?").bind(eid).first<any>();
+    if (!e) continue;
+    if (e.transaction_id) { refused.push(e.name); continue; }
+    const { results: forms } = await env.DB.prepare(
+      "SELECT id FROM site_forms WHERE enquiry_id = ? OR id = ?").bind(eid, e.site_form_id ?? "").all<any>();
+    // Files first: a record without its files is tidier than files without a record.
+    for (const sf of forms ?? []) {
+      let cursor: string | undefined;
+      do {
+        if (!env.DOCS) break;
+        const listed = await env.DOCS.list({ prefix: `site-forms/${sf.id}/`, cursor });
+        if (listed.objects.length) await env.DOCS.delete(listed.objects.map((o) => o.key));
+        cursor = listed.truncated ? listed.cursor : undefined;
+      } while (cursor);
+    }
+    const what = `${e.name} <${e.email}> — ${e.source ?? "enquiry"}, received ${e.created_at}`;
+    await env.DB.batch([
+      ...(forms ?? []).flatMap((sf: any) => [
+        env.DB.prepare("DELETE FROM site_forms WHERE id = ?").bind(sf.id),
+        audit("site_form.deleted", "site_forms", sf.id, `deleted permanently with its enquiry and files: ${what}`),
+      ]),
+      env.DB.prepare("DELETE FROM enquiries WHERE id = ?").bind(eid),
+      audit("enquiry.deleted", "enquiries", eid, `deleted permanently: ${what}`),
+    ]);
+    deleted++;
+  }
+  return { deleted, refused };
+}
+
+/** Delete website-form submissions; each goes with its enquiry, or alone if it has none. */
+export async function deleteSiteForms(env: Env, actor: Actor, formIds: string[]): Promise<{ deleted: number; refused: string[] }> {
+  let deleted = 0;
+  const refused: string[] = [];
+  for (const sid of [...new Set(formIds)].slice(0, 500)) {
+    const sf = await env.DB.prepare("SELECT id, enquiry_id, name, email, form, created_at FROM site_forms WHERE id = ?").bind(sid).first<any>();
+    if (!sf) continue;
+    const linked = sf.enquiry_id ? await env.DB.prepare("SELECT id FROM enquiries WHERE id = ?").bind(sf.enquiry_id).first<any>() : null;
+    if (linked) {
+      const r = await deleteEnquiries(env, actor, [linked.id]);
+      deleted += r.deleted; refused.push(...r.refused);
+      continue;
+    }
+    let cursor: string | undefined;
+    do {
+      if (!env.DOCS) break;
+      const listed = await env.DOCS.list({ prefix: `site-forms/${sid}/`, cursor });
+      if (listed.objects.length) await env.DOCS.delete(listed.objects.map((o) => o.key));
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM site_forms WHERE id = ?").bind(sid),
+      env.DB.prepare(`INSERT INTO audit_log (actor_kind, actor_id, action, entity_kind, entity_id, before_json, after_json, ip, note)
+        VALUES (?, ?, 'site_form.deleted', 'site_forms', ?, NULL, NULL, ?, ?)`).bind(actor.kind, actor.id, sid, actor.ip ?? null,
+        `deleted permanently with its files: ${sf.name ?? sf.email ?? "someone"} — ${sf.form} form, received ${sf.created_at}`),
+    ]);
+    deleted++;
+  }
+  return { deleted, refused };
 }
